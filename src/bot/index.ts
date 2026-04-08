@@ -1,0 +1,169 @@
+import { Bot, Context } from "grammy";
+import { loadEnv } from "../shared/config.js";
+import { createLogger } from "../shared/logger.js";
+import * as queries from "../db/queries.js";
+import { runPipeline, deliverReply, cancelTask } from "../orchestrator/index.js";
+import type { SendTelegram } from "../orchestrator/index.js";
+
+const log = createLogger("bot");
+
+/** Track which task a user is currently conversing with */
+const activeConversations = new Map<string, string>(); // chatId -> taskId
+
+export function createBot(): Bot {
+  const env = loadEnv();
+  const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
+
+  const allowedUserId = env.TELEGRAM_USER_ID;
+
+  // Auth middleware -- restrict to single user
+  bot.use(async (ctx, next) => {
+    if (String(ctx.from?.id) !== allowedUserId) {
+      log.warn(`Unauthorized access attempt from user ${ctx.from?.id}`);
+      return;
+    }
+    return next();
+  });
+
+  const sendTelegram: SendTelegram = async (chatId, text) => {
+    await bot.api.sendMessage(Number(chatId), text);
+  };
+
+  // --- Commands ---
+
+  bot.command("repos", async (ctx) => {
+    const repos = await queries.listRepos();
+    if (repos.length === 0) {
+      await ctx.reply("No repos registered. Add them to the database.");
+      return;
+    }
+    const list = repos.map((r) => `- ${r.name}: ${r.localPath}`).join("\n");
+    await ctx.reply(`Registered repos:\n${list}`);
+  });
+
+  bot.command("status", async (ctx) => {
+    const tasks = await queries.listTasks();
+    const active = tasks.filter(
+      (t) => !["complete", "failed", "cancelled"].includes(t.status)
+    );
+
+    if (active.length === 0) {
+      await ctx.reply("No active tasks.");
+      return;
+    }
+
+    const lines = active.map(
+      (t) => `- [${t.id.slice(0, 8)}] ${t.repo}: ${t.status} (${t.currentStage ?? "queued"})\n  ${t.description.slice(0, 80)}`
+    );
+    await ctx.reply(`Active tasks:\n${lines.join("\n")}`);
+  });
+
+  bot.command("cancel", async (ctx) => {
+    const taskId = ctx.match?.trim();
+    if (!taskId) {
+      await ctx.reply("Usage: /cancel <task_id>");
+      return;
+    }
+
+    // Find task by prefix match
+    const tasks = await queries.listTasks();
+    const task = tasks.find((t) => t.id.startsWith(taskId));
+    if (!task) {
+      await ctx.reply(`Task not found: ${taskId}`);
+      return;
+    }
+
+    cancelTask(task.id);
+    await queries.updateTask(task.id, { status: "cancelled" });
+    await ctx.reply(`Cancelled task ${task.id.slice(0, 8)}.`);
+  });
+
+  bot.command("retry", async (ctx) => {
+    const taskId = ctx.match?.trim();
+    if (!taskId) {
+      await ctx.reply("Usage: /retry <task_id>");
+      return;
+    }
+
+    const tasks = await queries.listTasks();
+    const task = tasks.find((t) => t.id.startsWith(taskId));
+    if (!task || task.status !== "failed") {
+      await ctx.reply(`No failed task found: ${taskId}`);
+      return;
+    }
+
+    await queries.updateTask(task.id, { status: "queued", error: null });
+    await ctx.reply(`Retrying task ${task.id.slice(0, 8)}...`);
+
+    // Fire and forget
+    runPipeline(task.id, sendTelegram).catch((err) => {
+      log.error(`Pipeline error for task ${task.id}`, err);
+    });
+  });
+
+  bot.command("go", async (ctx) => {
+    const chatId = String(ctx.chat.id);
+    const taskId = activeConversations.get(chatId);
+    if (!taskId) {
+      await ctx.reply("No task waiting for confirmation.");
+      return;
+    }
+
+    deliverReply(taskId, "/go");
+    activeConversations.delete(chatId);
+    await ctx.reply("Proceeding with implementation...");
+  });
+
+  // --- Regular messages = new task or reply to planner ---
+
+  bot.on("message:text", async (ctx) => {
+    const chatId = String(ctx.chat.id);
+    const text = ctx.message.text;
+
+    // Check if this is a reply to an active conversation
+    const conversationTaskId = activeConversations.get(chatId);
+    if (conversationTaskId) {
+      const delivered = deliverReply(conversationTaskId, text);
+      if (delivered) {
+        await ctx.reply("Got it, passing to the planner...");
+        return;
+      }
+      // If no pending reply, fall through to create new task
+    }
+
+    // Parse repo name from message (first word)
+    const parts = text.split(/\s+/);
+    if (parts.length < 2) {
+      await ctx.reply("Format: <repo_name> <task description>\n\nUse /repos to see available repos.");
+      return;
+    }
+
+    const repoName = parts[0];
+    const description = parts.slice(1).join(" ");
+
+    const repo = await queries.getRepo(repoName);
+    if (!repo) {
+      await ctx.reply(
+        `Repo '${repoName}' not found.\n\nUse /repos to see available repos.`
+      );
+      return;
+    }
+
+    // Create task
+    const task = await queries.createTask({
+      repo: repoName,
+      description,
+      telegramChatId: chatId,
+    });
+
+    activeConversations.set(chatId, task.id);
+    await ctx.reply(`Task created: ${task.id.slice(0, 8)}\nStarting planner...`);
+
+    // Fire and forget
+    runPipeline(task.id, sendTelegram).catch((err) => {
+      log.error(`Pipeline error for task ${task.id}`, err);
+    });
+  });
+
+  return bot;
+}
