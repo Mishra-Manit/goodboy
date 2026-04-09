@@ -23,7 +23,6 @@ export const tasks = pgTable("tasks", {
   repo: text("repo").notNull(),
   description: text("description").notNull(),
   status: taskStatusEnum("status").notNull().default("queued"),
-  currentStage: text("current_stage"),
   branch: text("branch"),
   worktreePath: text("worktree_path"),
   prUrl: text("pr_url"),

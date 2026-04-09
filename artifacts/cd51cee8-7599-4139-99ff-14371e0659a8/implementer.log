@@ -163,3 +163,30 @@ complete
 [tool] read done
 [tool] bash: git status --short
 [tool] bash done
+[tool] bash: cd backend && if [ -d venv ]; then source venv/bin/activate; fi && python -m coliseum api --host 127.0.0.1 --port 9011 >
+[tool] bash FAILED
+[tool] bash: cat /tmp/coliseum-api.log
+[tool] bash done
+[tool] read
+[tool] read done
+[tool] bash: rg -n 'uptime_seconds|/health|/api/health' backend -g '!backend/venv'
+[tool] bash done
+[tool] edit
+[tool] edit done
+[tool] bash: cd backend && if [ -d venv ]; then source venv/bin/activate; fi && SUPABASE_DB_URL='postgresql+asyncpg://user:pass@127.0
+[tool] bash done
+[tool] bash: git status --short
+[tool] bash done
+[tool] bash: git add backend/README.md && git commit -m "docs: clarify health uptime semantics"
+[tool] bash done
+[tool] write
+[tool] write done
+Implemented the plan.
+- Confirmed `GET /health` and `GET /api/health` already return `uptime_seconds` from app startup state in `backend/coliseum/api/server.py`.
+- Made a docs-only cleanup in `backend/README.md` clarifying that `uptime_seconds` is process uptime and resets on restart/reload.
+- Manually verified via `python -m coliseum api` that `/health` returns increasing `uptime_seconds`.
+- Created git commit:
+  - `docs: clarify health uptime semantics` (`b397a2a`)
+- Wrote the implementation summary to:
+  - `/Users/manitmishra/Desktop/goodboy/artifacts/cd51cee8-7599-4139-99ff-14371e0659a8/implementation-summary.md`
+{"status": "complete"}

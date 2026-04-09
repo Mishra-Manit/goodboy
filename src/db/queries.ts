@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, type SQL } from "drizzle-orm";
 import { getDb, schema } from "./index.js";
 import type { TaskStatus, StageStatus, StageName } from "../shared/types.js";
 
@@ -22,13 +22,22 @@ export async function getTask(id: string) {
 
 export async function listTasks(filters?: { status?: TaskStatus; repo?: string }) {
   const db = getDb();
-  let query = db.select().from(schema.tasks).orderBy(desc(schema.tasks.createdAt));
+  const conditions: SQL[] = [];
 
   if (filters?.status) {
-    query = query.where(eq(schema.tasks.status, filters.status)) as typeof query;
+    conditions.push(eq(schema.tasks.status, filters.status));
   }
   if (filters?.repo) {
-    query = query.where(eq(schema.tasks.repo, filters.repo)) as typeof query;
+    conditions.push(eq(schema.tasks.repo, filters.repo));
+  }
+
+  const query = db
+    .select()
+    .from(schema.tasks)
+    .orderBy(desc(schema.tasks.createdAt));
+
+  if (conditions.length > 0) {
+    return query.where(and(...conditions));
   }
 
   return query;
@@ -38,7 +47,6 @@ export async function updateTask(
   id: string,
   data: Partial<{
     status: TaskStatus;
-    currentStage: string | null;
     branch: string | null;
     worktreePath: string | null;
     prUrl: string | null;
