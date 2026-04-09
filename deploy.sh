@@ -17,7 +17,7 @@ set -euo pipefail
 cd ~/goodboy
 
 git pull --ff-only
-npm install --omit=dev
+npm install
 npm run build
 
 sudo systemctl restart goodboy
