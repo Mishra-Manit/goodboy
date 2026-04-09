@@ -6,6 +6,7 @@ import { emit } from "../shared/events.js";
 import type { StageName, TaskStatus } from "../shared/types.js";
 import { STAGE_TO_STATUS } from "../shared/types.js";
 import * as queries from "../db/queries.js";
+import { getRepo } from "../shared/repos.js";
 import { spawnPiSession, type PiSession } from "./pi-rpc.js";
 import { createWorktree, generateBranchName } from "./worktree.js";
 import {
@@ -78,7 +79,7 @@ export async function runPipeline(
     return;
   }
 
-  const repo = await queries.getRepo(task.repo);
+  const repo = getRepo(task.repo);
   if (!repo) {
     await failTask(taskId, `Repo '${task.repo}' not found in registry`, sendTelegram, task.telegramChatId);
     return;

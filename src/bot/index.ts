@@ -2,6 +2,7 @@ import { Bot } from "grammy";
 import { loadEnv } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
 import * as queries from "../db/queries.js";
+import { listRepos, getRepo } from "../shared/repos.js";
 import { runPipeline, deliverReply, cancelTask } from "../orchestrator/index.js";
 import type { SendTelegram } from "../orchestrator/index.js";
 
@@ -32,9 +33,9 @@ export function createBot(): Bot {
   // --- Commands ---
 
   bot.command("repos", async (ctx) => {
-    const repos = await queries.listRepos();
+    const repos = listRepos();
     if (repos.length === 0) {
-      await ctx.reply("No repos registered. Add them to the database.");
+      await ctx.reply("No repos registered. Set REGISTERED_REPOS in .env.");
       return;
     }
     const list = repos.map((r) => `- ${r.name}: ${r.localPath}`).join("\n");
@@ -141,7 +142,7 @@ export function createBot(): Bot {
     const repoName = parts[0];
     const description = parts.slice(1).join(" ");
 
-    const repo = await queries.getRepo(repoName);
+    const repo = getRepo(repoName);
     if (!repo) {
       await ctx.reply(
         `Repo '${repoName}' not found.\n\nUse /repos to see available repos.`

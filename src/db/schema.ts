@@ -47,9 +47,3 @@ export const taskStages = pgTable("task_stages", {
   error: text("error"),
 });
 
-export const repos = pgTable("repos", {
-  name: text("name").primaryKey(),
-  localPath: text("local_path").notNull(),
-  githubUrl: text("github_url"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});

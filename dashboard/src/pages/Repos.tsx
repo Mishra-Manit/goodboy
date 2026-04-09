@@ -3,7 +3,6 @@ import { fetchRepos, type Repo } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { Card } from "@dashboard/components/Card";
 import { EmptyState } from "@dashboard/components/EmptyState";
-import { formatDate } from "@dashboard/lib/utils";
 
 export function Repos() {
   const { data: repos, loading } = useQuery(() => fetchRepos());
@@ -16,7 +15,7 @@ export function Repos() {
           <h1 className="text-lg font-semibold text-zinc-100">Repositories</h1>
         </div>
         <p className="text-sm text-zinc-500">
-          Registered repos that Goodboy can work on
+          Repos registered via REGISTERED_REPOS in .env
         </p>
       </div>
 
@@ -62,9 +61,6 @@ function RepoCard({ repo }: { repo: Repo }) {
       <code className="text-xs text-zinc-600 bg-zinc-900 rounded px-2 py-1">
         {repo.localPath}
       </code>
-      <span className="text-[11px] text-zinc-600">
-        Added {formatDate(repo.createdAt)}
-      </span>
     </Card>
   );
 }

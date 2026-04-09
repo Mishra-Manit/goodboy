@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { subscribe } from "../shared/events.js";
 import * as queries from "../db/queries.js";
+import { listRepos } from "../shared/repos.js";
 import type { TaskStatus } from "../shared/types.js";
 import { readTaskLogs, readStageEntries } from "../orchestrator/logs.js";
 
@@ -75,9 +76,8 @@ export function createApi(): Hono {
 
   // --- Repos ---
 
-  app.get("/api/repos", async (c) => {
-    const repos = await queries.listRepos();
-    return c.json(repos);
+  app.get("/api/repos", (c) => {
+    return c.json(listRepos());
   });
 
   // --- PRs ---

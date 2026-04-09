@@ -112,32 +112,4 @@ export async function getStagesForTask(taskId: string) {
     .orderBy(schema.taskStages.startedAt);
 }
 
-// --- Repos ---
 
-export async function listRepos() {
-  const db = getDb();
-  return db.select().from(schema.repos);
-}
-
-export async function getRepo(name: string) {
-  const db = getDb();
-  const [repo] = await db.select().from(schema.repos).where(eq(schema.repos.name, name));
-  return repo ?? null;
-}
-
-export async function upsertRepo(data: {
-  name: string;
-  localPath: string;
-  githubUrl?: string;
-}) {
-  const db = getDb();
-  const [repo] = await db
-    .insert(schema.repos)
-    .values(data)
-    .onConflictDoUpdate({
-      target: schema.repos.name,
-      set: { localPath: data.localPath, githubUrl: data.githubUrl },
-    })
-    .returning();
-  return repo;
-}

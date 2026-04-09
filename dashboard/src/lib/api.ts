@@ -50,8 +50,7 @@ export interface TaskDetail extends Task {
 export interface Repo {
   name: string;
   localPath: string;
-  githubUrl: string | null;
-  createdAt: string;
+  githubUrl?: string;
 }
 
 export interface PR {
