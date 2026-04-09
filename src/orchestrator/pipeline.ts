@@ -89,6 +89,12 @@ export async function runPipeline(
   await acquireSlot();
   log.info(`Acquired slot for task ${taskId} (${runningCount}/${config.maxParallelTasks} running)`);
 
+  await notifyTelegram(
+    sendTelegram,
+    task.telegramChatId,
+    `Task ${task.id.slice(0, 8)} started for repo ${task.repo}.\n\n${task.description}`
+  );
+
   // Clean and recreate artifacts directory so retries start fresh
   const artifactsDir = path.join(config.artifactsDir, taskId);
   await rm(artifactsDir, { recursive: true, force: true });
@@ -130,6 +136,12 @@ export async function runPipeline(
     });
     emit({ type: "task_update", taskId, status: "complete" });
 
+    await notifyTelegram(
+      sendTelegram,
+      task.telegramChatId,
+      `Task ${task.id.slice(0, 8)} is complete.`
+    );
+
     // Note: worktree is NOT cleaned up here because GitHub webhook
     // revisions may still need it. Worktrees should be cleaned up
     // manually or via a periodic cleanup job after PR merge.
@@ -162,6 +174,12 @@ async function runStage(
   emit({ type: "stage_update", taskId, stage, status: "running" });
 
   log.info(`Starting stage ${stage} for task ${taskId}`);
+
+  await notifyTelegram(
+    sendTelegram,
+    task.telegramChatId,
+    `Stage started: ${formatStageName(stage)}.`
+  );
 
   const systemPrompt = getSystemPrompt(stage, task.description, worktreePath, artifactsDir, branch, task.repo);
 
@@ -222,6 +240,34 @@ async function runStage(
     completedAt: new Date(),
   });
   emit({ type: "stage_update", taskId, stage, status: "complete" });
+
+  if (stage === "pr_creator") {
+    const prUrl = extractPrUrl(result.fullOutput);
+    const prNumber = prUrl ? extractPrNumber(prUrl) : null;
+
+    if (prUrl) {
+      await queries.updateTask(taskId, { prUrl, prNumber });
+      emit({ type: "pr_update", taskId, prUrl });
+
+      await notifyTelegram(
+        sendTelegram,
+        task.telegramChatId,
+        `PR is up and ready for review:\n${prUrl}`
+      );
+    } else {
+      await notifyTelegram(
+        sendTelegram,
+        task.telegramChatId,
+        "PR creator finished, but I could not detect the PR URL from output. Please verify in GitHub."
+      );
+    }
+  } else {
+    await notifyTelegram(
+      sendTelegram,
+      task.telegramChatId,
+      `Stage complete: ${formatStageName(stage)}.`
+    );
+  }
 
   log.info(`Stage ${stage} complete for task ${taskId}`);
 }
@@ -300,6 +346,48 @@ async function failTask(
   emit({ type: "task_update", taskId, status: "failed" });
 
   if (chatId) {
-    await sendTelegram(chatId, `Task failed: ${error}`);
+    await notifyTelegram(sendTelegram, chatId, `Task failed: ${error}`);
   }
+}
+
+async function notifyTelegram(
+  sendTelegram: SendTelegram,
+  chatId: string | null,
+  text: string
+): Promise<void> {
+  if (!chatId) return;
+
+  try {
+    await sendTelegram(chatId, text);
+  } catch (err) {
+    log.warn(`Failed to send Telegram message for chat ${chatId}: ${String(err)}`);
+  }
+}
+
+function formatStageName(stage: StageName): string {
+  switch (stage) {
+    case "planner":
+      return "Planner";
+    case "implementer":
+      return "Implementer";
+    case "reviewer":
+      return "Reviewer";
+    case "pr_creator":
+      return "PR Creator";
+    case "revision":
+      return "Revision";
+  }
+}
+
+function extractPrUrl(text: string): string | null {
+  const matches = text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g);
+  if (!matches || matches.length === 0) return null;
+  return matches[matches.length - 1];
+}
+
+function extractPrNumber(prUrl: string): number | null {
+  const match = prUrl.match(/\/pull\/(\d+)/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
 }
