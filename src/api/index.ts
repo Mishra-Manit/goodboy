@@ -1,25 +1,15 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
-import { loadEnv } from "../shared/config.js";
 import { subscribe } from "../shared/events.js";
 import * as queries from "../db/queries.js";
 import type { TaskStatus } from "../shared/types.js";
+import { readTaskLogs } from "../orchestrator/logs.js";
 
 export function createApi(): Hono {
   const app = new Hono();
 
   app.use("*", cors());
-
-  // Auth middleware
-  app.use("/api/*", async (c, next) => {
-    const env = loadEnv();
-    const apiKey = c.req.header("X-API-Key");
-    if (apiKey !== env.API_KEY) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
-    return next();
-  });
 
   // --- Tasks ---
 
@@ -39,8 +29,8 @@ export function createApi(): Hono {
   });
 
   app.get("/api/tasks/:id/logs", async (c) => {
-    // TODO: implement log storage/retrieval
-    return c.json({ logs: [] });
+    const logs = await readTaskLogs(c.req.param("id"));
+    return c.json({ logs });
   });
 
   app.get("/api/tasks/:id/artifacts/:name", async (c) => {
@@ -58,11 +48,18 @@ export function createApi(): Hono {
   });
 
   app.post("/api/tasks/:id/retry", async (c) => {
+    const { runPipeline } = await import("../orchestrator/index.js");
     const task = await queries.getTask(c.req.param("id"));
     if (!task || task.status !== "failed") {
       return c.json({ error: "Task not found or not failed" }, 400);
     }
     await queries.updateTask(task.id, { status: "queued", error: null });
+
+    // Fire and forget -- pipeline runs in the background
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const noopTelegram = async (_chatId: string, _text: string) => {};
+    runPipeline(task.id, noopTelegram).catch(() => {});
+
     return c.json({ ok: true });
   });
 

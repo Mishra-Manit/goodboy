@@ -1,4 +1,4 @@
-import { Bot, Context } from "grammy";
+import { Bot } from "grammy";
 import { loadEnv } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
 import * as queries from "../db/queries.js";
@@ -53,7 +53,7 @@ export function createBot(): Bot {
     }
 
     const lines = active.map(
-      (t) => `- [${t.id.slice(0, 8)}] ${t.repo}: ${t.status} (${t.currentStage ?? "queued"})\n  ${t.description.slice(0, 80)}`
+      (t) => `- [${t.id.slice(0, 8)}] ${t.repo}: ${t.status}\n  ${t.description.slice(0, 80)}`
     );
     await ctx.reply(`Active tasks:\n${lines.join("\n")}`);
   });
