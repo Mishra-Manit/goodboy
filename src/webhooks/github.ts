@@ -6,6 +6,7 @@ import * as queries from "../db/queries.js";
 import { spawnPiSession } from "../orchestrator/pi-rpc.js";
 import { revisionPrompt } from "../orchestrator/prompts.js";
 import { emit } from "../shared/events.js";
+import { appendLogLine } from "../orchestrator/logs.js";
 
 const log = createLogger("webhook");
 
@@ -98,7 +99,7 @@ async function spawnRevision(
 ): Promise<void> {
   log.info(`Starting revision for task ${taskId}`);
 
-  await queries.updateTask(taskId, { status: "revision", currentStage: "revision" });
+  await queries.updateTask(taskId, { status: "revision" });
   emit({ type: "task_update", taskId, status: "revision" });
 
   const stageRecord = await queries.createTaskStage({ taskId, stage: "revision" });
@@ -110,6 +111,7 @@ async function spawnRevision(
     systemPrompt: revisionPrompt(feedback),
     onLogLine: (line) => {
       emit({ type: "log", taskId, stage: "revision", line });
+      appendLogLine(taskId, "revision", line).catch(() => {});
     },
   });
 

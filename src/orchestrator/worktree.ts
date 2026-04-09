@@ -13,6 +13,22 @@ export async function createWorktree(
 ): Promise<string> {
   const worktreeDir = path.join(repoPath, "..", `goodboy-worktree-${taskId.slice(0, 8)}`);
 
+  // Always start clean -- remove existing worktree and branch so retries
+  // never inherit partial commits from a previous failed run.
+  try {
+    await exec("git", ["worktree", "remove", worktreeDir, "--force"], { cwd: repoPath });
+    log.info(`Removed existing worktree at ${worktreeDir}`);
+  } catch {
+    // Ignore -- may not exist
+  }
+
+  try {
+    await exec("git", ["branch", "-D", branch], { cwd: repoPath });
+    log.info(`Deleted existing branch ${branch}`);
+  } catch {
+    // Ignore -- branch may not exist
+  }
+
   // Create a new branch and worktree
   await exec("git", ["worktree", "add", "-b", branch, worktreeDir], { cwd: repoPath });
 

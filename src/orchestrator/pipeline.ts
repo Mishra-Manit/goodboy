@@ -1,7 +1,7 @@
 import path from "node:path";
-import { mkdir } from "node:fs/promises";
+import { mkdir, access, rm } from "node:fs/promises";
 import { createLogger } from "../shared/logger.js";
-import { config } from "../shared/config.js";
+import { config, getPiModel } from "../shared/config.js";
 import { emit } from "../shared/events.js";
 import type { StageName, TaskStatus } from "../shared/types.js";
 import { STAGE_TO_STATUS } from "../shared/types.js";
@@ -14,11 +14,33 @@ import {
   reviewerPrompt,
   prCreatorPrompt,
 } from "./prompts.js";
+import { appendLogLine } from "./logs.js";
 
 const log = createLogger("pipeline");
 
 /** Active pi sessions indexed by task ID */
 const activeSessions = new Map<string, PiSession>();
+
+/** Concurrency gate -- resolvers waiting for a slot */
+const waitingForSlot: Array<() => void> = [];
+let runningCount = 0;
+
+async function acquireSlot(): Promise<void> {
+  if (runningCount < config.maxParallelTasks) {
+    runningCount++;
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    waitingForSlot.push(resolve);
+  });
+  runningCount++;
+}
+
+function releaseSlot(): void {
+  runningCount--;
+  const next = waitingForSlot.shift();
+  if (next) next();
+}
 
 /** Callback type for sending Telegram messages */
 export type SendTelegram = (chatId: string, text: string) => Promise<void>;
@@ -62,8 +84,13 @@ export async function runPipeline(
     return;
   }
 
-  // Create artifacts directory for this task
+  // Wait for a concurrency slot
+  await acquireSlot();
+  log.info(`Acquired slot for task ${taskId} (${runningCount}/${config.maxParallelTasks} running)`);
+
+  // Clean and recreate artifacts directory so retries start fresh
   const artifactsDir = path.join(config.artifactsDir, taskId);
+  await rm(artifactsDir, { recursive: true, force: true });
   await mkdir(artifactsDir, { recursive: true });
 
   // Create worktree
@@ -72,6 +99,7 @@ export async function runPipeline(
   try {
     worktreePath = await createWorktree(repo.localPath, branch, taskId);
   } catch (err) {
+    releaseSlot();
     await failTask(taskId, `Failed to create worktree: ${err}`, sendTelegram, task.telegramChatId);
     return;
   }
@@ -80,30 +108,37 @@ export async function runPipeline(
 
   try {
     // Stage 1: Planner
-    await runStage(taskId, "planner", worktreePath, artifactsDir, sendTelegram, task);
+    await runStage(taskId, "planner", worktreePath, artifactsDir, sendTelegram, task, branch);
+    await requireArtifact(artifactsDir, "plan.md", "Planner failed to write plan.md");
 
     // Stage 2: Implementer
-    await runStage(taskId, "implementer", worktreePath, artifactsDir, sendTelegram, task);
+    await runStage(taskId, "implementer", worktreePath, artifactsDir, sendTelegram, task, branch);
+    await requireArtifact(artifactsDir, "implementation-summary.md", "Implementer failed to write implementation-summary.md");
 
     // Stage 3: Reviewer
-    await runStage(taskId, "reviewer", worktreePath, artifactsDir, sendTelegram, task);
+    await runStage(taskId, "reviewer", worktreePath, artifactsDir, sendTelegram, task, branch);
+    await requireArtifact(artifactsDir, "review.md", "Reviewer failed to write review.md");
 
     // Stage 4: PR Creator
-    await runStage(taskId, "pr_creator", worktreePath, artifactsDir, sendTelegram, task);
+    await runStage(taskId, "pr_creator", worktreePath, artifactsDir, sendTelegram, task, branch);
 
     // Done
     await queries.updateTask(taskId, {
       status: "complete",
-      currentStage: null,
       completedAt: new Date(),
     });
     emit({ type: "task_update", taskId, status: "complete" });
+
+    // Note: worktree is NOT cleaned up here because GitHub webhook
+    // revisions may still need it. Worktrees should be cleaned up
+    // manually or via a periodic cleanup job after PR merge.
 
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await failTask(taskId, message, sendTelegram, task.telegramChatId);
   } finally {
     activeSessions.delete(taskId);
+    releaseSlot();
   }
 }
 
@@ -113,12 +148,13 @@ async function runStage(
   worktreePath: string,
   artifactsDir: string,
   sendTelegram: SendTelegram,
-  task: Awaited<ReturnType<typeof queries.getTask>>
+  task: Awaited<ReturnType<typeof queries.getTask>>,
+  branch: string
 ): Promise<void> {
   if (!task) throw new Error("Task is null");
 
   const status = STAGE_TO_STATUS[stage];
-  await queries.updateTask(taskId, { status, currentStage: stage });
+  await queries.updateTask(taskId, { status });
   emit({ type: "task_update", taskId, status });
 
   const stageRecord = await queries.createTaskStage({ taskId, stage });
@@ -126,14 +162,16 @@ async function runStage(
 
   log.info(`Starting stage ${stage} for task ${taskId}`);
 
-  const systemPrompt = getSystemPrompt(stage, task.description, worktreePath, artifactsDir);
+  const systemPrompt = getSystemPrompt(stage, task.description, worktreePath, artifactsDir, branch, task.repo);
 
   const session = spawnPiSession({
     id: `${taskId}-${stage}`,
     cwd: worktreePath,
     systemPrompt,
+    model: getPiModel(),
     onLogLine: (line) => {
       emit({ type: "log", taskId, stage, line });
+      appendLogLine(taskId, stage, line).catch(() => {});
     },
   });
 
@@ -171,6 +209,10 @@ async function runStage(
     }
   }
 
+  // Kill the pi session to free resources before next stage
+  session.kill();
+  activeSessions.delete(taskId);
+
   await queries.updateTaskStage(stageRecord.id, {
     status: "complete",
     completedAt: new Date(),
@@ -189,22 +231,26 @@ function waitForReply(taskId: string): Promise<string> {
 function getSystemPrompt(
   stage: StageName,
   description: string,
-  worktreePath: string,
-  artifactsDir: string
+  _worktreePath: string,
+  artifactsDir: string,
+  branch: string,
+  repoName: string
 ): string {
-  const planPath = path.join(artifactsDir, "plan.md");
-  const summaryPath = path.join(artifactsDir, "implementation-summary.md");
-  const reviewPath = path.join(artifactsDir, "review.md");
+  // Use absolute paths so pi can find them regardless of CWD
+  const absArtifacts = path.resolve(artifactsDir);
+  const planPath = path.join(absArtifacts, "plan.md");
+  const summaryPath = path.join(absArtifacts, "implementation-summary.md");
+  const reviewPath = path.join(absArtifacts, "review.md");
 
   switch (stage) {
     case "planner":
-      return plannerPrompt(description, worktreePath);
+      return plannerPrompt(description, absArtifacts);
     case "implementer":
-      return implementerPrompt(planPath);
+      return implementerPrompt(planPath, absArtifacts);
     case "reviewer":
-      return reviewerPrompt(planPath, summaryPath);
+      return reviewerPrompt(planPath, summaryPath, absArtifacts);
     case "pr_creator":
-      return prCreatorPrompt("", "", planPath, summaryPath, reviewPath);
+      return prCreatorPrompt(branch, repoName, planPath, summaryPath, reviewPath);
     case "revision":
       return ""; // Set dynamically
   }
@@ -213,19 +259,29 @@ function getSystemPrompt(
 function getInitialPrompt(
   stage: StageName,
   description: string,
-  _artifactsDir: string
+  artifactsDir: string
 ): string {
+  const absArtifacts = path.resolve(artifactsDir);
   switch (stage) {
     case "planner":
-      return `Here is the task:\n\n${description}\n\nExplore the codebase and create a plan.`;
+      return `Here is the task:\n\n${description}\n\nStart by exploring the codebase structure, then write the plan to ${absArtifacts}/plan.md. Do not stop until the file is written.`;
     case "implementer":
-      return "Read plan.md and implement the changes.";
+      return `Read the plan at ${absArtifacts}/plan.md, then implement every step. Make git commits as you go. When all code is written and committed, write the summary to ${absArtifacts}/implementation-summary.md. Do not stop until both the code is committed and the summary file is written.`;
     case "reviewer":
-      return "Review the implementation against the plan. Fix any issues you find.";
+      return `Read the plan at ${absArtifacts}/plan.md and the summary at ${absArtifacts}/implementation-summary.md. Run git diff main to see all changes. Review the code, fix any issues, then write your review to ${absArtifacts}/review.md. Do not stop until the review file is written.`;
     case "pr_creator":
-      return "Push the branch and create a GitHub PR.";
+      return `Push the branch to origin and create a GitHub PR using gh CLI. Read the artifact files for context on what to put in the PR description.`;
     case "revision":
-      return "Address the PR feedback.";
+      return "Read the PR feedback, make the fixes, commit, and push.";
+  }
+}
+
+async function requireArtifact(artifactsDir: string, filename: string, errorMsg: string): Promise<void> {
+  const filePath = path.join(artifactsDir, filename);
+  try {
+    await access(filePath);
+  } catch {
+    throw new Error(errorMsg + ` (expected at ${filePath})`);
   }
 }
 
