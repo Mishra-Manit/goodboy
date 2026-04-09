@@ -18,7 +18,6 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": "http://localhost:3333",
-      "/webhooks": "http://localhost:3333",
     },
   },
 });
