@@ -1,0 +1,5 @@
+{"type":"extension_ui_request","id":"71e280c6-f7f9-4db9-b00f-1bd2922f0ec2","method":"notify","message":"MCPorter extension loaded","notifyType":"info"}
+{"type":"extension_ui_request","id":"fc79d328-12a7-42b1-8664-184e39874a3e","method":"notify","message":"Coliseum extension loaded","notifyType":"info"}
+{"type":"extension_ui_request","id":"8627f896-d5a5-4345-bbf3-6205d1c88edf","method":"setStatus","statusKey":"stash"}
+{"type":"response","command":"prompt","success":false,"error":"Cannot read properties of undefined (reading 'startsWith')"}
+{"type":"response","command":"prompt","success":true}

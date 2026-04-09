@@ -1,0 +1,98 @@
+[tool] read
+[tool] read
+[tool] read FAILED
+[tool] read FAILED
+[tool] bash: git diff main
+[tool] bash done
+ seems
+It
+ there
+ is
+ no
+ git
+ difference
+ to
+ review
+ and
+ was
+ I
+ unable
+ to
+ access
+ the
+ plan
+ or
+ implementation
+ summary
+ files
+.
+ If
+ the
+ changes
+ exist
+ but
+ are
+ un
+comm
+itted
+,
+ they
+ need
+ to
+ be
+ staged
+ or
+ committed
+ for
+ review
+.
+ If
+ you
+ have
+ specific
+ files
+ or
+ aspects
+ you
+ want
+ me
+ to
+ check
+,
+ please
+ make
+ sure
+ they
+ are
+ in
+ the
+ correct
+ location
+ and
+ accessible
+.
+ 
+
+
+If
+ there's
+ anything
+ else
+ I
+ can
+ assist
+ with
+,
+ let
+ me
+ know
+!
+{"
+ 
+
+
+status
+":
+ "
+complete
+"}
