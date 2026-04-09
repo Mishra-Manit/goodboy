@@ -13,8 +13,9 @@ export function Card({ children, className, onClick, hoverable }: CardProps) {
     <div
       onClick={onClick}
       className={cn(
-        "rounded-lg border border-border bg-surface p-4",
-        hoverable && "cursor-pointer transition-colors hover:border-border/80 hover:bg-surface-raised",
+        "rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-4",
+        hoverable &&
+          "cursor-pointer transition-all duration-150 hover:border-zinc-700/60 hover:bg-zinc-900/80",
         className
       )}
     >
@@ -30,7 +31,7 @@ interface CardHeaderProps {
 
 export function CardHeader({ children, className }: CardHeaderProps) {
   return (
-    <div className={cn("mb-3 flex items-center justify-between", className)}>
+    <div className={cn("mb-2.5 flex items-center justify-between", className)}>
       {children}
     </div>
   );

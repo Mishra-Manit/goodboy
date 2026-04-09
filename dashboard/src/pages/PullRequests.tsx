@@ -1,4 +1,4 @@
-import { GitPullRequest, ExternalLink } from "lucide-react";
+import { GitPullRequest, ExternalLink, ArrowUpRight } from "lucide-react";
 import { fetchPRs, type PR } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSERefresh } from "@dashboard/hooks/use-sse";
@@ -6,23 +6,28 @@ import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { Card } from "@dashboard/components/Card";
 import { EmptyState } from "@dashboard/components/EmptyState";
 import { shortId } from "@dashboard/lib/utils";
+import { useNavigate } from "react-router-dom";
 
 export function PullRequests() {
+  const navigate = useNavigate();
   const { data: prs, loading, refetch } = useQuery(() => fetchPRs());
 
   useSSERefresh(refetch, (e) => e.type === "pr_update" || e.type === "task_update");
 
   return (
-    <div className="p-6">
+    <div className="p-6 max-w-5xl">
       <div className="mb-6">
-        <h1 className="text-lg font-semibold">Pull Requests</h1>
-        <p className="text-sm text-text-muted">
+        <div className="flex items-center gap-2 mb-1">
+          <GitPullRequest size={18} className="text-zinc-500" />
+          <h1 className="text-lg font-semibold text-zinc-100">Pull Requests</h1>
+        </div>
+        <p className="text-sm text-zinc-500">
           PRs created by Goodboy across all repos
         </p>
       </div>
 
       {loading && !prs ? (
-        <div className="text-sm text-text-muted">Loading...</div>
+        <div className="text-sm text-zinc-500">Loading...</div>
       ) : (prs ?? []).length === 0 ? (
         <EmptyState
           icon={<GitPullRequest size={32} />}
@@ -32,7 +37,7 @@ export function PullRequests() {
       ) : (
         <div className="space-y-2">
           {(prs ?? []).map((pr) => (
-            <PRRow key={pr.taskId} pr={pr} />
+            <PRRow key={pr.taskId} pr={pr} onTaskClick={() => navigate(`/tasks/${pr.taskId}`)} />
           ))}
         </div>
       )}
@@ -40,18 +45,22 @@ export function PullRequests() {
   );
 }
 
-function PRRow({ pr }: { pr: PR }) {
+function PRRow({ pr, onTaskClick }: { pr: PR; onTaskClick: () => void }) {
   return (
     <Card className="py-3">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <GitPullRequest size={16} className="text-text-muted" />
-          <span className="text-xs font-medium text-brand">{pr.repo}</span>
-          <code className="text-xs text-text-muted">
+          <GitPullRequest size={15} className="text-zinc-600" />
+          <span className="text-xs font-medium text-violet-400">{pr.repo}</span>
+          <button
+            onClick={onTaskClick}
+            className="text-xs text-zinc-500 hover:text-zinc-300 font-mono flex items-center gap-0.5 transition-colors"
+          >
             {shortId(pr.taskId)}
-          </code>
+            <ArrowUpRight size={10} />
+          </button>
           {pr.prNumber && (
-            <span className="text-sm text-text-dim">#{pr.prNumber}</span>
+            <span className="text-sm text-zinc-400">#{pr.prNumber}</span>
           )}
         </div>
         <div className="flex items-center gap-3">
@@ -61,10 +70,10 @@ function PRRow({ pr }: { pr: PR }) {
               href={pr.prUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 text-xs text-text-muted hover:text-text transition-colors"
+              className="flex items-center gap-1 rounded-md bg-zinc-800 px-2.5 py-1 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
             >
-              <ExternalLink size={12} />
-              View PR
+              <ExternalLink size={11} />
+              View
             </a>
           )}
         </div>

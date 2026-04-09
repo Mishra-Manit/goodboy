@@ -7,11 +7,15 @@ import { createApi } from "./api/index.js";
 import { createWebhookHandler } from "./webhooks/github.js";
 import { loadEnv } from "./shared/config.js";
 import { createLogger } from "./shared/logger.js";
+import { syncRegisteredRepos } from "./db/sync-repos.js";
 
 const log = createLogger("main");
 
 async function main() {
   const env = loadEnv();
+
+  // Sync repo registry from env before anything else
+  await syncRegisteredRepos();
 
   // Hono app combining API + webhooks + static dashboard
   const app = new Hono();

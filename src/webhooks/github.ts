@@ -6,7 +6,7 @@ import * as queries from "../db/queries.js";
 import { spawnPiSession } from "../orchestrator/pi-rpc.js";
 import { revisionPrompt } from "../orchestrator/prompts.js";
 import { emit } from "../shared/events.js";
-import { appendLogLine } from "../orchestrator/logs.js";
+import { appendLogEntry, makeEntry } from "../orchestrator/logs.js";
 
 const log = createLogger("webhook");
 
@@ -109,9 +109,10 @@ async function spawnRevision(
     id: `${taskId}-revision`,
     cwd: worktreePath,
     systemPrompt: revisionPrompt(feedback),
-    onLogLine: (line) => {
-      emit({ type: "log", taskId, stage: "revision", line });
-      appendLogLine(taskId, "revision", line).catch(() => {});
+    onLog: (kind, text, meta) => {
+      const entry = makeEntry(taskId, "revision", kind, text, meta);
+      emit({ type: "log", taskId, stage: "revision", entry });
+      appendLogEntry(taskId, "revision", entry).catch(() => {});
     },
   });
 

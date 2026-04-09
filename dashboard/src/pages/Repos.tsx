@@ -1,4 +1,4 @@
-import { FolderGit2 } from "lucide-react";
+import { FolderGit2, ExternalLink } from "lucide-react";
 import { fetchRepos, type Repo } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { Card } from "@dashboard/components/Card";
@@ -9,16 +9,19 @@ export function Repos() {
   const { data: repos, loading } = useQuery(() => fetchRepos());
 
   return (
-    <div className="p-6">
+    <div className="p-6 max-w-5xl">
       <div className="mb-6">
-        <h1 className="text-lg font-semibold">Repositories</h1>
-        <p className="text-sm text-text-muted">
+        <div className="flex items-center gap-2 mb-1">
+          <FolderGit2 size={18} className="text-zinc-500" />
+          <h1 className="text-lg font-semibold text-zinc-100">Repositories</h1>
+        </div>
+        <p className="text-sm text-zinc-500">
           Registered repos that Goodboy can work on
         </p>
       </div>
 
       {loading && !repos ? (
-        <div className="text-sm text-text-muted">Loading...</div>
+        <div className="text-sm text-zinc-500">Loading...</div>
       ) : (repos ?? []).length === 0 ? (
         <EmptyState
           icon={<FolderGit2 size={32} />}
@@ -26,9 +29,9 @@ export function Repos() {
           description="Add repos to the database to get started"
         />
       ) : (
-        <div className="space-y-2">
+        <div className="grid gap-3 sm:grid-cols-2">
           {(repos ?? []).map((repo) => (
-            <RepoRow key={repo.name} repo={repo} />
+            <RepoCard key={repo.name} repo={repo} />
           ))}
         </div>
       )}
@@ -36,31 +39,32 @@ export function Repos() {
   );
 }
 
-function RepoRow({ repo }: { repo: Repo }) {
+function RepoCard({ repo }: { repo: Repo }) {
   return (
-    <Card className="py-3">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <FolderGit2 size={16} className="text-text-muted" />
-          <span className="text-sm font-medium">{repo.name}</span>
-          <code className="text-xs text-text-muted">{repo.localPath}</code>
+    <Card className="flex flex-col gap-3">
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-2">
+          <FolderGit2 size={16} className="text-violet-400/60" />
+          <span className="text-sm font-medium text-zinc-200">{repo.name}</span>
         </div>
-        <div className="flex items-center gap-3">
-          {repo.githubUrl && (
-            <a
-              href={repo.githubUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-text-muted hover:text-text transition-colors"
-            >
-              GitHub
-            </a>
-          )}
-          <span className="text-xs text-text-muted">
-            Added {formatDate(repo.createdAt)}
-          </span>
-        </div>
+        {repo.githubUrl && (
+          <a
+            href={repo.githubUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            <ExternalLink size={11} />
+            GitHub
+          </a>
+        )}
       </div>
+      <code className="text-xs text-zinc-600 bg-zinc-900 rounded px-2 py-1">
+        {repo.localPath}
+      </code>
+      <span className="text-[11px] text-zinc-600">
+        Added {formatDate(repo.createdAt)}
+      </span>
     </Card>
   );
 }

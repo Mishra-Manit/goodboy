@@ -1,33 +1,69 @@
 import { mkdir, appendFile, readFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "../shared/config.js";
+import type { LogEntry, LogEntryKind } from "../shared/types.js";
 
-/**
- * Append a log line to the stage log file on disk.
- * Logs are stored at: artifacts/<taskId>/<stage>.log
- */
-export async function appendLogLine(
+/** Per-stage sequence counters (taskId:stage -> next seq) */
+const seqCounters = new Map<string, number>();
+
+function nextSeq(taskId: string, stage: string): number {
+  const key = `${taskId}:${stage}`;
+  const seq = seqCounters.get(key) ?? 0;
+  seqCounters.set(key, seq + 1);
+  return seq;
+}
+
+/** Reset counter when a stage starts fresh (e.g. retry) */
+export function resetSeq(taskId: string, stage: string): void {
+  seqCounters.delete(`${taskId}:${stage}`);
+}
+
+/** Build a LogEntry with auto-incrementing seq */
+export function makeEntry(
   taskId: string,
   stage: string,
-  line: string
-): Promise<void> {
-  const dir = path.join(config.artifactsDir, taskId);
-  await mkdir(dir, { recursive: true });
-  const logPath = path.join(dir, `${stage}.log`);
-  await appendFile(logPath, line + "\n");
+  kind: LogEntryKind,
+  text: string,
+  meta?: Record<string, unknown>
+): LogEntry {
+  return {
+    seq: nextSeq(taskId, stage),
+    ts: new Date().toISOString(),
+    kind,
+    text,
+    ...(meta ? { meta } : {}),
+  };
 }
 
 /**
- * Read all log lines for a specific task stage.
+ * Append a structured log entry to the stage JSONL file on disk.
+ * Logs are stored at: artifacts/<taskId>/<stage>.jsonl
  */
-export async function readStageLogs(
+export async function appendLogEntry(
+  taskId: string,
+  stage: string,
+  entry: LogEntry
+): Promise<void> {
+  const dir = path.join(config.artifactsDir, taskId);
+  await mkdir(dir, { recursive: true });
+  const logPath = path.join(dir, `${stage}.jsonl`);
+  await appendFile(logPath, JSON.stringify(entry) + "\n");
+}
+
+/**
+ * Read all structured log entries for a specific task stage.
+ */
+export async function readStageEntries(
   taskId: string,
   stage: string
-): Promise<string[]> {
-  const logPath = path.join(config.artifactsDir, taskId, `${stage}.log`);
+): Promise<LogEntry[]> {
+  const logPath = path.join(config.artifactsDir, taskId, `${stage}.jsonl`);
   try {
     const content = await readFile(logPath, "utf-8");
-    return content.split("\n").filter((l) => l.length > 0);
+    return content
+      .split("\n")
+      .filter((l) => l.length > 0)
+      .map((l) => JSON.parse(l) as LogEntry);
   } catch {
     return [];
   }
@@ -38,19 +74,19 @@ export async function readStageLogs(
  */
 export async function readTaskLogs(
   taskId: string
-): Promise<Array<{ stage: string; lines: string[] }>> {
+): Promise<Array<{ stage: string; entries: LogEntry[] }>> {
   const { readdir } = await import("node:fs/promises");
   const dir = path.join(config.artifactsDir, taskId);
 
   try {
     const files = await readdir(dir);
-    const logFiles = files.filter((f) => f.endsWith(".log"));
+    const logFiles = files.filter((f) => f.endsWith(".jsonl"));
 
-    const results: Array<{ stage: string; lines: string[] }> = [];
+    const results: Array<{ stage: string; entries: LogEntry[] }> = [];
     for (const file of logFiles) {
-      const stage = file.replace(".log", "");
-      const lines = await readStageLogs(taskId, stage);
-      results.push({ stage, lines });
+      const stage = file.replace(".jsonl", "");
+      const entries = await readStageEntries(taskId, stage);
+      results.push({ stage, entries });
     }
     return results;
   } catch {

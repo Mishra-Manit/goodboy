@@ -62,9 +62,27 @@ export interface PR {
   status: string;
 }
 
+export type LogEntryKind =
+  | "text"
+  | "tool_start"
+  | "tool_end"
+  | "tool_output"
+  | "stage_info"
+  | "rpc"
+  | "error"
+  | "stderr";
+
+export interface LogEntry {
+  seq: number;
+  ts: string;
+  kind: LogEntryKind;
+  text: string;
+  meta?: Record<string, unknown>;
+}
+
 export interface StageLogs {
   stage: string;
-  lines: string[];
+  entries: LogEntry[];
 }
 
 // --- Endpoints ---
@@ -94,9 +112,7 @@ export async function fetchArtifact(
   taskId: string,
   name: string
 ): Promise<string> {
-  const res = await fetch(`/api/tasks/${taskId}/artifacts/${name}`, {
-    headers: headers(),
-  });
+  const res = await fetch(`/api/tasks/${taskId}/artifacts/${name}`);
   if (!res.ok) throw new Error(`Artifact not found: ${name}`);
   return res.text();
 }

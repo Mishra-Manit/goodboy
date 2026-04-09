@@ -1,3 +1,3 @@
 export { runPipeline, deliverReply, cancelTask } from "./pipeline.js";
 export type { SendTelegram } from "./pipeline.js";
-export { readTaskLogs, readStageLogs } from "./logs.js";
+export { readTaskLogs, readStageEntries } from "./logs.js";

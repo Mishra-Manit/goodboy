@@ -14,7 +14,7 @@ import {
   reviewerPrompt,
   prCreatorPrompt,
 } from "./prompts.js";
-import { appendLogLine } from "./logs.js";
+import { appendLogEntry, makeEntry, resetSeq } from "./logs.js";
 
 const log = createLogger("pipeline");
 
@@ -164,14 +164,17 @@ async function runStage(
 
   const systemPrompt = getSystemPrompt(stage, task.description, worktreePath, artifactsDir, branch, task.repo);
 
+  resetSeq(taskId, stage);
+
   const session = spawnPiSession({
     id: `${taskId}-${stage}`,
     cwd: worktreePath,
     systemPrompt,
     model: getPiModel(),
-    onLogLine: (line) => {
-      emit({ type: "log", taskId, stage, line });
-      appendLogLine(taskId, stage, line).catch(() => {});
+    onLog: (kind, text, meta) => {
+      const entry = makeEntry(taskId, stage, kind, text, meta);
+      emit({ type: "log", taskId, stage, entry });
+      appendLogEntry(taskId, stage, entry).catch(() => {});
     },
   });
 

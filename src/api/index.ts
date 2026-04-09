@@ -4,7 +4,7 @@ import { streamSSE } from "hono/streaming";
 import { subscribe } from "../shared/events.js";
 import * as queries from "../db/queries.js";
 import type { TaskStatus } from "../shared/types.js";
-import { readTaskLogs } from "../orchestrator/logs.js";
+import { readTaskLogs, readStageEntries } from "../orchestrator/logs.js";
 
 export function createApi(): Hono {
   const app = new Hono();
