@@ -1,70 +1,44 @@
 import { cn } from "@dashboard/lib/utils";
 
-const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
-  queued: { label: "Queued", className: "bg-zinc-700 text-zinc-300" },
-  planning: { label: "Planning", className: "bg-blue-500/20 text-blue-400" },
-  implementing: {
-    label: "Implementing",
-    className: "bg-violet-500/20 text-violet-400",
-  },
-  reviewing: {
-    label: "Reviewing",
-    className: "bg-amber-500/20 text-amber-400",
-  },
-  creating_pr: {
-    label: "Creating PR",
-    className: "bg-cyan-500/20 text-cyan-400",
-  },
-  revision: {
-    label: "Revision",
-    className: "bg-orange-500/20 text-orange-400",
-  },
-  complete: {
-    label: "Complete",
-    className: "bg-emerald-500/20 text-emerald-400",
-  },
-  failed: { label: "Failed", className: "bg-red-500/20 text-red-400" },
-  cancelled: {
-    label: "Cancelled",
-    className: "bg-zinc-600/20 text-zinc-400",
-  },
-  running: { label: "Running", className: "bg-blue-500/20 text-blue-400" },
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  queued: { label: "queued", color: "text-text-dim", bg: "bg-transparent" },
+  planning: { label: "planning", color: "text-accent", bg: "bg-accent-ghost" },
+  implementing: { label: "implementing", color: "text-accent", bg: "bg-accent-ghost" },
+  reviewing: { label: "reviewing", color: "text-accent", bg: "bg-accent-ghost" },
+  creating_pr: { label: "creating pr", color: "text-accent", bg: "bg-accent-ghost" },
+  revision: { label: "revision", color: "text-accent", bg: "bg-accent-ghost" },
+  complete: { label: "complete", color: "text-ok", bg: "bg-ok-dim" },
+  failed: { label: "failed", color: "text-fail", bg: "bg-fail-dim" },
+  cancelled: { label: "cancelled", color: "text-text-dim", bg: "bg-transparent" },
+  running: { label: "running", color: "text-accent", bg: "bg-accent-ghost" },
 };
 
 interface StatusBadgeProps {
   status: string;
   className?: string;
-  pulse?: boolean;
 }
 
-export function StatusBadge({ status, className, pulse }: StatusBadgeProps) {
+export function StatusBadge({ status, className }: StatusBadgeProps) {
   const config = STATUS_CONFIG[status] ?? {
     label: status,
-    className: "bg-zinc-700 text-zinc-300",
+    color: "text-text-dim",
+    bg: "bg-transparent",
   };
 
   const isActive = [
-    "planning",
-    "implementing",
-    "reviewing",
-    "creating_pr",
-    "revision",
-    "running",
+    "planning", "implementing", "reviewing", "creating_pr", "revision", "running",
   ].includes(status);
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
-        config.className,
+        "inline-flex items-center gap-1.5 font-mono text-[10px] tracking-wide",
+        config.color,
         className
       )}
     >
-      {(pulse ?? isActive) && (
-        <span className="relative flex h-1.5 w-1.5">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-75" />
-          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
-        </span>
+      {isActive && (
+        <span className={cn("h-1 w-1 rounded-full bg-current animate-pulse-soft")} />
       )}
       {config.label}
     </span>

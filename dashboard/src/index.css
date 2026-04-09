@@ -1,22 +1,84 @@
 @import "tailwindcss";
 
 @theme {
-  --color-brand: #a78bfa;
-  --color-brand-dim: #7c3aed;
-  --color-surface: #0a0a0b;
-  --color-surface-raised: #18181b;
-  --color-surface-overlay: #27272a;
-  --color-border: #27272a;
-  --color-border-dim: #1c1c1f;
-  --color-text: #fafafa;
-  --color-text-dim: #a1a1aa;
-  --color-text-muted: #52525b;
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
-  --color-info: #3b82f6;
+  /* ── Palette: warm amber accent on near-black ── */
+  --color-bg: #050505;
+  --color-bg-raised: #0a0a0a;
+  --color-bg-hover: #0f0f0f;
+  --color-bg-active: #111111;
 
-  --animate-in: fade-in 0.2s ease-out;
+  --color-accent: #d4a017;
+  --color-accent-dim: rgba(212, 160, 23, 0.15);
+  --color-accent-ghost: rgba(212, 160, 23, 0.06);
+
+  --color-glass: rgba(255, 255, 255, 0.03);
+  --color-glass-border: rgba(255, 255, 255, 0.06);
+  --color-glass-hover: rgba(255, 255, 255, 0.05);
+
+  --color-text: #e4e4e7;
+  --color-text-secondary: #a1a1aa;
+  --color-text-dim: #71717a;
+  --color-text-ghost: #3f3f46;
+  --color-text-void: #27272a;
+
+  --color-ok: #34d399;
+  --color-ok-dim: rgba(52, 211, 153, 0.12);
+  --color-fail: #f87171;
+  --color-fail-dim: rgba(248, 113, 113, 0.10);
+  --color-info: #60a5fa;
+  --color-info-dim: rgba(96, 165, 250, 0.10);
+  --color-warn: #fbbf24;
+  --color-warn-dim: rgba(251, 191, 36, 0.10);
+
+  /* ── Fonts ── */
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
+
+/* ── Base ── */
+
+body {
+  font-family: var(--font-body);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbar: near-invisible ── */
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* ── Film grain overlay ── */
+
+.grain::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  opacity: 0.015;
+  pointer-events: none;
+  z-index: 9999;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── Animations ── */
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes fade-in {
@@ -24,34 +86,48 @@
   to { opacity: 1; }
 }
 
-@keyframes slide-in-from-top-1 {
-  from { transform: translateY(-4px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
-body {
-  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@keyframes stream-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #27272a;
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+.animate-fade-up {
+  animation: fade-up 0.3s ease-out both;
 }
 
-/* Utility: animate-in */
-.animate-in {
-  animation: fade-in 0.2s ease-out, slide-in-from-top-1 0.2s ease-out;
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out both;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+
+.animate-cursor {
+  animation: stream-cursor 1s step-end infinite;
+}
+
+/* ── Staggered children ── */
+.stagger > *:nth-child(1) { animation-delay: 0.03s; }
+.stagger > *:nth-child(2) { animation-delay: 0.06s; }
+.stagger > *:nth-child(3) { animation-delay: 0.09s; }
+.stagger > *:nth-child(4) { animation-delay: 0.12s; }
+.stagger > *:nth-child(5) { animation-delay: 0.15s; }
+.stagger > *:nth-child(6) { animation-delay: 0.18s; }
+.stagger > *:nth-child(7) { animation-delay: 0.21s; }
+.stagger > *:nth-child(8) { animation-delay: 0.24s; }
+
+/* ── Reduced motion ── */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

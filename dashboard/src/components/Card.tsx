@@ -6,16 +6,19 @@ interface CardProps {
   className?: string;
   onClick?: () => void;
   hoverable?: boolean;
+  /** Adds a left-edge accent glow for active/live items */
+  live?: boolean;
 }
 
-export function Card({ children, className, onClick, hoverable }: CardProps) {
+export function Card({ children, className, onClick, hoverable, live }: CardProps) {
   return (
     <div
       onClick={onClick}
       className={cn(
-        "rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-4",
-        hoverable &&
-          "cursor-pointer transition-all duration-150 hover:border-zinc-700/60 hover:bg-zinc-900/80",
+        "relative rounded-lg px-4 py-3.5 transition-all duration-200",
+        "bg-glass border border-glass-border",
+        live && "border-l-accent/30 border-l-2 shadow-[inset_2px_0_12px_rgba(212,160,23,0.04)]",
+        hoverable && "cursor-pointer hover:bg-glass-hover hover:border-glass-hover",
         className
       )}
     >
@@ -31,7 +34,7 @@ interface CardHeaderProps {
 
 export function CardHeader({ children, className }: CardHeaderProps) {
   return (
-    <div className={cn("mb-2.5 flex items-center justify-between", className)}>
+    <div className={cn("mb-2 flex items-center justify-between", className)}>
       {children}
     </div>
   );

@@ -6,13 +6,14 @@ interface EmptyStateProps {
   description?: string;
 }
 
-export function EmptyState({ icon, title, description }: EmptyStateProps) {
+export function EmptyState({ title, description }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      {icon && <div className="mb-4 text-zinc-700">{icon}</div>}
-      <h3 className="text-sm font-medium text-zinc-500">{title}</h3>
+    <div className="flex flex-col items-center justify-center py-24 text-center">
+      <p className="font-display text-sm font-medium text-text-ghost">{title}</p>
       {description && (
-        <p className="mt-1.5 text-xs text-zinc-600 max-w-xs">{description}</p>
+        <p className="mt-2 font-body text-xs text-text-void max-w-xs leading-relaxed">
+          {description}
+        </p>
       )}
     </div>
   );

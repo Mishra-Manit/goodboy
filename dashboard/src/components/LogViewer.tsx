@@ -1,67 +1,37 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { cn } from "@dashboard/lib/utils";
 import type { LogEntry, LogEntryKind } from "@dashboard/lib/api";
-import {
-  Terminal,
-  Wrench,
-  CheckCircle2,
-  XCircle,
-  Info,
-  AlertTriangle,
-  ChevronRight,
-  ChevronDown,
-  Search,
-  Filter,
-} from "lucide-react";
+import { ChevronRight, ChevronDown } from "lucide-react";
 
-const KIND_CONFIG: Record<
-  LogEntryKind,
-  { color: string; icon: typeof Terminal; label: string; dimBg?: string }
-> = {
-  text: { color: "text-zinc-300", icon: Terminal, label: "Output" },
-  tool_start: {
-    color: "text-sky-400",
-    icon: Wrench,
-    label: "Tool",
-    dimBg: "bg-sky-500/5",
-  },
-  tool_end: { color: "text-sky-400", icon: CheckCircle2, label: "Tool" },
-  tool_output: { color: "text-zinc-500", icon: Terminal, label: "Result" },
-  stage_info: {
-    color: "text-violet-400",
-    icon: Info,
-    label: "Stage",
-    dimBg: "bg-violet-500/5",
-  },
-  rpc: { color: "text-zinc-600", icon: Terminal, label: "RPC" },
-  error: {
-    color: "text-red-400",
-    icon: XCircle,
-    label: "Error",
-    dimBg: "bg-red-500/5",
-  },
-  stderr: {
-    color: "text-amber-400",
-    icon: AlertTriangle,
-    label: "Stderr",
-    dimBg: "bg-amber-500/5",
-  },
+/* ── Kind styling: minimal, monochrome with selective color ── */
+
+const KIND_COLOR: Record<LogEntryKind, string> = {
+  text: "text-text-secondary",
+  tool_start: "text-text-secondary",
+  tool_end: "text-text-secondary",
+  tool_output: "text-text-ghost",
+  stage_info: "text-accent",
+  rpc: "text-text-void",
+  error: "text-fail",
+  stderr: "text-warn",
 };
 
-const FILTER_OPTIONS: { kind: LogEntryKind | "all"; label: string }[] = [
-  { kind: "all", label: "All" },
-  { kind: "text", label: "Output" },
-  { kind: "tool_start", label: "Tools" },
-  { kind: "error", label: "Errors" },
-  { kind: "stage_info", label: "Stage" },
-];
+const KIND_PREFIX: Record<LogEntryKind, string> = {
+  text: "$",
+  tool_start: ">",
+  tool_end: ">",
+  tool_output: " ",
+  stage_info: "#",
+  rpc: "~",
+  error: "!",
+  stderr: "!",
+};
 
 interface LogViewerProps {
   entries: LogEntry[];
   className?: string;
   autoScroll?: boolean;
   maxHeight?: string;
-  /** Compact mode hides filters and timestamps */
   compact?: boolean;
 }
 
@@ -69,41 +39,15 @@ export function LogViewer({
   entries,
   className,
   autoScroll = true,
-  maxHeight = "500px",
+  maxHeight = "400px",
   compact = false,
 }: LogViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [search, setSearch] = useState("");
-  const [kindFilter, setKindFilter] = useState<LogEntryKind | "all">("all");
   const [collapsedTools, setCollapsedTools] = useState(new Set<number>());
   const [userScrolled, setUserScrolled] = useState(false);
 
-  // Group tool_start -> tool_output -> tool_end into collapsible blocks
-  const processedEntries = useMemo(() => {
-    return groupToolCalls(entries);
-  }, [entries]);
+  const processed = useMemo(() => groupToolCalls(entries), [entries]);
 
-  const filtered = useMemo(() => {
-    return processedEntries.filter((item) => {
-      if (kindFilter !== "all") {
-        if (item.type === "group") {
-          if (kindFilter !== "tool_start") return false;
-        } else if (item.entry.kind !== kindFilter) {
-          return false;
-        }
-      }
-      if (search) {
-        const text =
-          item.type === "group"
-            ? item.entries.map((e) => e.text).join(" ")
-            : item.entry.text;
-        if (!text.toLowerCase().includes(search.toLowerCase())) return false;
-      }
-      return true;
-    });
-  }, [processedEntries, kindFilter, search]);
-
-  // Auto-scroll
   useEffect(() => {
     if (autoScroll && !userScrolled && containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
@@ -113,8 +57,7 @@ export function LogViewer({
   function handleScroll() {
     if (!containerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    const atBottom = scrollHeight - scrollTop - clientHeight < 40;
-    setUserScrolled(!atBottom);
+    setUserScrolled(scrollHeight - scrollTop - clientHeight > 40);
   }
 
   function toggleTool(seq: number) {
@@ -126,149 +69,79 @@ export function LogViewer({
     });
   }
 
-  const toolCount = entries.filter((e) => e.kind === "tool_start").length;
-  const errorCount = entries.filter(
-    (e) => e.kind === "error" || e.kind === "stderr"
-  ).length;
+  if (entries.length === 0) {
+    return (
+      <div className={cn("rounded-lg bg-bg-raised p-4", className)}>
+        <span className="font-mono text-xs text-text-void animate-pulse-soft">
+          waiting for output...
+        </span>
+      </div>
+    );
+  }
 
   return (
-    <div className={cn("flex flex-col rounded-lg border border-border-dim bg-zinc-950", className)}>
-      {/* Toolbar */}
-      {!compact && (
-        <div className="flex items-center gap-2 border-b border-border-dim px-3 py-2">
-          {/* Search */}
-          <div className="relative flex-1 max-w-xs">
-            <Search
-              size={13}
-              className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted"
-            />
-            <input
-              type="text"
-              placeholder="Search logs..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-md border border-border-dim bg-zinc-900 py-1 pl-7 pr-2 text-xs text-text placeholder:text-text-muted focus:border-brand/40 focus:outline-none"
-            />
-          </div>
-
-          {/* Kind filters */}
-          <div className="flex items-center gap-0.5">
-            <Filter size={12} className="mr-1 text-text-muted" />
-            {FILTER_OPTIONS.map(({ kind, label }) => (
-              <button
-                key={kind}
-                onClick={() => setKindFilter(kind)}
-                className={cn(
-                  "rounded px-2 py-0.5 text-[10px] font-medium transition-colors",
-                  kindFilter === kind
-                    ? "bg-surface-raised text-text"
-                    : "text-text-muted hover:text-text-dim"
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* Stats */}
-          <div className="ml-auto flex gap-3 text-[10px] text-text-muted">
-            <span>{entries.length} lines</span>
-            {toolCount > 0 && (
-              <span className="text-sky-400/60">{toolCount} tools</span>
-            )}
-            {errorCount > 0 && (
-              <span className="text-red-400/60">{errorCount} errors</span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Log content */}
+    <div className={cn("rounded-lg bg-bg-raised", className)}>
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="overflow-auto p-2 font-mono text-xs leading-relaxed"
+        className="overflow-auto p-3 font-mono text-[11px] leading-[1.7]"
         style={{ maxHeight }}
       >
-        {filtered.length === 0 ? (
-          <span className="text-text-muted px-1">
-            {entries.length === 0 ? "Waiting for logs..." : "No matching logs"}
-          </span>
-        ) : (
-          filtered.map((item) =>
-            item.type === "group" ? (
-              <ToolGroup
-                key={item.startSeq}
-                group={item}
-                collapsed={collapsedTools.has(item.startSeq)}
-                onToggle={() => toggleTool(item.startSeq)}
-                compact={compact}
-              />
-            ) : (
-              <LogLine
-                key={item.entry.seq}
-                entry={item.entry}
-                compact={compact}
-              />
-            )
+        {processed.map((item) =>
+          item.type === "group" ? (
+            <ToolGroup
+              key={item.startSeq}
+              group={item}
+              collapsed={collapsedTools.has(item.startSeq)}
+              onToggle={() => toggleTool(item.startSeq)}
+              compact={compact}
+            />
+          ) : (
+            <LogLine key={item.entry.seq} entry={item.entry} compact={compact} />
           )
         )}
       </div>
 
-      {/* Scroll-to-bottom button */}
+      {/* Scroll anchor */}
       {userScrolled && (
         <button
           onClick={() => {
             if (containerRef.current) {
-              containerRef.current.scrollTop =
-                containerRef.current.scrollHeight;
+              containerRef.current.scrollTop = containerRef.current.scrollHeight;
               setUserScrolled(false);
             }
           }}
-          className="mx-auto mb-1 rounded-full bg-surface-raised px-3 py-0.5 text-[10px] text-text-muted hover:text-text transition-colors"
+          className="mx-auto mb-2 block font-mono text-[9px] text-text-ghost hover:text-text-dim transition-colors"
         >
-          Scroll to bottom
+          scroll to bottom
         </button>
       )}
     </div>
   );
 }
 
-/** Single log line */
-function LogLine({
-  entry,
-  compact,
-}: {
-  entry: LogEntry;
-  compact: boolean;
-}) {
-  const config = KIND_CONFIG[entry.kind];
-  const Icon = config.icon;
-
-  // Skip tool_output and tool_end as standalone -- they're inside groups
+function LogLine({ entry, compact }: { entry: LogEntry; compact: boolean }) {
   if (entry.kind === "tool_output" || entry.kind === "tool_end") return null;
 
+  const prefix = KIND_PREFIX[entry.kind];
+
   return (
-    <div
-      className={cn(
-        "flex items-start gap-2 rounded px-1.5 py-0.5",
-        config.dimBg
-      )}
-    >
+    <div className="flex items-start gap-2 py-px">
       {!compact && (
-        <span className="shrink-0 text-[10px] text-zinc-600 tabular-nums mt-0.5 w-16">
+        <span className="shrink-0 w-14 text-text-void tabular-nums text-[10px] mt-px">
           {formatTime(entry.ts)}
         </span>
       )}
-      <Icon size={12} className={cn("shrink-0 mt-0.5", config.color)} />
-      <span className={cn("whitespace-pre-wrap break-all", config.color)}>
+      <span className="shrink-0 w-2 text-text-void text-[10px] mt-px">{prefix}</span>
+      <span className={cn("whitespace-pre-wrap break-all", KIND_COLOR[entry.kind])}>
         {entry.text}
       </span>
     </div>
   );
 }
 
-/** Collapsible tool call group */
+/* ── Tool call groups ── */
+
 interface ToolGroupData {
   type: "group";
   startSeq: number;
@@ -293,54 +166,49 @@ function ToolGroup({
   const Chevron = collapsed ? ChevronRight : ChevronDown;
 
   return (
-    <div className="my-0.5">
+    <div className="py-px">
       <button
         onClick={onToggle}
-        className={cn(
-          "flex w-full items-start gap-2 rounded px-1.5 py-0.5 text-left transition-colors hover:bg-zinc-900",
-          "bg-sky-500/5"
-        )}
+        className="flex w-full items-start gap-2 text-left hover:bg-glass rounded px-0 py-px transition-colors"
       >
         {!compact && (
-          <span className="shrink-0 text-[10px] text-zinc-600 tabular-nums mt-0.5 w-16">
+          <span className="shrink-0 w-14 text-text-void tabular-nums text-[10px] mt-px">
             {formatTime(group.entries[0]?.ts ?? "")}
           </span>
         )}
-        <Chevron size={12} className="shrink-0 mt-0.5 text-sky-400/60" />
-        <Wrench size={12} className="shrink-0 mt-0.5 text-sky-400" />
-        <span className="text-sky-400 font-medium">{group.toolName}</span>
-        <span className="text-zinc-500 truncate flex-1">{group.summary}</span>
-        <span className="shrink-0 flex items-center gap-1.5">
+        <Chevron size={10} className="shrink-0 mt-[3px] text-text-void" />
+        <span className="text-text-secondary">
+          {group.toolName}
+        </span>
+        <span className="flex-1 truncate text-text-ghost">{group.summary}</span>
+        <span className="shrink-0 flex items-center gap-2">
           {group.durationMs !== undefined && (
-            <span className="text-[10px] text-zinc-600">
+            <span className="text-text-void text-[10px]">
               {group.durationMs > 1000
                 ? `${(group.durationMs / 1000).toFixed(1)}s`
                 : `${group.durationMs}ms`}
             </span>
           )}
-          {group.ok ? (
-            <CheckCircle2 size={11} className="text-emerald-500/60" />
-          ) : (
-            <XCircle size={11} className="text-red-400/60" />
-          )}
+          <span className={group.ok ? "text-ok text-[10px]" : "text-fail text-[10px]"}>
+            {group.ok ? "ok" : "err"}
+          </span>
         </span>
       </button>
 
       {!collapsed && (
-        <div className="ml-6 border-l border-sky-500/10 pl-3 py-0.5">
+        <div className="ml-[76px] border-l border-glass-border pl-3 py-0.5">
           {group.entries
             .filter((e) => e.kind === "tool_output")
             .map((e) => (
               <div
                 key={e.seq}
-                className="text-zinc-600 whitespace-pre-wrap break-all py-0.5 text-[11px]"
+                className="text-text-void whitespace-pre-wrap break-all py-px text-[10px]"
               >
                 {e.text}
               </div>
             ))}
-          {group.entries.filter((e) => e.kind === "tool_output").length ===
-            0 && (
-            <span className="text-zinc-700 text-[10px]">No output</span>
+          {group.entries.filter((e) => e.kind === "tool_output").length === 0 && (
+            <span className="text-text-void text-[10px]">no output</span>
           )}
         </div>
       )}
@@ -348,10 +216,9 @@ function ToolGroup({
   );
 }
 
-/** Group consecutive tool_start -> tool_output* -> tool_end into blocks */
-type ProcessedItem =
-  | { type: "line"; entry: LogEntry }
-  | ToolGroupData;
+/* ── Grouping logic ── */
+
+type ProcessedItem = { type: "line"; entry: LogEntry } | ToolGroupData;
 
 function groupToolCalls(entries: LogEntry[]): ProcessedItem[] {
   const result: ProcessedItem[] = [];
@@ -362,12 +229,10 @@ function groupToolCalls(entries: LogEntry[]): ProcessedItem[] {
 
     if (entry.kind === "tool_start") {
       const toolName = (entry.meta?.tool as string) ?? "tool";
-      const summary = entry.text;
       const group: LogEntry[] = [entry];
       let ok = true;
       let durationMs: number | undefined;
 
-      // Collect following tool_output and tool_end entries for same tool
       let j = i + 1;
       while (j < entries.length) {
         const next = entries[j];
@@ -389,7 +254,7 @@ function groupToolCalls(entries: LogEntry[]): ProcessedItem[] {
         type: "group",
         startSeq: entry.seq,
         toolName,
-        summary,
+        summary: entry.text,
         entries: group,
         ok,
         durationMs,

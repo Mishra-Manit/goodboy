@@ -1,87 +1,65 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { cn } from "@dashboard/lib/utils";
-import {
-  ListTodo,
-  History,
-  GitPullRequest,
-  FolderGit2,
-  Activity,
-} from "lucide-react";
 
 const NAV_ITEMS = [
-  { to: "/", icon: ListTodo, label: "Active" },
-  { to: "/history", icon: History, label: "History" },
-  { to: "/prs", icon: GitPullRequest, label: "Pull Requests" },
-  { to: "/repos", icon: FolderGit2, label: "Repos" },
+  { to: "/", label: "Active" },
+  { to: "/history", label: "History" },
+  { to: "/prs", label: "PRs" },
+  { to: "/repos", label: "Repos" },
 ];
 
 export function Layout() {
+  const location = useLocation();
+
   return (
-    <div className="flex h-screen bg-zinc-950">
-      {/* Sidebar */}
-      <aside className="flex w-52 shrink-0 flex-col border-r border-zinc-800/60">
-        {/* Logo */}
-        <div className="flex h-14 items-center gap-2.5 px-4">
-          <div className="relative h-8 w-8 rounded-lg bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center text-sm font-bold text-white shadow-lg shadow-violet-500/20">
-            G
-            <div className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 border-2 border-zinc-950" />
-          </div>
-          <div>
-            <span className="text-sm font-semibold tracking-tight text-zinc-100">
-              Goodboy
-            </span>
-            <div className="flex items-center gap-1">
-              <Activity size={9} className="text-emerald-400" />
-              <span className="text-[10px] text-zinc-500">Online</span>
+    <div className="grain min-h-screen">
+      {/* Floating nav pill */}
+      <nav className="fixed top-5 left-1/2 z-50 -translate-x-1/2">
+        <div
+          className={cn(
+            "flex items-center gap-1 rounded-full px-1.5 py-1.5",
+            "bg-glass border border-glass-border",
+            "backdrop-blur-xl shadow-[0_4px_24px_rgba(0,0,0,0.5)]"
+          )}
+        >
+          {/* Brand mark */}
+          <div className="flex items-center gap-2 pl-3 pr-4">
+            <div className="relative flex h-5 w-5 items-center justify-center">
+              <span className="font-display text-[11px] font-bold text-accent">
+                G
+              </span>
+              <div className="absolute -top-px -right-px h-1.5 w-1.5 rounded-full bg-ok" />
             </div>
           </div>
-        </div>
 
-        {/* Nav */}
-        <nav className="flex-1 px-2 pt-2 space-y-0.5">
-          <div className="px-2 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-600">
-            Navigation
+          {/* Divider */}
+          <div className="h-4 w-px bg-glass-border" />
+
+          {/* Links */}
+          <div className="flex items-center gap-0.5 px-1">
+            {NAV_ITEMS.map(({ to, label }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={to === "/"}
+                className={({ isActive }) =>
+                  cn(
+                    "rounded-full px-3.5 py-1 font-body text-xs transition-all duration-200",
+                    isActive
+                      ? "bg-white/[0.07] text-text font-medium"
+                      : "text-text-dim hover:text-text-secondary"
+                  )
+                }
+              >
+                {label}
+              </NavLink>
+            ))}
           </div>
-          {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === "/"}
-              className={({ isActive }) =>
-                cn(
-                  "group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-all duration-150",
-                  isActive
-                    ? "bg-zinc-800/80 text-zinc-100 font-medium shadow-sm"
-                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-300"
-                )
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  <Icon
-                    size={15}
-                    className={cn(
-                      "transition-colors",
-                      isActive ? "text-violet-400" : "text-zinc-600 group-hover:text-zinc-400"
-                    )}
-                  />
-                  {label}
-                </>
-              )}
-            </NavLink>
-          ))}
-        </nav>
-
-        {/* Footer */}
-        <div className="border-t border-zinc-800/40 px-4 py-3">
-          <p className="text-[10px] text-zinc-700">
-            Background coding agent
-          </p>
         </div>
-      </aside>
+      </nav>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-y-auto">
+      {/* Main content - single centered column */}
+      <main className="mx-auto max-w-[680px] px-5 pb-24 pt-24">
         <Outlet />
       </main>
     </div>
