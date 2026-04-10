@@ -9,47 +9,42 @@ import { createLogger } from "./shared/logger.js";
 
 const log = createLogger("main");
 
-async function main() {
+async function main(): Promise<void> {
   const env = loadEnv();
 
-  // Hono app combining API + static dashboard
   const app = new Hono();
-
-  // Mount API routes
   const api = createApi();
   app.route("/", api);
-
-  // Serve dashboard static files
   app.use("/*", serveStatic({ root: "./dashboard/dist" }));
 
-  // Start HTTP server
-  const port = Number(env.PORT);
-  serve({ fetch: app.fetch, port }, (info) => {
+  const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
     log.info(`Server running on http://${env.HOST}:${info.port}`);
   });
 
-  // Start Telegram bot
   const bot = createBot();
-  bot.start({
-    onStart: () => {
-      log.info("Telegram bot started");
-    },
+  await bot.start({
+    onStart: () => log.info("Telegram bot started"),
   });
 
   log.info("Goodboy is running");
 
-  // Graceful shutdown
-  const shutdown = () => {
+  const shutdown = async (): Promise<void> => {
     log.info("Shutting down...");
-    bot.stop();
+    await bot.stop();
+    server.close();
     process.exit(0);
   };
 
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", () => void shutdown());
+  process.on("SIGTERM", () => void shutdown());
 }
 
+process.on("unhandledRejection", (reason) => {
+  log.error("Unhandled rejection", reason);
+  process.exit(1);
+});
+
 main().catch((err) => {
-  console.error("Fatal error:", err);
+  log.error("Fatal error", err);
   process.exit(1);
 });

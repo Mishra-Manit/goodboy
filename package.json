@@ -4,27 +4,23 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "vite build --config dashboard/vite.config.ts && tsx src/index.ts",
+    "dev": "npm run dev:dashboard & npm run dev:server",
     "build": "tsc && vite build --config dashboard/vite.config.ts",
     "start": "node dist/index.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "dev:server": "tsx watch src/index.ts",
+    "dev:dashboard": "vite build --watch --config dashboard/vite.config.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
     "@neondatabase/serverless": "^0.10.4",
-    "clsx": "^2.1.1",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.4",
     "grammy": "^1.35.0",
     "hono": "^4.7.4",
-    "lucide-react": "^1.7.0",
-    "nanoid": "^5.0.9",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
-    "react-router-dom": "^7.14.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
@@ -37,6 +33,12 @@
     "tailwindcss": "^4.2.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
-    "vite": "^8.0.7"
+    "vite": "^8.0.7",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.7.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-router-dom": "^7.14.0",
+    "nanoid": "^5.0.9"
   }
 }
