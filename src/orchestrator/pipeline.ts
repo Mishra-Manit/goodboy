@@ -6,6 +6,7 @@ import { emit } from "../shared/events.js";
 import type { StageName, TaskStatus } from "../shared/types.js";
 import { STAGE_TO_STATUS } from "../shared/types.js";
 import * as queries from "../db/queries.js";
+import type { Task } from "../db/queries.js";
 import { getRepo } from "../shared/repos.js";
 import { spawnPiSession, type PiSession } from "./pi-rpc.js";
 import { createWorktree, generateBranchName } from "./worktree.js";
@@ -196,8 +197,6 @@ export async function runPipeline(
     releaseSlot();
   }
 }
-
-import type { Task } from "../db/queries.js";
 
 const STAGE_DISPLAY_NAMES: Record<StageName, string> = {
   planner: "Planner",

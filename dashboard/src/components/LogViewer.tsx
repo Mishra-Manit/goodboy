@@ -7,7 +7,6 @@ import {
   Terminal,
   FileText,
   Pencil,
-  AlertTriangle,
   Copy,
   Check,
 } from "lucide-react";
@@ -361,10 +360,8 @@ function ToolGroup({
 
       {!collapsed && (
         <ToolOutput
-          toolName={group.toolName}
           text={outputText}
           ok={group.ok}
-          compact={compact}
         />
       )}
     </div>
@@ -374,15 +371,11 @@ function ToolGroup({
 /* ── Tool output renderer ── */
 
 function ToolOutput({
-  toolName,
   text,
   ok,
-  compact,
 }: {
-  toolName: string;
   text: string;
   ok: boolean;
-  compact: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);

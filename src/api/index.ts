@@ -71,6 +71,8 @@ export function createApi(): Hono {
     if (task.status !== "failed") return c.json({ error: "Task is not in failed state" }, 409);
 
     await queries.updateTask(task.id, { status: "queued", error: null });
+    // Dashboard-triggered retries don't have access to the bot instance,
+    // so Telegram notifications are skipped. The user is watching the dashboard.
     const noopSend = async (_chatId: string, _text: string): Promise<void> => {};
     runPipeline(task.id, noopSend).catch((err) => {
       log.error(`Pipeline error for retried task ${task.id}`, err);

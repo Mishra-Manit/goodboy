@@ -118,8 +118,8 @@ export function TaskDetail() {
     try {
       await retryTask(task.id);
       refetch();
-    } catch (err) {
-      console.error("Retry failed", err);
+    } catch {
+      // Retry failure is visible via task status update
     }
   }
 
@@ -128,8 +128,8 @@ export function TaskDetail() {
     try {
       await cancelTask(task.id);
       refetch();
-    } catch (err) {
-      console.error("Cancel failed", err);
+    } catch {
+      // Cancel failure is visible via task status update
     }
   }
 
