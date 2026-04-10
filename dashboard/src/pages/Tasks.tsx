@@ -1,10 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   fetchTasks,
   fetchTask,
   type Task,
-  type TaskDetail,
+  type TaskWithStages,
   type LogEntry,
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
@@ -31,49 +31,44 @@ const HISTORY_FILTERS = ["all", "complete", "failed", "cancelled"] as const;
 
 export function Tasks() {
   const navigate = useNavigate();
-  const { data: tasks, loading, refetch } = useQuery(() => fetchTasks());
+  const { data: tasks, loading, error, refetch } = useQuery(() => fetchTasks());
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
-  const [taskDetails, setTaskDetails] = useState<Map<string, TaskDetail>>(
+  const [taskDetails, setTaskDetails] = useState<Map<string, TaskWithStages>>(
     new Map()
   );
   const [liveLogs, setLiveLogs] = useState<Map<string, LogEntry[]>>(
     new Map()
   );
-  const [historyFilter, setHistoryFilter] = useState<string>("all");
+  const [historyFilter, setHistoryFilter] = useState<typeof HISTORY_FILTERS[number]>("all");
 
   useSSERefresh(refetch, (e) => e.type === "task_update");
 
-  useSSE(
-    useCallback(
-      (event) => {
-        if (event.type === "log") {
-          const taskId = event.taskId as string;
-          const entry = event.entry as LogEntry;
-          if (entry) {
-            setLiveLogs((prev) => {
-              const next = new Map(prev);
-              const existing = next.get(taskId) ?? [];
-              next.set(taskId, [...existing, entry]);
-              return next;
-            });
-          }
-        }
-        if (event.type === "stage_update" || event.type === "task_update") {
-          const taskId = event.taskId as string;
-          if (taskId === expandedTask) {
-            fetchTask(taskId).then((detail) => {
-              setTaskDetails((prev) => {
-                const next = new Map(prev);
-                next.set(taskId, detail);
-                return next;
-              });
-            });
-          }
-        }
-      },
-      [expandedTask]
-    )
-  );
+  useSSE((event) => {
+    if (event.type === "log") {
+      const taskId = event.taskId as string;
+      const entry = event.entry as LogEntry;
+      if (entry) {
+        setLiveLogs((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(taskId) ?? [];
+          next.set(taskId, [...existing, entry]);
+          return next;
+        });
+      }
+    }
+    if (event.type === "stage_update" || event.type === "task_update") {
+      const taskId = event.taskId as string;
+      if (taskId === expandedTask) {
+        fetchTask(taskId).then((detail) => {
+          setTaskDetails((prev) => {
+            const next = new Map(prev);
+            next.set(taskId, detail);
+            return next;
+          });
+        });
+      }
+    }
+  });
 
   const activeTasks = (tasks ?? []).filter((t) =>
     ACTIVE_STATUSES.has(t.status)
@@ -141,6 +136,16 @@ export function Tasks() {
             connecting...
           </span>
         </div>
+      ) : error ? (
+        <div className="py-24 text-center">
+          <span className="font-mono text-xs text-fail">{error}</span>
+          <button
+            onClick={refetch}
+            className="mt-3 block mx-auto font-mono text-xs text-text-ghost hover:text-accent"
+          >
+            retry
+          </button>
+        </div>
       ) : activeTasks.length === 0 ? (
         <div className="py-8 text-center">
           <span className="font-mono text-[11px] text-text-ghost">
@@ -181,13 +186,12 @@ export function Tasks() {
                     <div className="mt-3 flex items-center justify-between">
                       <PipelineProgress
                         stages={detail.stages}
-                        taskStatus={task.status}
+                        className="hidden sm:flex"
                       />
                       <PipelineProgress
                         stages={detail.stages}
-                        taskStatus={task.status}
                         mini
-                        className="sm:hidden"
+                        className="flex sm:hidden"
                       />
                     </div>
                   )}
@@ -233,7 +237,7 @@ export function Tasks() {
           >
             {f}
             <span className="ml-1.5 text-text-void">
-              {historyCounts[f as keyof typeof historyCounts]}
+              {historyCounts[f]}
             </span>
           </button>
         ))}

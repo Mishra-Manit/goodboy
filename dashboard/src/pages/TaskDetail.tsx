@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Navigate } from "react-router-dom";
 import { ArrowLeft, ExternalLink, RotateCcw, XCircle } from "lucide-react";
 import {
   fetchTask,
@@ -6,7 +6,7 @@ import {
   fetchArtifact,
   retryTask,
   cancelTask,
-  type TaskDetail as TaskDetailType,
+  type TaskWithStages,
   type LogEntry,
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
@@ -15,9 +15,8 @@ import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { LogViewer } from "@dashboard/components/LogViewer";
 import { PipelineProgress } from "@dashboard/components/PipelineProgress";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
-import { shortId, formatDate, timeAgo } from "@dashboard/lib/utils";
-import { cn } from "@dashboard/lib/utils";
-import { useState, useCallback, useEffect } from "react";
+import { shortId, formatDate, timeAgo, cn } from "@dashboard/lib/utils";
+import { useState, useEffect } from "react";
 
 const ARTIFACTS = [
   { key: "plan.md", label: "plan" },
@@ -35,6 +34,10 @@ const STAGE_ORDER = [
 
 export function TaskDetail() {
   const { id } = useParams<{ id: string }>();
+  if (!id) return <Navigate to="/" replace />;
+  // TypeScript doesn't narrow `id` in closures; pin the narrowed type here
+  const taskId: string = id;
+
   const navigate = useNavigate();
   const [activeStage, setActiveStage] = useState<string | null>(null);
   const [activeArtifact, setActiveArtifact] = useState<string | null>(null);
@@ -47,11 +50,12 @@ export function TaskDetail() {
   const {
     data: task,
     loading,
+    error,
     refetch,
-  } = useQuery(() => fetchTask(id!), [id]);
+  } = useQuery(() => fetchTask(taskId), [taskId]);
   const { data: logsData, refetch: refetchLogs } = useQuery(
-    () => fetchTaskLogs(id!),
-    [id]
+    () => fetchTaskLogs(taskId),
+    [taskId]
   );
 
   useSSERefresh(
@@ -61,28 +65,23 @@ export function TaskDetail() {
     },
     (e) =>
       (e.type === "task_update" || e.type === "stage_update") &&
-      (e as { taskId?: string }).taskId === id
+      (e as { taskId?: string }).taskId === taskId
   );
 
-  useSSE(
-    useCallback(
-      (event) => {
-        if (event.type === "log" && (event.taskId as string) === id) {
-          const stage = event.stage as string;
-          const entry = event.entry as LogEntry;
-          if (entry) {
-            setLiveLogs((prev) => {
-              const next = new Map(prev);
-              const existing = next.get(stage) ?? [];
-              next.set(stage, [...existing, entry]);
-              return next;
-            });
-          }
-        }
-      },
-      [id]
-    )
-  );
+  useSSE((event) => {
+    if (event.type === "log" && (event.taskId as string) === taskId) {
+      const stage = event.stage as string;
+      const entry = event.entry as LogEntry;
+      if (entry) {
+        setLiveLogs((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(stage) ?? [];
+          next.set(stage, [...existing, entry]);
+          return next;
+        });
+      }
+    }
+  });
 
   useEffect(() => {
     if (task && !activeStage) {
@@ -103,7 +102,7 @@ export function TaskDetail() {
     }
     setArtifactLoading(true);
     try {
-      const content = await fetchArtifact(id!, name);
+      const content = await fetchArtifact(taskId, name);
       setArtifactContent(content);
       setActiveArtifact(name);
     } catch {
@@ -116,14 +115,22 @@ export function TaskDetail() {
 
   async function handleRetry() {
     if (!task) return;
-    await retryTask(task.id);
-    refetch();
+    try {
+      await retryTask(task.id);
+      refetch();
+    } catch (err) {
+      console.error("Retry failed", err);
+    }
   }
 
   async function handleCancel() {
     if (!task) return;
-    await cancelTask(task.id);
-    refetch();
+    try {
+      await cancelTask(task.id);
+      refetch();
+    } catch (err) {
+      console.error("Cancel failed", err);
+    }
   }
 
   if (loading && !task) {
@@ -132,6 +139,14 @@ export function TaskDetail() {
         <span className="font-mono text-xs text-text-ghost animate-pulse-soft">
           loading task...
         </span>
+      </div>
+    );
+  }
+
+  if (error && !task) {
+    return (
+      <div className="py-24 text-center">
+        <span className="font-mono text-xs text-fail">{error}</span>
       </div>
     );
   }
@@ -244,7 +259,7 @@ export function TaskDetail() {
 
       {/* Pipeline */}
       <div className="mb-8 flex justify-center py-4">
-        <PipelineProgress stages={task.stages} taskStatus={task.status} />
+        <PipelineProgress stages={task.stages} />
       </div>
 
       {/* Logs */}
