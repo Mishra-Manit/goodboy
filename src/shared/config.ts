@@ -3,6 +3,8 @@ import { z } from "zod";
 const repoEntrySchema = z.object({
   localPath: z.string().min(1),
   githubUrl: z.string().optional(),
+  /** Free-form environment notes injected into agent prompts (e.g. "Python backend uses a venv at backend/venv") */
+  envNotes: z.string().optional(),
 });
 
 const envSchema = z.object({

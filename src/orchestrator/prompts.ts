@@ -6,9 +6,35 @@ CRITICAL RULES:
 - Stay focused on the task -- do not brainstorm, plan beyond your stage, or start side-quests
 `;
 
-export function plannerPrompt(taskDescription: string, artifactsDir: string): string {
+const WORKTREE_CONTEXT = `
+ENVIRONMENT CONTEXT:
+You are working in a git worktree -- a fresh checkout of the repo with NO installed
+dependencies (no node_modules, no venv, no pip packages, no build artifacts).
+The source files are all present but nothing is installed.
+
+- If you need to run code, install dependencies first using the setup command below.
+- If no setup command is provided, look for package.json / requirements.txt / Makefile and install manually.
+- Do NOT spend excessive time on runtime verification. A syntax check (e.g. py_compile, tsc --noEmit) is sufficient.
+  Only attempt full runtime tests if the setup command is provided and works.
+- If dependency installation fails, skip runtime verification and move on -- the code will be reviewed in the next stage.
+`;
+
+export interface WorktreeEnv {
+  envNotes?: string;
+}
+
+function worktreeBlock(env?: WorktreeEnv): string {
+  let block = WORKTREE_CONTEXT;
+  if (env?.envNotes) {
+    block += `\nADDITIONAL ENVIRONMENT NOTES:\n${env.envNotes}\n`;
+  }
+  return block;
+}
+
+export function plannerPrompt(taskDescription: string, artifactsDir: string, env?: WorktreeEnv): string {
   return `You are the Planner stage of an autonomous coding pipeline.
 ${SHARED_RULES}
+${worktreeBlock(env)}
 TASK: ${taskDescription}
 
 YOUR ONLY JOB:
@@ -36,9 +62,10 @@ Otherwise, after writing plan.md, end your output with:
 IMPORTANT: You MUST write the file ${artifactsDir}/plan.md before outputting the status marker. The next stage depends on this file existing.`;
 }
 
-export function implementerPrompt(planPath: string, artifactsDir: string): string {
+export function implementerPrompt(planPath: string, artifactsDir: string, env?: WorktreeEnv): string {
   return `You are the Implementer stage of an autonomous coding pipeline.
 ${SHARED_RULES}
+${worktreeBlock(env)}
 YOUR ONLY JOB:
 1. Read the plan at: ${planPath}
 2. Follow the plan step by step
@@ -62,9 +89,10 @@ After writing the summary file, end your output with:
 IMPORTANT: You MUST make at least one git commit AND write ${artifactsDir}/implementation-summary.md before outputting the status marker.`;
 }
 
-export function reviewerPrompt(planPath: string, summaryPath: string, artifactsDir: string): string {
+export function reviewerPrompt(planPath: string, summaryPath: string, artifactsDir: string, env?: WorktreeEnv): string {
   return `You are the Reviewer stage of an autonomous coding pipeline.
 ${SHARED_RULES}
+${worktreeBlock(env)}
 YOUR ONLY JOB:
 1. Read the plan at: ${planPath}
 2. Read the implementation summary at: ${summaryPath}

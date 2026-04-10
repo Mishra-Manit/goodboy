@@ -14,6 +14,7 @@ import {
   implementerPrompt,
   reviewerPrompt,
   prCreatorPrompt,
+  type WorktreeEnv,
 } from "./prompts.js";
 import { appendLogEntry, makeEntry, resetSeq } from "./logs.js";
 
@@ -113,21 +114,26 @@ export async function runPipeline(
 
   await queries.updateTask(taskId, { branch, worktreePath });
 
+  // Build worktree environment context from repo config
+  const worktreeEnv: WorktreeEnv = {
+    envNotes: repo.envNotes,
+  };
+
   try {
     // Stage 1: Planner
-    await runStage(taskId, "planner", worktreePath, artifactsDir, sendTelegram, task, branch);
+    await runStage(taskId, "planner", worktreePath, artifactsDir, sendTelegram, task, branch, worktreeEnv);
     await requireArtifact(artifactsDir, "plan.md", "Planner failed to write plan.md");
 
     // Stage 2: Implementer
-    await runStage(taskId, "implementer", worktreePath, artifactsDir, sendTelegram, task, branch);
+    await runStage(taskId, "implementer", worktreePath, artifactsDir, sendTelegram, task, branch, worktreeEnv);
     await requireArtifact(artifactsDir, "implementation-summary.md", "Implementer failed to write implementation-summary.md");
 
     // Stage 3: Reviewer
-    await runStage(taskId, "reviewer", worktreePath, artifactsDir, sendTelegram, task, branch);
+    await runStage(taskId, "reviewer", worktreePath, artifactsDir, sendTelegram, task, branch, worktreeEnv);
     await requireArtifact(artifactsDir, "review.md", "Reviewer failed to write review.md");
 
     // Stage 4: PR Creator
-    await runStage(taskId, "pr_creator", worktreePath, artifactsDir, sendTelegram, task, branch);
+    await runStage(taskId, "pr_creator", worktreePath, artifactsDir, sendTelegram, task, branch, worktreeEnv);
 
     // Done
     await queries.updateTask(taskId, {
@@ -162,7 +168,8 @@ async function runStage(
   artifactsDir: string,
   sendTelegram: SendTelegram,
   task: Awaited<ReturnType<typeof queries.getTask>>,
-  branch: string
+  branch: string,
+  worktreeEnv?: WorktreeEnv
 ): Promise<void> {
   if (!task) throw new Error("Task is null");
 
@@ -181,7 +188,7 @@ async function runStage(
     `Stage started: ${formatStageName(stage)}.`
   );
 
-  const systemPrompt = getSystemPrompt(stage, task.description, worktreePath, artifactsDir, branch, task.repo);
+  const systemPrompt = getSystemPrompt(stage, task.description, worktreePath, artifactsDir, branch, task.repo, worktreeEnv);
 
   resetSeq(taskId, stage);
 
@@ -284,7 +291,8 @@ function getSystemPrompt(
   _worktreePath: string,
   artifactsDir: string,
   branch: string,
-  repoName: string
+  repoName: string,
+  worktreeEnv?: WorktreeEnv
 ): string {
   // Use absolute paths so pi can find them regardless of CWD
   const absArtifacts = path.resolve(artifactsDir);
@@ -294,11 +302,11 @@ function getSystemPrompt(
 
   switch (stage) {
     case "planner":
-      return plannerPrompt(description, absArtifacts);
+      return plannerPrompt(description, absArtifacts, worktreeEnv);
     case "implementer":
-      return implementerPrompt(planPath, absArtifacts);
+      return implementerPrompt(planPath, absArtifacts, worktreeEnv);
     case "reviewer":
-      return reviewerPrompt(planPath, summaryPath, absArtifacts);
+      return reviewerPrompt(planPath, summaryPath, absArtifacts, worktreeEnv);
     case "pr_creator":
       return prCreatorPrompt(branch, repoName, planPath, summaryPath, reviewPath);
     case "revision":
