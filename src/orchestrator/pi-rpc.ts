@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createLogger } from "../shared/logger.js";
 import { config } from "../shared/config.js";
-import type { PiOutputMarker, LogEntry, LogEntryKind } from "../shared/types.js";
+import type { PiOutputMarker, LogEntryKind } from "../shared/types.js";
 
 const log = createLogger("pi-rpc");
 
@@ -17,7 +17,6 @@ export interface PiSession {
   waitForCompletion: () => Promise<{
     marker: PiOutputMarker | null;
     fullOutput: string;
-    events: PiEvent[];
   }>;
   kill: () => void;
 }
@@ -31,12 +30,10 @@ export function spawnPiSession(options: {
   systemPrompt: string;
   model?: string;
   onEvent?: (event: PiEvent) => void;
-  /** Structured log callback -- use this instead of onLogLine */
+  /** Structured log callback */
   onLog?: (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => void;
-  /** @deprecated use onLog for structured logging */
-  onLogLine?: (line: string) => void;
 }): PiSession {
-  const { id, cwd, systemPrompt, model, onEvent, onLog, onLogLine } = options;
+  const { id, cwd, systemPrompt, model, onEvent, onLog } = options;
 
   const args = [
     "--mode", "rpc",
@@ -55,17 +52,12 @@ export function spawnPiSession(options: {
   const proc = spawn(config.piCommand, args, {
     cwd,
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env },
+    env: process.env,
   });
 
-  const allEvents: PiEvent[] = [];
   let fullOutput = "";
-  let resolveCompletion: ((result: {
-    marker: PiOutputMarker | null;
-    fullOutput: string;
-    events: PiEvent[];
-  }) => void) | null = null;
-  let agentRunning = false;
+  let resolveCompletion: ((result: { marker: PiOutputMarker | null; fullOutput: string }) => void) | null = null;
+  let rejectCompletion: ((err: Error) => void) | null = null;
   let textLineBuffer = "";
 
   /** Track active tool calls for duration measurement */
@@ -73,7 +65,6 @@ export function spawnPiSession(options: {
 
   function emitLog(kind: LogEntryKind, text: string, meta?: Record<string, unknown>): void {
     onLog?.(kind, text, meta);
-    onLogLine?.(text);
   }
 
   // Proper JSONL reader -- split only on \n, not Unicode line separators
@@ -101,7 +92,6 @@ export function spawnPiSession(options: {
   }
 
   function handleEvent(event: PiEvent): void {
-    allEvents.push(event);
     onEvent?.(event);
 
     // Auto-respond to extension UI dialog requests
@@ -112,13 +102,12 @@ export function spawnPiSession(options: {
         const response = method === "confirm"
           ? { type: "extension_ui_response", id: reqId, confirmed: true }
           : { type: "extension_ui_response", id: reqId, cancelled: true };
-        proc.stdin?.write(JSON.stringify(response) + "\n");
+        proc.stdin!.write(JSON.stringify(response) + "\n");
       }
       return;
     }
 
     if (event.type === "agent_start") {
-      agentRunning = true;
       emitLog("stage_info", "Agent started");
     }
 
@@ -151,11 +140,7 @@ export function spawnPiSession(options: {
       if (toolName === "bash") {
         const cmd = (args?.command as string) ?? "";
         summary = cmd.length > 200 ? cmd.slice(0, 200) + "..." : cmd;
-      } else if (toolName === "read") {
-        summary = (args?.path as string) ?? "";
-      } else if (toolName === "edit") {
-        summary = (args?.path as string) ?? "";
-      } else if (toolName === "write") {
+      } else if (["read", "edit", "write"].includes(toolName)) {
         summary = (args?.path as string) ?? "";
       } else {
         summary = toolName;
@@ -197,11 +182,10 @@ export function spawnPiSession(options: {
         textLineBuffer = "";
       }
       emitLog("stage_info", "Agent finished");
-      agentRunning = false;
       if (resolveCompletion) {
-        const marker = extractMarker(fullOutput);
-        resolveCompletion({ marker, fullOutput, events: [...allEvents] });
+        resolveCompletion({ marker: extractMarker(fullOutput), fullOutput });
         resolveCompletion = null;
+        rejectCompletion = null;
       }
     }
 
@@ -227,7 +211,7 @@ export function spawnPiSession(options: {
     }
   });
 
-  proc.stderr?.on("data", (chunk: Buffer) => {
+  proc.stderr!.on("data", (chunk: Buffer) => {
     const text = chunk.toString().trim();
     if (text) {
       emitLog("stderr", text);
@@ -240,9 +224,9 @@ export function spawnPiSession(options: {
     emitLog("stage_info", `Process exited with code ${code}`);
     // If the process exits before agent_end, resolve with what we have
     if (resolveCompletion) {
-      const marker = extractMarker(fullOutput);
-      resolveCompletion({ marker, fullOutput, events: allEvents });
+      resolveCompletion({ marker: extractMarker(fullOutput), fullOutput });
       resolveCompletion = null;
+      rejectCompletion = null;
     }
   });
 
@@ -254,36 +238,40 @@ export function spawnPiSession(options: {
       // Reset output for this new prompt so waitForCompletion gets fresh data
       fullOutput = "";
       const command = JSON.stringify({ type: "prompt", message });
-      proc.stdin?.write(command + "\n");
+      proc.stdin!.write(command + "\n");
       log.debug(`Sent prompt to session ${id}`);
       emitLog("rpc", "Prompt sent");
     },
 
     waitForCompletion() {
-      return new Promise((resolve) => {
-        // If process already exited, resolve immediately
+      if (resolveCompletion) {
+        throw new Error(`[${id}] waitForCompletion called while already waiting`);
+      }
+      return new Promise((resolve, reject) => {
         if (proc.exitCode !== null) {
-          const marker = extractMarker(fullOutput);
-          resolve({ marker, fullOutput, events: [...allEvents] });
+          resolve({ marker: extractMarker(fullOutput), fullOutput });
           return;
         }
-        // Otherwise wait for the next agent_end event
         resolveCompletion = resolve;
+        rejectCompletion = reject;
       });
     },
 
     kill() {
-      // Try graceful abort first
+      if (rejectCompletion) {
+        rejectCompletion(new Error("Session killed"));
+        rejectCompletion = null;
+        resolveCompletion = null;
+      }
       try {
-        proc.stdin?.write(JSON.stringify({ type: "abort" }) + "\n");
+        proc.stdin!.write(JSON.stringify({ type: "abort" }) + "\n");
       } catch {
         // stdin may be closed
       }
-      setTimeout(() => {
-        if (proc.exitCode === null) {
-          proc.kill("SIGTERM");
-        }
+      const killTimer = setTimeout(() => {
+        if (proc.exitCode === null) proc.kill("SIGTERM");
       }, 2000);
+      proc.once("exit", () => clearTimeout(killTimer));
     },
   };
 }
@@ -321,15 +309,20 @@ function truncateArgs(args: Record<string, unknown>): Record<string, unknown> {
 
 /**
  * Extract the structured JSON marker from the end of pi output.
+ * Uses line-based parsing to avoid regex false-positives.
  */
 function extractMarker(text: string): PiOutputMarker | null {
-  const jsonPattern = /\{[^{}]*"status"\s*:\s*"(?:needs_input|complete|ready)"[^{}]*\}/g;
-  const matches = text.match(jsonPattern);
-  if (!matches || matches.length === 0) return null;
-
-  try {
-    return JSON.parse(matches[matches.length - 1]) as PiOutputMarker;
-  } catch {
-    return null;
+  const lines = text.trimEnd().split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line.startsWith("{")) continue;
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed && typeof parsed.status === "string" &&
+          ["needs_input", "complete", "ready"].includes(parsed.status)) {
+        return parsed as PiOutputMarker;
+      }
+    } catch { /* not JSON */ }
   }
+  return null;
 }
