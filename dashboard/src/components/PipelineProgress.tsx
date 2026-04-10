@@ -10,17 +10,13 @@ const PIPELINE_STAGES = [
 
 interface PipelineProgressProps {
   stages: TaskStage[];
-  taskStatus: string;
   className?: string;
   mini?: boolean;
 }
 
 type DisplayStatus = "pending" | "active" | "complete" | "failed";
 
-function getStatus(
-  stage: TaskStage | undefined,
-  _taskStatus: string
-): DisplayStatus {
+function getStatus(stage: TaskStage | undefined): DisplayStatus {
   if (!stage) return "pending";
   if (stage.status === "complete") return "complete";
   if (stage.status === "failed") return "failed";
@@ -51,7 +47,6 @@ const LABEL_STYLES: Record<DisplayStatus, string> = {
 
 export function PipelineProgress({
   stages,
-  taskStatus,
   className,
   mini = false,
 }: PipelineProgressProps) {
@@ -67,7 +62,7 @@ export function PipelineProgress({
     return (
       <div className={cn("flex items-center gap-1.5", className)}>
         {allStages.map((ps) => {
-          const status = getStatus(stageMap.get(ps.key), taskStatus);
+          const status = getStatus(stageMap.get(ps.key));
           return (
             <div
               key={ps.key}
@@ -87,14 +82,14 @@ export function PipelineProgress({
   return (
     <div className={cn("flex items-center gap-0", className)}>
       {allStages.map((ps, i) => {
-        const status = getStatus(stageMap.get(ps.key), taskStatus);
+        const status = getStatus(stageMap.get(ps.key));
         const stageData = stageMap.get(ps.key);
 
         return (
           <div key={ps.key} className="flex items-center">
-            {/* Connector line */}
+            {/* Connector line -- uses previous stage's status */}
             {i > 0 && (
-              <div className={cn("h-px w-6", LINE_STYLES[status])} />
+              <div className={cn("h-px w-6", LINE_STYLES[getStatus(stageMap.get(allStages[i - 1].key))])} />
             )}
 
             {/* Stage dot + label */}

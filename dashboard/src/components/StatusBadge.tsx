@@ -13,6 +13,12 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   running: { label: "running", color: "text-accent", bg: "bg-accent-ghost" },
 };
 
+const ACTIVE_STATUSES = new Set(
+  Object.entries(STATUS_CONFIG)
+    .filter(([, v]) => v.color === "text-accent")
+    .map(([k]) => k)
+);
+
 interface StatusBadgeProps {
   status: string;
   className?: string;
@@ -25,10 +31,6 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
     bg: "bg-transparent",
   };
 
-  const isActive = [
-    "planning", "implementing", "reviewing", "creating_pr", "revision", "running",
-  ].includes(status);
-
   return (
     <span
       className={cn(
@@ -37,8 +39,8 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
         className
       )}
     >
-      {isActive && (
-        <span className={cn("h-1 w-1 rounded-full bg-current animate-pulse-soft")} />
+      {ACTIVE_STATUSES.has(status) && (
+        <span className="h-1 w-1 rounded-full bg-current animate-pulse-soft" />
       )}
       {config.label}
     </span>

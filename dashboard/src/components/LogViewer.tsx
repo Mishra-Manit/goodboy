@@ -7,7 +7,6 @@ import {
   Terminal,
   FileText,
   Pencil,
-  FolderOpen,
   AlertTriangle,
   Copy,
   Check,
@@ -44,6 +43,8 @@ interface LogViewerProps {
 }
 
 type FilterMode = "all" | "tools" | "text" | "errors";
+
+const PREVIEW_LINES = 12;
 
 export function LogViewer({
   entries,
@@ -304,15 +305,11 @@ function ToolGroup({
   const Icon = TOOL_ICON[group.toolName] ?? Terminal;
   const Chevron = collapsed ? ChevronRight : ChevronDown;
 
-  // Extract the meaningful output text
-  const outputText = useMemo(() => {
-    return extractToolOutput(group.entries);
-  }, [group.entries]);
-
-  // Determine display summary
-  const displaySummary = useMemo(() => {
-    return formatToolSummary(group.toolName, group.summary);
-  }, [group.toolName, group.summary]);
+  const outputText = useMemo(() => extractToolOutput(group.entries), [group.entries]);
+  const displaySummary = useMemo(
+    () => formatToolSummary(group.toolName, group.summary),
+    [group.toolName, group.summary]
+  );
 
   return (
     <div className={cn("py-0.5", !group.ok && "")}>
@@ -391,9 +388,12 @@ function ToolOutput({
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {});
   }, [text]);
 
   if (!text || text === "(no output)") {
@@ -405,8 +405,8 @@ function ToolOutput({
   }
 
   const lines = text.split("\n");
-  const isLong = lines.length > 15;
-  const displayLines = expanded || !isLong ? lines : lines.slice(0, 12);
+  const isLong = lines.length > PREVIEW_LINES;
+  const displayLines = expanded || !isLong ? lines : lines.slice(0, PREVIEW_LINES);
   const isDiff = detectDiff(text);
   const isFileList = detectFileList(text);
 
@@ -443,20 +443,12 @@ function ToolOutput({
         ))}
       </div>
 
-      {isLong && !expanded && (
+      {isLong && (
         <button
-          onClick={() => setExpanded(true)}
+          onClick={() => setExpanded((v) => !v)}
           className="mt-1 text-[9px] text-text-ghost hover:text-accent transition-colors"
         >
-          show {lines.length - 12} more lines
-        </button>
-      )}
-      {isLong && expanded && (
-        <button
-          onClick={() => setExpanded(false)}
-          className="mt-1 text-[9px] text-text-ghost hover:text-accent transition-colors"
-        >
-          collapse
+          {expanded ? "collapse" : `show ${lines.length - PREVIEW_LINES} more lines`}
         </button>
       )}
     </div>
@@ -541,8 +533,6 @@ function groupToolCalls(entries: LogEntry[]): ProcessedItem[] {
       let j = i + 1;
       while (j < entries.length) {
         const next = entries[j];
-        // Collect tool_output and tool_end for this tool, plus any raw
-        // text entries that are actually tool_execution_end JSON
         if (next.kind === "tool_output" && next.meta?.tool === toolName) {
           group.push(next);
           j++;
@@ -552,12 +542,7 @@ function groupToolCalls(entries: LogEntry[]): ProcessedItem[] {
           durationMs = next.meta?.durationMs as number | undefined;
           j++;
           break;
-        } else if (
-          next.kind === "text" &&
-          isRawToolJson(next.text)
-        ) {
-          // Absorb raw JSON events that belong to this tool call into the group
-          // so they don't appear as standalone text lines
+        } else if (next.kind === "text" && isRawToolJson(next.text)) {
           group.push(next);
           j++;
         } else {
@@ -587,13 +572,11 @@ function groupToolCalls(entries: LogEntry[]): ProcessedItem[] {
 /* ── Extract meaningful text from tool output entries ── */
 
 function extractToolOutput(entries: LogEntry[]): string {
-  // First try: get tool_output entries (the clean truncated version)
   const toolOutputEntries = entries.filter((e) => e.kind === "tool_output");
   if (toolOutputEntries.length > 0) {
     return toolOutputEntries.map((e) => e.text).join("\n");
   }
 
-  // Second try: parse meaningful text from raw JSON text entries
   for (const entry of entries) {
     if (entry.kind === "text" && isRawToolJson(entry.text)) {
       const extracted = extractTextFromToolJson(entry.text);
@@ -618,7 +601,6 @@ function extractTextFromToolJson(raw: string): string | null {
       }
       if (texts.length > 0) return texts.join("\n");
     }
-    // Some events have result as a direct string
     if (typeof obj?.result === "string") return obj.result;
     return null;
   } catch {
@@ -631,7 +613,6 @@ function extractTextFromToolJson(raw: string): string | null {
 function isRawToolJson(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed.startsWith("{")) return false;
-  // Quick check before expensive parse
   if (
     !trimmed.includes('"tool_execution_end"') &&
     !trimmed.includes('"tool_execution_start"') &&
@@ -657,15 +638,7 @@ function isRawToolJson(text: string): boolean {
 /* ── Format tool summary for display ── */
 
 function formatToolSummary(toolName: string, raw: string): string {
-  if (toolName === "bash") {
-    // Truncate long commands
-    const cmd = raw.length > 120 ? raw.slice(0, 120) + "..." : raw;
-    return cmd;
-  }
-  if (toolName === "read" || toolName === "write" || toolName === "edit") {
-    // Just show the file path
-    return raw;
-  }
+  if (toolName === "bash" && raw.length > 120) return raw.slice(0, 120) + "...";
   return raw;
 }
 
@@ -675,11 +648,7 @@ function detectDiff(text: string): boolean {
   const lines = text.split("\n").slice(0, 10);
   let diffMarkers = 0;
   for (const line of lines) {
-    if (
-      line.startsWith("+") ||
-      line.startsWith("-") ||
-      line.startsWith("@@")
-    ) {
+    if (line.startsWith("+") || line.startsWith("-") || line.startsWith("@@")) {
       diffMarkers++;
     }
   }

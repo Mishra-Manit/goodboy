@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet } from "react-router-dom";
 import { cn } from "@dashboard/lib/utils";
 
 const NAV_ITEMS = [
@@ -8,8 +8,6 @@ const NAV_ITEMS = [
 ];
 
 export function Layout() {
-  const location = useLocation();
-
   return (
     <div className="grain min-h-screen">
       {/* Floating nav pill */}
