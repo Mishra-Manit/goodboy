@@ -49,7 +49,7 @@ export function generateBranchName(taskId: string, description: string): string 
   const slug = description
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .slice(0, 40)
-    .replace(/-$/, "");
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40) || "task";
   return `goodboy/${slug}-${taskId.slice(0, 8)}`;
 }

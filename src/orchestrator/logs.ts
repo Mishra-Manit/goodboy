@@ -1,4 +1,4 @@
-import { mkdir, appendFile, readFile } from "node:fs/promises";
+import { mkdir, appendFile, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { config } from "../shared/config.js";
 import type { LogEntry, LogEntryKind } from "../shared/types.js";
@@ -16,6 +16,13 @@ function nextSeq(taskId: string, stage: string): number {
 /** Reset counter when a stage starts fresh (e.g. retry) */
 export function resetSeq(taskId: string, stage: string): void {
   seqCounters.delete(`${taskId}:${stage}`);
+}
+
+/** Clean up all seq counters for a task (call in pipeline finally block) */
+export function cleanupSeqCounters(taskId: string): void {
+  for (const key of seqCounters.keys()) {
+    if (key.startsWith(`${taskId}:`)) seqCounters.delete(key);
+  }
 }
 
 /** Build a LogEntry with auto-incrementing seq */
@@ -75,7 +82,6 @@ export async function readStageEntries(
 export async function readTaskLogs(
   taskId: string
 ): Promise<Array<{ stage: string; entries: LogEntry[] }>> {
-  const { readdir } = await import("node:fs/promises");
   const dir = path.join(config.artifactsDir, taskId);
 
   try {

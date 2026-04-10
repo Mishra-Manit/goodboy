@@ -1,7 +1,7 @@
 import path from "node:path";
-import { mkdir, access, rm } from "node:fs/promises";
+import { mkdir, stat, rm } from "node:fs/promises";
 import { createLogger } from "../shared/logger.js";
-import { config, getPiModel } from "../shared/config.js";
+import { config, loadEnv } from "../shared/config.js";
 import { emit } from "../shared/events.js";
 import type { StageName, TaskStatus } from "../shared/types.js";
 import { STAGE_TO_STATUS } from "../shared/types.js";
@@ -16,7 +16,7 @@ import {
   prCreatorPrompt,
   type WorktreeEnv,
 } from "./prompts.js";
-import { appendLogEntry, makeEntry, resetSeq } from "./logs.js";
+import { appendLogEntry, makeEntry, resetSeq, cleanupSeqCounters } from "./logs.js";
 
 const log = createLogger("pipeline");
 
@@ -48,12 +48,15 @@ function releaseSlot(): void {
 export type SendTelegram = (chatId: string, text: string) => Promise<void>;
 
 /** Pending reply resolvers for planner conversations */
-const pendingReplies = new Map<string, (reply: string) => void>();
+const pendingReplies = new Map<string, {
+  resolve: (reply: string) => void;
+  reject: (err: Error) => void;
+}>();
 
 export function deliverReply(taskId: string, reply: string): boolean {
-  const resolver = pendingReplies.get(taskId);
-  if (resolver) {
-    resolver(reply);
+  const pending = pendingReplies.get(taskId);
+  if (pending) {
+    pending.resolve(reply);
     pendingReplies.delete(taskId);
     return true;
   }
@@ -65,9 +68,41 @@ export function cancelTask(taskId: string): boolean {
   if (session) {
     session.kill();
     activeSessions.delete(taskId);
-    return true;
   }
-  return false;
+  const pending = pendingReplies.get(taskId);
+  if (pending) {
+    pending.reject(new Error("Task cancelled"));
+    pendingReplies.delete(taskId);
+  }
+  return !!(session || pending);
+}
+
+const REPLY_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
+
+function waitForReply(taskId: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingReplies.delete(taskId);
+      reject(new Error("Timed out waiting for user reply (1h)"));
+    }, REPLY_TIMEOUT_MS);
+
+    pendingReplies.set(taskId, {
+      resolve: (reply) => { clearTimeout(timer); resolve(reply); },
+      reject: (err) => { clearTimeout(timer); reject(err); },
+    });
+  });
+}
+
+const STAGE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms / 60000}min`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer!));
 }
 
 export async function runPipeline(
@@ -157,9 +192,20 @@ export async function runPipeline(
     await failTask(taskId, message, sendTelegram, task.telegramChatId);
   } finally {
     activeSessions.delete(taskId);
+    cleanupSeqCounters(taskId);
     releaseSlot();
   }
 }
+
+import type { Task } from "../db/queries.js";
+
+const STAGE_DISPLAY_NAMES: Record<StageName, string> = {
+  planner: "Planner",
+  implementer: "Implementer",
+  reviewer: "Reviewer",
+  pr_creator: "PR Creator",
+  revision: "Revision",
+};
 
 async function runStage(
   taskId: string,
@@ -167,12 +213,10 @@ async function runStage(
   worktreePath: string,
   artifactsDir: string,
   sendTelegram: SendTelegram,
-  task: Awaited<ReturnType<typeof queries.getTask>>,
+  task: Task,
   branch: string,
   worktreeEnv?: WorktreeEnv
 ): Promise<void> {
-  if (!task) throw new Error("Task is null");
-
   const status = STAGE_TO_STATUS[stage];
   await queries.updateTask(taskId, { status });
   emit({ type: "task_update", taskId, status });
@@ -185,10 +229,10 @@ async function runStage(
   await notifyTelegram(
     sendTelegram,
     task.telegramChatId,
-    `Stage started: ${formatStageName(stage)}.`
+    `Stage started: ${STAGE_DISPLAY_NAMES[stage]}.`
   );
 
-  const systemPrompt = getSystemPrompt(stage, task.description, worktreePath, artifactsDir, branch, task.repo, worktreeEnv);
+  const systemPrompt = getSystemPrompt(stage, task.description, artifactsDir, branch, task.repo, worktreeEnv);
 
   resetSeq(taskId, stage);
 
@@ -196,11 +240,13 @@ async function runStage(
     id: `${taskId}-${stage}`,
     cwd: worktreePath,
     systemPrompt,
-    model: getPiModel(),
+    model: loadEnv().PI_MODEL,
     onLog: (kind, text, meta) => {
       const entry = makeEntry(taskId, stage, kind, text, meta);
       emit({ type: "log", taskId, stage, entry });
-      appendLogEntry(taskId, stage, entry).catch(() => {});
+      appendLogEntry(taskId, stage, entry).catch((err) => {
+        log.warn(`Failed to persist log entry: ${err}`);
+      });
     },
   });
 
@@ -209,86 +255,88 @@ async function runStage(
   // Send initial prompt to kick off the stage
   session.sendPrompt(getInitialPrompt(stage, task.description, artifactsDir));
 
-  // Wait for completion, handling conversation loops for planner
-  let result = await session.waitForCompletion();
+  try {
+    let result = await withTimeout(session.waitForCompletion(), STAGE_TIMEOUT_MS, `Stage ${stage}`);
 
-  if (stage === "planner") {
-    let marker = result.marker;
-    // Handle planner conversation loop
-    while (marker?.status === "needs_input") {
-      const questions = marker.questions.join("\n\n");
-      await sendTelegram(
-        task.telegramChatId!,
-        `Questions about your task:\n\n${questions}`
-      );
+    if (stage === "planner") {
+      if (!task.telegramChatId) {
+        throw new Error("Cannot run planner Q&A: task has no telegramChatId");
+      }
 
-      // Wait for user reply
-      const reply = await waitForReply(taskId);
-      session.sendPrompt(reply);
-      result = await session.waitForCompletion();
-      marker = result.marker;
+      let marker = result.marker;
+      // Handle planner conversation loop
+      while (marker?.status === "needs_input") {
+        const questions = marker.questions.join("\n\n");
+        await sendTelegram(
+          task.telegramChatId,
+          `Questions about your task:\n\n${questions}`
+        );
+
+        const reply = await waitForReply(taskId);
+        session.sendPrompt(reply);
+        result = await withTimeout(session.waitForCompletion(), STAGE_TIMEOUT_MS, `Stage ${stage}`);
+        marker = result.marker;
+      }
+
+      if (marker?.status === "ready") {
+        await sendTelegram(
+          task.telegramChatId,
+          `Plan ready:\n\n${marker.summary}\n\nSend /go to proceed.`
+        );
+        await waitForReply(taskId); // Wait for /go
+      }
     }
 
-    if (marker?.status === "ready") {
-      await sendTelegram(
-        task.telegramChatId!,
-        `Plan ready:\n\n${marker.summary}\n\nSend /go to proceed.`
-      );
-      await waitForReply(taskId); // Wait for /go
-    }
-  }
+    // Kill the pi session to free resources before next stage
+    session.kill();
+    activeSessions.delete(taskId);
 
-  // Kill the pi session to free resources before next stage
-  session.kill();
-  activeSessions.delete(taskId);
+    await queries.updateTaskStage(stageRecord.id, {
+      status: "complete",
+      completedAt: new Date(),
+    });
+    emit({ type: "stage_update", taskId, stage, status: "complete" });
 
-  await queries.updateTaskStage(stageRecord.id, {
-    status: "complete",
-    completedAt: new Date(),
-  });
-  emit({ type: "stage_update", taskId, stage, status: "complete" });
+    if (stage === "pr_creator") {
+      const prUrl = extractPrUrl(result.fullOutput);
+      const prNumber = prUrl ? extractPrNumber(prUrl) : null;
 
-  if (stage === "pr_creator") {
-    const prUrl = extractPrUrl(result.fullOutput);
-    const prNumber = prUrl ? extractPrNumber(prUrl) : null;
+      if (prUrl) {
+        await queries.updateTask(taskId, { prUrl, prNumber });
+        emit({ type: "pr_update", taskId, prUrl });
 
-    if (prUrl) {
-      await queries.updateTask(taskId, { prUrl, prNumber });
-      emit({ type: "pr_update", taskId, prUrl });
-
-      await notifyTelegram(
-        sendTelegram,
-        task.telegramChatId,
-        `PR is up and ready for review:\n${prUrl}`
-      );
+        await notifyTelegram(
+          sendTelegram,
+          task.telegramChatId,
+          `PR is up and ready for review:\n${prUrl}`
+        );
+      } else {
+        await notifyTelegram(
+          sendTelegram,
+          task.telegramChatId,
+          "PR creator finished, but I could not detect the PR URL from output. Please verify in GitHub."
+        );
+      }
     } else {
       await notifyTelegram(
         sendTelegram,
         task.telegramChatId,
-        "PR creator finished, but I could not detect the PR URL from output. Please verify in GitHub."
+        `Stage complete: ${STAGE_DISPLAY_NAMES[stage]}.`
       );
     }
-  } else {
-    await notifyTelegram(
-      sendTelegram,
-      task.telegramChatId,
-      `Stage complete: ${formatStageName(stage)}.`
-    );
+
+    log.info(`Stage ${stage} complete for task ${taskId}`);
+  } catch (err) {
+    session.kill();
+    await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
+    emit({ type: "stage_update", taskId, stage, status: "failed" });
+    throw err;
   }
-
-  log.info(`Stage ${stage} complete for task ${taskId}`);
-}
-
-function waitForReply(taskId: string): Promise<string> {
-  return new Promise((resolve) => {
-    pendingReplies.set(taskId, resolve);
-  });
 }
 
 function getSystemPrompt(
   stage: StageName,
   description: string,
-  _worktreePath: string,
   artifactsDir: string,
   branch: string,
   repoName: string,
@@ -310,7 +358,7 @@ function getSystemPrompt(
     case "pr_creator":
       return prCreatorPrompt(branch, repoName, planPath, summaryPath, reviewPath);
     case "revision":
-      return ""; // Set dynamically
+      throw new Error("Revision system prompt must be set via revisionPrompt() -- not through getSystemPrompt");
   }
 }
 
@@ -337,9 +385,13 @@ function getInitialPrompt(
 async function requireArtifact(artifactsDir: string, filename: string, errorMsg: string): Promise<void> {
   const filePath = path.join(artifactsDir, filename);
   try {
-    await access(filePath);
-  } catch {
-    throw new Error(errorMsg + ` (expected at ${filePath})`);
+    const s = await stat(filePath);
+    if (s.size === 0) {
+      throw new Error(`${errorMsg} (file is empty: ${filePath})`);
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith(errorMsg)) throw err;
+    throw new Error(`${errorMsg} (expected at ${filePath})`);
   }
 }
 
@@ -369,21 +421,6 @@ async function notifyTelegram(
     await sendTelegram(chatId, text);
   } catch (err) {
     log.warn(`Failed to send Telegram message for chat ${chatId}: ${String(err)}`);
-  }
-}
-
-function formatStageName(stage: StageName): string {
-  switch (stage) {
-    case "planner":
-      return "Planner";
-    case "implementer":
-      return "Implementer";
-    case "reviewer":
-      return "Reviewer";
-    case "pr_creator":
-      return "PR Creator";
-    case "revision":
-      return "Revision";
   }
 }
 
