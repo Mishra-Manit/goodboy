@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 interface QueryResult<T> {
   data: T | null;
@@ -7,9 +7,6 @@ interface QueryResult<T> {
   refetch: () => void;
 }
 
-/**
- * Minimal data-fetching hook. Calls fn on mount and when deps change.
- */
 export function useQuery<T>(
   fn: () => Promise<T>,
   deps: unknown[] = []
@@ -17,24 +14,28 @@ export function useQuery<T>(
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const callId = useRef(0);
 
-  const fetch = useCallback(async () => {
+  const execute = useCallback(async () => {
+    const id = ++callId.current;
     setLoading(true);
     setError(null);
     try {
       const result = await fn();
-      setData(result);
+      if (id === callId.current) setData(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (id === callId.current) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      setLoading(false);
+      if (id === callId.current) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
   useEffect(() => {
-    fetch();
-  }, [fetch]);
+    execute();
+  }, [execute]);
 
-  return { data, error, loading, refetch: fetch };
+  return { data, error, loading, refetch: execute };
 }

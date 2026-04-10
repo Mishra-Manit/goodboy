@@ -16,11 +16,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // --- Types mirroring backend ---
 
+export type TaskStatus =
+  | "queued"
+  | "planning"
+  | "implementing"
+  | "reviewing"
+  | "creating_pr"
+  | "revision"
+  | "complete"
+  | "failed"
+  | "cancelled";
+
+export type StageStatus = "running" | "complete" | "failed";
+
 export interface Task {
   id: string;
   repo: string;
   description: string;
-  status: string;
+  status: TaskStatus;
   branch: string | null;
   worktreePath: string | null;
   prUrl: string | null;
@@ -36,14 +49,14 @@ export interface TaskStage {
   id: string;
   taskId: string;
   stage: string;
-  status: string;
+  status: StageStatus;
   startedAt: string;
   completedAt: string | null;
   piSessionId: string | null;
   error: string | null;
 }
 
-export interface TaskDetail extends Task {
+export interface TaskWithStages extends Task {
   stages: TaskStage[];
 }
 
@@ -58,7 +71,7 @@ export interface PR {
   repo: string;
   prUrl: string | null;
   prNumber: number | null;
-  status: string;
+  status: TaskStatus;
 }
 
 export type LogEntryKind =
@@ -97,7 +110,7 @@ export async function fetchTasks(filters?: {
   return request(`/api/tasks${qs ? `?${qs}` : ""}`);
 }
 
-export async function fetchTask(id: string): Promise<TaskDetail> {
+export async function fetchTask(id: string): Promise<TaskWithStages> {
   return request(`/api/tasks/${id}`);
 }
 
