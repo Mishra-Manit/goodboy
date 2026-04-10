@@ -28,6 +28,7 @@ export const tasks = pgTable("tasks", {
   prUrl: text("pr_url"),
   prNumber: integer("pr_number"),
   error: text("error"),
+  instance: text("instance").notNull(),
   telegramChatId: text("telegram_chat_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

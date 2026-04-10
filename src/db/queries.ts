@@ -1,6 +1,7 @@
 import { eq, desc, and, type SQL } from "drizzle-orm";
 import { getDb, schema } from "./index.js";
 import type { TaskStatus, StageStatus, StageName } from "../shared/types.js";
+import { getInstanceId } from "../shared/config.js";
 
 // --- Tasks ---
 
@@ -10,7 +11,10 @@ export async function createTask(data: {
   telegramChatId: string;
 }) {
   const db = getDb();
-  const [task] = await db.insert(schema.tasks).values(data).returning();
+  const [task] = await db
+    .insert(schema.tasks)
+    .values({ ...data, instance: getInstanceId() })
+    .returning();
   return task;
 }
 
@@ -22,7 +26,9 @@ export async function getTask(id: string) {
 
 export async function listTasks(filters?: { status?: TaskStatus; repo?: string }) {
   const db = getDb();
-  const conditions: SQL[] = [];
+  const conditions: SQL[] = [
+    eq(schema.tasks.instance, getInstanceId()),
+  ];
 
   if (filters?.status) {
     conditions.push(eq(schema.tasks.status, filters.status));
@@ -31,16 +37,11 @@ export async function listTasks(filters?: { status?: TaskStatus; repo?: string }
     conditions.push(eq(schema.tasks.repo, filters.repo));
   }
 
-  const query = db
+  return db
     .select()
     .from(schema.tasks)
+    .where(and(...conditions))
     .orderBy(desc(schema.tasks.createdAt));
-
-  if (conditions.length > 0) {
-    return query.where(and(...conditions));
-  }
-
-  return query;
 }
 
 export async function updateTask(

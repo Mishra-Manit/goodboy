@@ -6,6 +6,7 @@ const repoEntrySchema = z.object({
 });
 
 const envSchema = z.object({
+  INSTANCE_ID: z.string().min(1),
   TELEGRAM_BOT_TOKEN: z.string().min(1),
   TELEGRAM_USER_ID: z.string().min(1),
   DATABASE_URL: z.string().url(),
@@ -48,4 +49,8 @@ export function getPiModel(): string {
 
 export function getRegisteredRepos(): Record<string, z.infer<typeof repoEntrySchema>> {
   return loadEnv().REGISTERED_REPOS;
+}
+
+export function getInstanceId(): string {
+  return loadEnv().INSTANCE_ID;
 }
