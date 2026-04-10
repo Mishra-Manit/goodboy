@@ -15,7 +15,8 @@ import { Card } from "@dashboard/components/Card";
 import { LogViewer } from "@dashboard/components/LogViewer";
 import { EmptyState } from "@dashboard/components/EmptyState";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
-import { shortId, timeAgo } from "@dashboard/lib/utils";
+import { TaskRow } from "@dashboard/components/TaskRow";
+import { shortId, timeAgo, cn } from "@dashboard/lib/utils";
 
 const ACTIVE_STATUSES = new Set([
   "queued",
@@ -26,7 +27,9 @@ const ACTIVE_STATUSES = new Set([
   "revision",
 ]);
 
-export function ActiveTasks() {
+const HISTORY_FILTERS = ["all", "complete", "failed", "cancelled"] as const;
+
+export function Tasks() {
   const navigate = useNavigate();
   const { data: tasks, loading, refetch } = useQuery(() => fetchTasks());
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
@@ -36,6 +39,7 @@ export function ActiveTasks() {
   const [liveLogs, setLiveLogs] = useState<Map<string, LogEntry[]>>(
     new Map()
   );
+  const [historyFilter, setHistoryFilter] = useState<string>("all");
 
   useSSERefresh(refetch, (e) => e.type === "task_update");
 
@@ -75,9 +79,23 @@ export function ActiveTasks() {
     ACTIVE_STATUSES.has(t.status)
   );
 
-  const recentCompleted = (tasks ?? [])
-    .filter((t) => !ACTIVE_STATUSES.has(t.status))
-    .slice(0, 6);
+  const completedTasks = (tasks ?? []).filter(
+    (t) => !ACTIVE_STATUSES.has(t.status)
+  );
+
+  const filteredHistory = completedTasks.filter((t) => {
+    if (historyFilter === "all") return true;
+    return t.status === historyFilter;
+  });
+
+  const grouped = groupByDate(filteredHistory);
+
+  const historyCounts = {
+    all: completedTasks.length,
+    complete: completedTasks.filter((t) => t.status === "complete").length,
+    failed: completedTasks.filter((t) => t.status === "failed").length,
+    cancelled: completedTasks.filter((t) => t.status === "cancelled").length,
+  };
 
   async function toggleExpand(taskId: string) {
     if (expandedTask === taskId) {
@@ -107,10 +125,14 @@ export function ActiveTasks() {
         </p>
       </header>
 
-      {/* Live section */}
+      {/* ── Live section ── */}
       <SectionDivider
         label="live"
-        detail={activeTasks.length > 0 ? `${activeTasks.length} task${activeTasks.length === 1 ? "" : "s"}` : undefined}
+        detail={
+          activeTasks.length > 0
+            ? `${activeTasks.length} task${activeTasks.length === 1 ? "" : "s"}`
+            : undefined
+        }
       />
 
       {loading && !tasks ? (
@@ -120,10 +142,11 @@ export function ActiveTasks() {
           </span>
         </div>
       ) : activeTasks.length === 0 ? (
-        <EmptyState
-          title="No active tasks"
-          description="Send a task via Telegram to get started"
-        />
+        <div className="py-8 text-center">
+          <span className="font-mono text-[11px] text-text-ghost">
+            No active tasks
+          </span>
+        </div>
       ) : (
         <div className="mt-4 space-y-3 stagger">
           {activeTasks.map((task) => {
@@ -133,11 +156,7 @@ export function ActiveTasks() {
 
             return (
               <div key={task.id} className="animate-fade-up">
-                <Card
-                  hoverable
-                  live
-                  onClick={() => toggleExpand(task.id)}
-                >
+                <Card hoverable live onClick={() => toggleExpand(task.id)}>
                   {/* Top row: ID, repo, status */}
                   <div className="flex items-center gap-3 mb-2">
                     <code className="font-mono text-[10px] text-text-ghost">
@@ -164,14 +183,12 @@ export function ActiveTasks() {
                         stages={detail.stages}
                         taskStatus={task.status}
                       />
-                      {detail && (
-                        <PipelineProgress
-                          stages={detail.stages}
-                          taskStatus={task.status}
-                          mini
-                          className="sm:hidden"
-                        />
-                      )}
+                      <PipelineProgress
+                        stages={detail.stages}
+                        taskStatus={task.status}
+                        mini
+                        className="sm:hidden"
+                      />
                     </div>
                   )}
                 </Card>
@@ -198,55 +215,92 @@ export function ActiveTasks() {
         </div>
       )}
 
-      {/* Recent section */}
-      {recentCompleted.length > 0 && (
-        <>
-          <SectionDivider label="recent" className="mt-10" />
-          <div className="mt-3 space-y-1 stagger">
-            {recentCompleted.map((task) => (
-              <RecentRow
-                key={task.id}
-                task={task}
-                onClick={() => navigate(`/tasks/${task.id}`)}
-              />
-            ))}
-          </div>
+      {/* ── History section ── */}
+      <SectionDivider label="history" className="mt-10" />
+
+      {/* Filter pills */}
+      <div className="mt-3 mb-4 flex gap-1">
+        {HISTORY_FILTERS.map((f) => (
           <button
-            onClick={() => navigate("/history")}
-            className="mt-3 block font-mono text-[10px] text-text-ghost hover:text-accent transition-colors"
+            key={f}
+            onClick={() => setHistoryFilter(f)}
+            className={cn(
+              "rounded-full px-3 py-1 font-mono text-[10px] tracking-wide transition-all duration-200",
+              historyFilter === f
+                ? "bg-glass text-text"
+                : "text-text-ghost hover:text-text-dim"
+            )}
           >
-            view all history &rarr;
+            {f}
+            <span className="ml-1.5 text-text-void">
+              {historyCounts[f as keyof typeof historyCounts]}
+            </span>
           </button>
-        </>
+        ))}
+      </div>
+
+      {loading && !tasks ? (
+        <div className="py-8 text-center">
+          <span className="font-mono text-xs text-text-ghost animate-pulse-soft">
+            loading...
+          </span>
+        </div>
+      ) : filteredHistory.length === 0 ? (
+        <EmptyState
+          title="No tasks found"
+          description={
+            historyFilter === "all"
+              ? "Tasks will appear here after they finish"
+              : `No ${historyFilter} tasks`
+          }
+        />
+      ) : (
+        <div className="space-y-6">
+          {grouped.map(({ label, tasks: groupTasks }) => (
+            <div key={label}>
+              <SectionDivider label={label} detail={`${groupTasks.length}`} />
+              <div className="mt-2 space-y-0.5 stagger">
+                {groupTasks.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    showDuration
+                    onClick={() => navigate(`/tasks/${task.id}`)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
-function RecentRow({ task, onClick }: { task: Task; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="group flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-glass animate-fade-up"
-    >
-      <code className="shrink-0 font-mono text-[10px] text-text-void">
-        {shortId(task.id)}
-      </code>
-      <span className="shrink-0 font-mono text-[10px] text-accent/60">
-        {task.repo}
-      </span>
-      <span className="flex-1 truncate text-xs text-text-dim group-hover:text-text-secondary transition-colors">
-        {task.description}
-      </span>
-      <StatusBadge status={task.status} />
-      <span className="shrink-0 font-mono text-[10px] text-text-void">
-        {timeAgo(task.createdAt)}
-      </span>
-      {task.error && (
-        <span className="shrink-0 font-mono text-[9px] text-fail/50 max-w-[120px] truncate">
-          {task.error}
-        </span>
-      )}
-    </button>
-  );
+/* ── Helpers ── */
+
+function groupByDate(tasks: Task[]): Array<{ label: string; tasks: Task[] }> {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 86400000);
+  const weekAgo = new Date(today.getTime() - 7 * 86400000);
+
+  const groups: Record<string, Task[]> = {};
+
+  for (const task of tasks) {
+    const d = new Date(task.createdAt);
+    let label: string;
+    if (d >= today) label = "today";
+    else if (d >= yesterday) label = "yesterday";
+    else if (d >= weekAgo) label = "this week";
+    else label = "older";
+
+    if (!groups[label]) groups[label] = [];
+    groups[label].push(task);
+  }
+
+  const order = ["today", "yesterday", "this week", "older"];
+  return order
+    .filter((label) => groups[label]?.length)
+    .map((label) => ({ label, tasks: groups[label] }));
 }

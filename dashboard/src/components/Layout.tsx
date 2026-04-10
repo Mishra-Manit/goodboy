@@ -2,8 +2,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { cn } from "@dashboard/lib/utils";
 
 const NAV_ITEMS = [
-  { to: "/", label: "Active" },
-  { to: "/history", label: "History" },
+  { to: "/", label: "Tasks" },
   { to: "/prs", label: "PRs" },
   { to: "/repos", label: "Repos" },
 ];
