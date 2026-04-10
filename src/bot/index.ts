@@ -11,6 +11,22 @@ const log = createLogger("bot");
 /** Track which task a user is currently conversing with */
 const activeConversations = new Map<string, string>(); // chatId -> taskId
 
+import type { Task } from "../db/queries.js";
+
+async function findTaskByPrefix(prefix: string): Promise<
+  | { ok: true; task: Task }
+  | { ok: false; message: string }
+> {
+  const tasks = await queries.listTasks();
+  const matches = tasks.filter((t) => t.id.startsWith(prefix));
+  if (matches.length === 0) return { ok: false, message: `Task not found: ${prefix}` };
+  if (matches.length > 1) {
+    const ids = matches.map((t) => t.id.slice(0, 8)).join(", ");
+    return { ok: false, message: `Ambiguous ID -- matches: ${ids}. Use more characters.` };
+  }
+  return { ok: true, task: matches[0] };
+}
+
 export function createBot(): Bot {
   const env = loadEnv();
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
@@ -53,9 +69,10 @@ export function createBot(): Bot {
       return;
     }
 
-    const lines = active.map(
-      (t) => `- [${t.id.slice(0, 8)}] ${t.repo}: ${t.status}\n  ${t.description.slice(0, 80)}`
-    );
+    const lines = active.map((t) => {
+      const desc = t.description.length > 80 ? `${t.description.slice(0, 77)}...` : t.description;
+      return `- [${t.id.slice(0, 8)}] ${t.repo}: ${t.status}\n  ${desc}`;
+    });
     await ctx.reply(`Active tasks:\n${lines.join("\n")}`);
   });
 
@@ -66,17 +83,15 @@ export function createBot(): Bot {
       return;
     }
 
-    // Find task by prefix match
-    const tasks = await queries.listTasks();
-    const task = tasks.find((t) => t.id.startsWith(taskId));
-    if (!task) {
-      await ctx.reply(`Task not found: ${taskId}`);
+    const result = await findTaskByPrefix(taskId);
+    if (!result.ok) {
+      await ctx.reply(result.message);
       return;
     }
 
-    cancelTask(task.id);
-    await queries.updateTask(task.id, { status: "cancelled" });
-    await ctx.reply(`Cancelled task ${task.id.slice(0, 8)}.`);
+    cancelTask(result.task.id);
+    await queries.updateTask(result.task.id, { status: "cancelled" });
+    await ctx.reply(`Cancelled task ${result.task.id.slice(0, 8)}.`);
   });
 
   bot.command("retry", async (ctx) => {
@@ -86,14 +101,21 @@ export function createBot(): Bot {
       return;
     }
 
-    const tasks = await queries.listTasks();
-    const task = tasks.find((t) => t.id.startsWith(taskId));
-    if (!task || task.status !== "failed") {
-      await ctx.reply(`No failed task found: ${taskId}`);
+    const result = await findTaskByPrefix(taskId);
+    if (!result.ok) {
+      await ctx.reply(result.message);
       return;
     }
 
+    const { task } = result;
+    if (task.status !== "failed") {
+      await ctx.reply(`Task ${task.id.slice(0, 8)} is not in failed state (current: ${task.status}).`);
+      return;
+    }
+
+    const chatId = String(ctx.chat.id);
     await queries.updateTask(task.id, { status: "queued", error: null });
+    activeConversations.set(chatId, task.id);
     await ctx.reply(`Retrying task ${task.id.slice(0, 8)}...`);
 
     // Fire and forget
@@ -109,10 +131,13 @@ export function createBot(): Bot {
       await ctx.reply("No task waiting for confirmation.");
       return;
     }
-
-    deliverReply(taskId, "/go");
+    const delivered = deliverReply(taskId, "/go");
     activeConversations.delete(chatId);
-    await ctx.reply("Proceeding with implementation...");
+    if (delivered) {
+      await ctx.reply("Proceeding with implementation...");
+    } else {
+      await ctx.reply("Task has already proceeded. Check /status.");
+    }
   });
 
   // --- Regular messages = new task or reply to planner ---
@@ -129,7 +154,8 @@ export function createBot(): Bot {
         await ctx.reply("Got it, passing to the planner...");
         return;
       }
-      // If no pending reply, fall through to create new task
+      activeConversations.delete(chatId);
+      await ctx.reply("Previous task is no longer waiting for input. Treating as a new task...");
     }
 
     // Parse repo name from message (first word)
@@ -164,6 +190,10 @@ export function createBot(): Bot {
     runPipeline(task.id, sendTelegram).catch((err) => {
       log.error(`Pipeline error for task ${task.id}`, err);
     });
+  });
+
+  bot.catch((err) => {
+    log.error("Bot error", { error: err.message, update: err.ctx?.update?.update_id });
   });
 
   return bot;
