@@ -1,7 +1,10 @@
-import { eq, desc, and, type SQL } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { getDb, schema } from "./index.js";
+import type { Task, TaskStage } from "./schema.js";
 import type { TaskStatus, StageStatus, StageName } from "../shared/types.js";
-import { getInstanceId } from "../shared/config.js";
+import { loadEnv } from "../shared/config.js";
+
+export type { Task, TaskStage };
 
 // --- Tasks ---
 
@@ -9,38 +12,31 @@ export async function createTask(data: {
   repo: string;
   description: string;
   telegramChatId: string;
-}) {
+}): Promise<Task> {
   const db = getDb();
   const [task] = await db
     .insert(schema.tasks)
-    .values({ ...data, instance: getInstanceId() })
+    .values({ ...data, instance: loadEnv().INSTANCE_ID })
     .returning();
   return task;
 }
 
-export async function getTask(id: string) {
+export async function getTask(id: string): Promise<Task | null> {
   const db = getDb();
   const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id));
   return task ?? null;
 }
 
-export async function listTasks(filters?: { status?: TaskStatus; repo?: string }) {
+export async function listTasks(filters?: { status?: TaskStatus; repo?: string }): Promise<Task[]> {
   const db = getDb();
-  const conditions: SQL[] = [
-    eq(schema.tasks.instance, getInstanceId()),
-  ];
-
-  if (filters?.status) {
-    conditions.push(eq(schema.tasks.status, filters.status));
-  }
-  if (filters?.repo) {
-    conditions.push(eq(schema.tasks.repo, filters.repo));
-  }
-
   return db
     .select()
     .from(schema.tasks)
-    .where(and(...conditions))
+    .where(and(
+      eq(schema.tasks.instance, loadEnv().INSTANCE_ID),
+      filters?.status ? eq(schema.tasks.status, filters.status) : undefined,
+      filters?.repo ? eq(schema.tasks.repo, filters.repo) : undefined,
+    ))
     .orderBy(desc(schema.tasks.createdAt));
 }
 
@@ -55,7 +51,7 @@ export async function updateTask(
     error: string | null;
     completedAt: Date | null;
   }>
-) {
+): Promise<Task | undefined> {
   const db = getDb();
   const [updated] = await db
     .update(schema.tasks)
@@ -65,12 +61,15 @@ export async function updateTask(
   return updated;
 }
 
-export async function findTaskByPrNumber(prNumber: number) {
+export async function findTaskByPrNumber(prNumber: number): Promise<Task | null> {
   const db = getDb();
   const [task] = await db
     .select()
     .from(schema.tasks)
-    .where(eq(schema.tasks.prNumber, prNumber));
+    .where(and(
+      eq(schema.tasks.instance, loadEnv().INSTANCE_ID),
+      eq(schema.tasks.prNumber, prNumber),
+    ));
   return task ?? null;
 }
 
@@ -78,9 +77,9 @@ export async function findTaskByPrNumber(prNumber: number) {
 
 export async function createTaskStage(data: {
   taskId: string;
-  stage: string;
+  stage: StageName;
   piSessionId?: string;
-}) {
+}): Promise<TaskStage> {
   const db = getDb();
   const [stage] = await db.insert(schema.taskStages).values(data).returning();
   return stage;
@@ -94,7 +93,7 @@ export async function updateTaskStage(
     piSessionId: string | null;
     error: string | null;
   }>
-) {
+): Promise<TaskStage | undefined> {
   const db = getDb();
   const [updated] = await db
     .update(schema.taskStages)
@@ -104,7 +103,7 @@ export async function updateTaskStage(
   return updated;
 }
 
-export async function getStagesForTask(taskId: string) {
+export async function getStagesForTask(taskId: string): Promise<TaskStage[]> {
   const db = getDb();
   return db
     .select()
@@ -112,5 +111,3 @@ export async function getStagesForTask(taskId: string) {
     .where(eq(schema.taskStages.taskId, taskId))
     .orderBy(schema.taskStages.startedAt);
 }
-
-
