@@ -1,9 +1,19 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { cn } from "@dashboard/lib/utils";
 import type { LogEntry, LogEntryKind } from "@dashboard/lib/api";
-import { ChevronRight, ChevronDown } from "lucide-react";
+import {
+  ChevronRight,
+  ChevronDown,
+  Terminal,
+  FileText,
+  Pencil,
+  FolderOpen,
+  AlertTriangle,
+  Copy,
+  Check,
+} from "lucide-react";
 
-/* ── Kind styling: minimal, monochrome with selective color ── */
+/* ── Kind styling ── */
 
 const KIND_COLOR: Record<LogEntryKind, string> = {
   text: "text-text-secondary",
@@ -16,15 +26,13 @@ const KIND_COLOR: Record<LogEntryKind, string> = {
   stderr: "text-warn",
 };
 
-const KIND_PREFIX: Record<LogEntryKind, string> = {
-  text: "$",
-  tool_start: ">",
-  tool_end: ">",
-  tool_output: " ",
-  stage_info: "#",
-  rpc: "~",
-  error: "!",
-  stderr: "!",
+/* ── Tool icons ── */
+
+const TOOL_ICON: Record<string, typeof Terminal> = {
+  bash: Terminal,
+  read: FileText,
+  edit: Pencil,
+  write: Pencil,
 };
 
 interface LogViewerProps {
@@ -35,18 +43,59 @@ interface LogViewerProps {
   compact?: boolean;
 }
 
+type FilterMode = "all" | "tools" | "text" | "errors";
+
 export function LogViewer({
   entries,
   className,
   autoScroll = true,
-  maxHeight = "400px",
+  maxHeight = "500px",
   compact = false,
 }: LogViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [collapsedTools, setCollapsedTools] = useState(new Set<number>());
   const [userScrolled, setUserScrolled] = useState(false);
+  const [filter, setFilter] = useState<FilterMode>("all");
 
   const processed = useMemo(() => groupToolCalls(entries), [entries]);
+
+  const filtered = useMemo(() => {
+    if (filter === "all") return processed;
+    return processed.filter((item) => {
+      if (filter === "tools") return item.type === "group";
+      if (filter === "errors") {
+        if (item.type === "group") return !item.ok;
+        return (
+          item.entry.kind === "error" || item.entry.kind === "stderr"
+        );
+      }
+      if (filter === "text") {
+        return item.type === "line" && item.entry.kind === "text";
+      }
+      return true;
+    });
+  }, [processed, filter]);
+
+  // Stats for filter bar
+  const stats = useMemo(() => {
+    let tools = 0;
+    let errors = 0;
+    let text = 0;
+    for (const item of processed) {
+      if (item.type === "group") {
+        tools++;
+        if (!item.ok) errors++;
+      } else if (
+        item.entry.kind === "error" ||
+        item.entry.kind === "stderr"
+      ) {
+        errors++;
+      } else if (item.entry.kind === "text") {
+        text++;
+      }
+    }
+    return { tools, errors, text };
+  }, [processed]);
 
   useEffect(() => {
     if (autoScroll && !userScrolled && containerRef.current) {
@@ -81,13 +130,44 @@ export function LogViewer({
 
   return (
     <div className={cn("rounded-lg bg-bg-raised", className)}>
+      {/* Filter bar */}
+      <div className="flex items-center gap-1 px-3 pt-2 pb-1 border-b border-glass-border">
+        <FilterTab
+          active={filter === "all"}
+          onClick={() => setFilter("all")}
+          label="all"
+          count={processed.length}
+        />
+        <FilterTab
+          active={filter === "tools"}
+          onClick={() => setFilter("tools")}
+          label="tools"
+          count={stats.tools}
+        />
+        <FilterTab
+          active={filter === "text"}
+          onClick={() => setFilter("text")}
+          label="text"
+          count={stats.text}
+        />
+        {stats.errors > 0 && (
+          <FilterTab
+            active={filter === "errors"}
+            onClick={() => setFilter("errors")}
+            label="errors"
+            count={stats.errors}
+            className="text-fail/70"
+          />
+        )}
+      </div>
+
       <div
         ref={containerRef}
         onScroll={handleScroll}
         className="overflow-auto p-3 font-mono text-[11px] leading-[1.7]"
         style={{ maxHeight }}
       >
-        {processed.map((item) =>
+        {filtered.map((item) =>
           item.type === "group" ? (
             <ToolGroup
               key={item.startSeq}
@@ -97,17 +177,21 @@ export function LogViewer({
               compact={compact}
             />
           ) : (
-            <LogLine key={item.entry.seq} entry={item.entry} compact={compact} />
+            <LogLine
+              key={item.entry.seq}
+              entry={item.entry}
+              compact={compact}
+            />
           )
         )}
       </div>
 
-      {/* Scroll anchor */}
       {userScrolled && (
         <button
           onClick={() => {
             if (containerRef.current) {
-              containerRef.current.scrollTop = containerRef.current.scrollHeight;
+              containerRef.current.scrollTop =
+                containerRef.current.scrollHeight;
               setUserScrolled(false);
             }
           }}
@@ -120,22 +204,76 @@ export function LogViewer({
   );
 }
 
+/* ── Filter tab ── */
+
+function FilterTab({
+  active,
+  onClick,
+  label,
+  count,
+  className: extraClass,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+  className?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "px-2 py-0.5 rounded font-mono text-[10px] transition-all duration-150",
+        active
+          ? "bg-glass text-text-secondary"
+          : "text-text-void hover:text-text-ghost",
+        extraClass
+      )}
+    >
+      {label}
+      <span className="ml-1 text-text-void">{count}</span>
+    </button>
+  );
+}
+
+/* ── Log line (non-tool) ── */
+
 function LogLine({ entry, compact }: { entry: LogEntry; compact: boolean }) {
   if (entry.kind === "tool_output" || entry.kind === "tool_end") return null;
 
-  const prefix = KIND_PREFIX[entry.kind];
+  // Skip raw JSON tool events that leaked through
+  if (entry.kind === "text" && isRawToolJson(entry.text)) return null;
+
+  const isStage = entry.kind === "stage_info";
+  const isError = entry.kind === "error" || entry.kind === "stderr";
 
   return (
-    <div className="flex items-start gap-2 py-px">
+    <div
+      className={cn(
+        "flex items-start gap-2 py-px",
+        isStage && "py-1.5 mt-1",
+        isError && "bg-fail-dim/30 rounded px-1 -mx-1"
+      )}
+    >
       {!compact && (
         <span className="shrink-0 w-14 text-text-void tabular-nums text-[10px] mt-px">
           {formatTime(entry.ts)}
         </span>
       )}
-      <span className="shrink-0 w-2 text-text-void text-[10px] mt-px">{prefix}</span>
-      <span className={cn("whitespace-pre-wrap break-all", KIND_COLOR[entry.kind])}>
-        {entry.text}
-      </span>
+      {isStage ? (
+        <span className="text-accent font-medium text-[10px]">
+          {entry.text}
+        </span>
+      ) : (
+        <span
+          className={cn(
+            "whitespace-pre-wrap break-all",
+            KIND_COLOR[entry.kind]
+          )}
+        >
+          {entry.text}
+        </span>
+      )}
     </div>
   );
 }
@@ -163,56 +301,223 @@ function ToolGroup({
   onToggle: () => void;
   compact: boolean;
 }) {
+  const Icon = TOOL_ICON[group.toolName] ?? Terminal;
   const Chevron = collapsed ? ChevronRight : ChevronDown;
 
+  // Extract the meaningful output text
+  const outputText = useMemo(() => {
+    return extractToolOutput(group.entries);
+  }, [group.entries]);
+
+  // Determine display summary
+  const displaySummary = useMemo(() => {
+    return formatToolSummary(group.toolName, group.summary);
+  }, [group.toolName, group.summary]);
+
   return (
-    <div className="py-px">
+    <div className={cn("py-0.5", !group.ok && "")}>
       <button
         onClick={onToggle}
-        className="flex w-full items-start gap-2 text-left hover:bg-glass rounded px-0 py-px transition-colors"
+        className={cn(
+          "flex w-full items-center gap-2 text-left rounded px-1 -mx-1 py-0.5 transition-colors",
+          "hover:bg-glass",
+          !group.ok && "bg-fail-dim/20"
+        )}
       >
         {!compact && (
-          <span className="shrink-0 w-14 text-text-void tabular-nums text-[10px] mt-px">
+          <span className="shrink-0 w-14 text-text-void tabular-nums text-[10px]">
             {formatTime(group.entries[0]?.ts ?? "")}
           </span>
         )}
-        <Chevron size={10} className="shrink-0 mt-[3px] text-text-void" />
-        <span className="text-text-secondary">
+
+        <Icon size={11} className="shrink-0 text-text-void" />
+
+        <span className="shrink-0 text-text-dim font-medium text-[11px]">
           {group.toolName}
         </span>
-        <span className="flex-1 truncate text-text-ghost">{group.summary}</span>
+
+        <span className="flex-1 truncate text-text-ghost text-[10px]">
+          {displaySummary}
+        </span>
+
         <span className="shrink-0 flex items-center gap-2">
           {group.durationMs !== undefined && (
-            <span className="text-text-void text-[10px]">
+            <span className="text-text-void text-[10px] tabular-nums">
               {group.durationMs > 1000
                 ? `${(group.durationMs / 1000).toFixed(1)}s`
                 : `${group.durationMs}ms`}
             </span>
           )}
-          <span className={group.ok ? "text-ok text-[10px]" : "text-fail text-[10px]"}>
+          <span
+            className={cn(
+              "text-[9px] font-medium px-1 py-px rounded",
+              group.ok
+                ? "text-ok/70 bg-ok-dim"
+                : "text-fail/70 bg-fail-dim"
+            )}
+          >
             {group.ok ? "ok" : "err"}
           </span>
+          <Chevron size={10} className="text-text-void" />
         </span>
       </button>
 
       {!collapsed && (
-        <div className="ml-[76px] border-l border-glass-border pl-3 py-0.5">
-          {group.entries
-            .filter((e) => e.kind === "tool_output")
-            .map((e) => (
-              <div
-                key={e.seq}
-                className="text-text-void whitespace-pre-wrap break-all py-px text-[10px]"
-              >
-                {e.text}
-              </div>
-            ))}
-          {group.entries.filter((e) => e.kind === "tool_output").length === 0 && (
-            <span className="text-text-void text-[10px]">no output</span>
-          )}
-        </div>
+        <ToolOutput
+          toolName={group.toolName}
+          text={outputText}
+          ok={group.ok}
+          compact={compact}
+        />
       )}
     </div>
+  );
+}
+
+/* ── Tool output renderer ── */
+
+function ToolOutput({
+  toolName,
+  text,
+  ok,
+  compact,
+}: {
+  toolName: string;
+  text: string;
+  ok: boolean;
+  compact: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [text]);
+
+  if (!text || text === "(no output)") {
+    return (
+      <div className="ml-[76px] pl-3 py-0.5 border-l border-glass-border">
+        <span className="text-text-void text-[10px] italic">no output</span>
+      </div>
+    );
+  }
+
+  const lines = text.split("\n");
+  const isLong = lines.length > 15;
+  const displayLines = expanded || !isLong ? lines : lines.slice(0, 12);
+  const isDiff = detectDiff(text);
+  const isFileList = detectFileList(text);
+
+  return (
+    <div
+      className={cn(
+        "ml-[76px] border-l pl-3 py-1 relative group",
+        ok ? "border-glass-border" : "border-fail/20"
+      )}
+    >
+      {/* Copy button */}
+      <button
+        onClick={handleCopy}
+        className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-glass"
+        title="Copy output"
+      >
+        {copied ? (
+          <Check size={10} className="text-ok" />
+        ) : (
+          <Copy size={10} className="text-text-void" />
+        )}
+      </button>
+
+      <div className="overflow-x-auto">
+        {displayLines.map((line, i) => (
+          <div key={i} className="py-px">
+            <OutputLine
+              line={line}
+              isDiff={isDiff}
+              isFileList={isFileList}
+              isError={!ok}
+            />
+          </div>
+        ))}
+      </div>
+
+      {isLong && !expanded && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="mt-1 text-[9px] text-text-ghost hover:text-accent transition-colors"
+        >
+          show {lines.length - 12} more lines
+        </button>
+      )}
+      {isLong && expanded && (
+        <button
+          onClick={() => setExpanded(false)}
+          className="mt-1 text-[9px] text-text-ghost hover:text-accent transition-colors"
+        >
+          collapse
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ── Output line with smart formatting ── */
+
+function OutputLine({
+  line,
+  isDiff,
+  isFileList,
+  isError,
+}: {
+  line: string;
+  isDiff: boolean;
+  isFileList: boolean;
+  isError: boolean;
+}) {
+  if (isError) {
+    return (
+      <span className="text-[10px] text-fail/70 whitespace-pre-wrap break-all">
+        {line}
+      </span>
+    );
+  }
+
+  // Diff coloring
+  if (isDiff) {
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      return (
+        <span className="text-[10px] text-ok/70 whitespace-pre">{line}</span>
+      );
+    }
+    if (line.startsWith("-") && !line.startsWith("---")) {
+      return (
+        <span className="text-[10px] text-fail/60 whitespace-pre">
+          {line}
+        </span>
+      );
+    }
+    if (line.startsWith("@@")) {
+      return (
+        <span className="text-[10px] text-info/50 whitespace-pre">
+          {line}
+        </span>
+      );
+    }
+  }
+
+  // File list -- highlight paths
+  if (isFileList && line.match(/^[\w./-]+\.\w+$/)) {
+    return (
+      <span className="text-[10px] text-text-dim whitespace-pre">{line}</span>
+    );
+  }
+
+  return (
+    <span className="text-[10px] text-text-void whitespace-pre-wrap break-all">
+      {line}
+    </span>
   );
 }
 
@@ -236,6 +541,8 @@ function groupToolCalls(entries: LogEntry[]): ProcessedItem[] {
       let j = i + 1;
       while (j < entries.length) {
         const next = entries[j];
+        // Collect tool_output and tool_end for this tool, plus any raw
+        // text entries that are actually tool_execution_end JSON
         if (next.kind === "tool_output" && next.meta?.tool === toolName) {
           group.push(next);
           j++;
@@ -245,6 +552,14 @@ function groupToolCalls(entries: LogEntry[]): ProcessedItem[] {
           durationMs = next.meta?.durationMs as number | undefined;
           j++;
           break;
+        } else if (
+          next.kind === "text" &&
+          isRawToolJson(next.text)
+        ) {
+          // Absorb raw JSON events that belong to this tool call into the group
+          // so they don't appear as standalone text lines
+          group.push(next);
+          j++;
         } else {
           break;
         }
@@ -267,6 +582,117 @@ function groupToolCalls(entries: LogEntry[]): ProcessedItem[] {
   }
 
   return result;
+}
+
+/* ── Extract meaningful text from tool output entries ── */
+
+function extractToolOutput(entries: LogEntry[]): string {
+  // First try: get tool_output entries (the clean truncated version)
+  const toolOutputEntries = entries.filter((e) => e.kind === "tool_output");
+  if (toolOutputEntries.length > 0) {
+    return toolOutputEntries.map((e) => e.text).join("\n");
+  }
+
+  // Second try: parse meaningful text from raw JSON text entries
+  for (const entry of entries) {
+    if (entry.kind === "text" && isRawToolJson(entry.text)) {
+      const extracted = extractTextFromToolJson(entry.text);
+      if (extracted) return extracted;
+    }
+  }
+
+  return "(no output)";
+}
+
+/* ── Parse tool execution JSON and extract just the useful content ── */
+
+function extractTextFromToolJson(raw: string): string | null {
+  try {
+    const obj = JSON.parse(raw);
+    if (obj?.result?.content) {
+      const texts: string[] = [];
+      for (const block of obj.result.content) {
+        if (block.type === "text" && typeof block.text === "string") {
+          texts.push(block.text);
+        }
+      }
+      if (texts.length > 0) return texts.join("\n");
+    }
+    // Some events have result as a direct string
+    if (typeof obj?.result === "string") return obj.result;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/* ── Detect if text is a raw tool event JSON ── */
+
+function isRawToolJson(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{")) return false;
+  // Quick check before expensive parse
+  if (
+    !trimmed.includes('"tool_execution_end"') &&
+    !trimmed.includes('"tool_execution_start"') &&
+    !trimmed.includes('"tool_call"')
+  ) {
+    return false;
+  }
+  try {
+    const obj = JSON.parse(trimmed);
+    return (
+      typeof obj === "object" &&
+      obj !== null &&
+      typeof obj.type === "string" &&
+      (obj.type === "tool_execution_end" ||
+        obj.type === "tool_execution_start" ||
+        obj.type === "tool_call")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/* ── Format tool summary for display ── */
+
+function formatToolSummary(toolName: string, raw: string): string {
+  if (toolName === "bash") {
+    // Truncate long commands
+    const cmd = raw.length > 120 ? raw.slice(0, 120) + "..." : raw;
+    return cmd;
+  }
+  if (toolName === "read" || toolName === "write" || toolName === "edit") {
+    // Just show the file path
+    return raw;
+  }
+  return raw;
+}
+
+/* ── Content detection helpers ── */
+
+function detectDiff(text: string): boolean {
+  const lines = text.split("\n").slice(0, 10);
+  let diffMarkers = 0;
+  for (const line of lines) {
+    if (
+      line.startsWith("+") ||
+      line.startsWith("-") ||
+      line.startsWith("@@")
+    ) {
+      diffMarkers++;
+    }
+  }
+  return diffMarkers >= 3;
+}
+
+function detectFileList(text: string): boolean {
+  const lines = text.split("\n").slice(0, 10);
+  let pathCount = 0;
+  for (const line of lines) {
+    if (line.match(/^[\w./-]+\.\w{1,6}$/)) pathCount++;
+  }
+  return pathCount >= 3;
 }
 
 function formatTime(ts: string): string {

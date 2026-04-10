@@ -133,7 +133,7 @@ export function spawnPiSession(options: {
         const lines = textLineBuffer.split("\n");
         textLineBuffer = lines.pop() ?? "";
         for (const line of lines) {
-          if (line.trim()) emitLog("text", line);
+          if (line.trim() && !isRawToolEvent(line.trim())) emitLog("text", line);
         }
       }
     }
@@ -286,6 +286,24 @@ export function spawnPiSession(options: {
       }, 2000);
     },
   };
+}
+
+/** Detect raw tool event JSON that leaks into the text stream (duplicates structured entries) */
+function isRawToolEvent(text: string): boolean {
+  if (!text.startsWith("{")) return false;
+  try {
+    const obj = JSON.parse(text);
+    return (
+      typeof obj === "object" &&
+      obj !== null &&
+      typeof obj.type === "string" &&
+      (obj.type === "tool_execution_end" ||
+        obj.type === "tool_execution_start" ||
+        obj.type === "tool_call")
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** Truncate argument values for display */
