@@ -1,11 +1,17 @@
 import { z } from "zod";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const repoEntrySchema = z.object({
   localPath: z.string().min(1),
   githubUrl: z.string().optional(),
-  /** Free-form environment notes injected into agent prompts (e.g. "Python backend uses a venv at backend/venv") */
+  /** Free-form environment notes injected into agent prompts */
   envNotes: z.string().optional(),
 });
+
+export type RepoEntry = z.infer<typeof repoEntrySchema>;
 
 const envSchema = z.object({
   INSTANCE_ID: z.string().min(1),
@@ -18,14 +24,23 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   GOOGLE_API_KEY: z.string().optional(),
   PI_MODEL: z.string().default("openai/gpt-5.4"),
-  PORT: z.string().default("3333"),
+  PORT: z.coerce.number().int().min(1).max(65535).default(3333),
   HOST: z.string().default("0.0.0.0"),
 
-  // JSON map of repo name -> { localPath, githubUrl? }
-  // Each device sets its own paths in .env
-  REGISTERED_REPOS: z.string().default("{}").transform((val) => {
-    const parsed = JSON.parse(val);
-    return z.record(z.string(), repoEntrySchema).parse(parsed);
+  REGISTERED_REPOS: z.string().default("{}").transform((val, ctx) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(val);
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "REGISTERED_REPOS is not valid JSON" });
+      return z.NEVER;
+    }
+    const result = z.record(z.string(), repoEntrySchema).safeParse(parsed);
+    if (!result.success) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `REGISTERED_REPOS shape invalid: ${result.error.message}` });
+      return z.NEVER;
+    }
+    return result.data;
   }),
 });
 
@@ -41,18 +56,6 @@ export function loadEnv(): Env {
 
 export const config = {
   maxParallelTasks: 2,
-  artifactsDir: "artifacts",
+  artifactsDir: path.resolve(__dirname, "../../artifacts"),
   piCommand: "pi",
 } as const;
-
-export function getPiModel(): string {
-  return loadEnv().PI_MODEL;
-}
-
-export function getRegisteredRepos(): Record<string, z.infer<typeof repoEntrySchema>> {
-  return loadEnv().REGISTERED_REPOS;
-}
-
-export function getInstanceId(): string {
-  return loadEnv().INSTANCE_ID;
-}

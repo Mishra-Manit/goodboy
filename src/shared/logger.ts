@@ -10,22 +10,30 @@ const LEVEL_COLORS: Record<LogLevel, string> = {
 
 const RESET = "\x1b[0m";
 
-function log(level: LogLevel, context: string, message: string, data?: unknown): void {
+export interface Logger {
+  debug(msg: string, data?: unknown): void;
+  info(msg: string, data?: unknown): void;
+  warn(msg: string, data?: unknown): void;
+  error(msg: string, data?: unknown): void;
+}
+
+function emit(level: LogLevel, context: string, message: string, data?: unknown): void {
   const timestamp = new Date().toISOString();
   const color = LEVEL_COLORS[level];
   const prefix = `${color}[${timestamp}] [${level.toUpperCase()}] [${context}]${RESET}`;
+  const output = level === "error" || level === "warn" ? console.error : console.log;
   if (data !== undefined) {
-    console.log(`${prefix} ${message}`, data);
+    output(`${prefix} ${message}`, data);
   } else {
-    console.log(`${prefix} ${message}`);
+    output(`${prefix} ${message}`);
   }
 }
 
-export function createLogger(context: string) {
+export function createLogger(context: string): Logger {
   return {
-    debug: (msg: string, data?: unknown) => log("debug", context, msg, data),
-    info: (msg: string, data?: unknown) => log("info", context, msg, data),
-    warn: (msg: string, data?: unknown) => log("warn", context, msg, data),
-    error: (msg: string, data?: unknown) => log("error", context, msg, data),
+    debug: (msg, data) => emit("debug", context, msg, data),
+    info: (msg, data) => emit("info", context, msg, data),
+    warn: (msg, data) => emit("warn", context, msg, data),
+    error: (msg, data) => emit("error", context, msg, data),
   };
 }

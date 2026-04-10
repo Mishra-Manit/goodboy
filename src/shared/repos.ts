@@ -1,4 +1,4 @@
-import { getRegisteredRepos } from "./config.js";
+import { loadEnv } from "./config.js";
 
 export interface Repo {
   name: string;
@@ -8,23 +8,14 @@ export interface Repo {
 }
 
 export function listRepos(): readonly Repo[] {
-  const registered = getRegisteredRepos();
-  return Object.entries(registered).map(([name, entry]) => ({
+  return Object.entries(loadEnv().REGISTERED_REPOS).map(([name, entry]) => ({
     name,
-    localPath: entry.localPath,
-    githubUrl: entry.githubUrl,
-    envNotes: entry.envNotes,
+    ...entry,
   }));
 }
 
 export function getRepo(name: string): Repo | null {
-  const registered = getRegisteredRepos();
-  const entry = registered[name];
+  const entry = loadEnv().REGISTERED_REPOS[name];
   if (!entry) return null;
-  return {
-    name,
-    localPath: entry.localPath,
-    githubUrl: entry.githubUrl,
-    envNotes: entry.envNotes,
-  };
+  return { name, ...entry };
 }

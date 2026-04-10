@@ -1,4 +1,7 @@
 import type { SSEEvent } from "./types.js";
+import { createLogger } from "./logger.js";
+
+const log = createLogger("events");
 
 type Listener = (event: SSEEvent) => void;
 
@@ -15,8 +18,8 @@ export function emit(event: SSEEvent): void {
   for (const listener of listeners) {
     try {
       listener(event);
-    } catch {
-      // swallow errors in listeners
+    } catch (err) {
+      log.error("SSE listener threw", err);
     }
   }
 }
