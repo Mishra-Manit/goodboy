@@ -21,7 +21,7 @@ set -euo pipefail
 cd ~/goodboy
 
 git pull --ff-only
-npm ci --omit=dev
+npm ci
 npm run build
 npm run db:migrate
 
