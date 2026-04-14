@@ -6,6 +6,14 @@ import { createLogger } from "../shared/logger.js";
 const exec = promisify(execFile);
 const log = createLogger("worktree");
 
+/** Fetch latest origin/main and hard-reset so worktrees branch from up-to-date code. */
+export async function syncRepo(repoPath: string): Promise<void> {
+  log.info(`Syncing repo at ${repoPath}`);
+  await exec("git", ["fetch", "origin"], { cwd: repoPath });
+  await exec("git", ["checkout", "main"], { cwd: repoPath });
+  await exec("git", ["reset", "--hard", "origin/main"], { cwd: repoPath });
+}
+
 export async function createWorktree(
   repoPath: string,
   branch: string,

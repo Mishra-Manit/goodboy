@@ -10,7 +10,7 @@ import * as queries from "../db/queries.js";
 import type { Task } from "../db/queries.js";
 import { getRepo } from "../shared/repos.js";
 import { spawnPiSession, type PiSession } from "./pi-rpc.js";
-import { createWorktree, generateBranchName } from "./worktree.js";
+import { createWorktree, generateBranchName, syncRepo } from "./worktree.js";
 import {
   plannerPrompt,
   implementerPrompt,
@@ -137,6 +137,15 @@ export async function runPipeline(
   const artifactsDir = path.join(config.artifactsDir, taskId);
   await rm(artifactsDir, { recursive: true, force: true });
   await mkdir(artifactsDir, { recursive: true });
+
+  // Sync repo to latest origin/main before branching
+  try {
+    await syncRepo(repo.localPath);
+  } catch (err) {
+    releaseSlot();
+    await failTask(taskId, `Failed to sync repo: ${err}`, sendTelegram, task.telegramChatId);
+    return;
+  }
 
   // Create worktree
   const branch = generateBranchName(taskId, task.description);
