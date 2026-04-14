@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import { createLogger } from "../shared/logger.js";
+import { complete } from "../shared/llm.js";
 
 const exec = promisify(execFile);
 const log = createLogger("worktree");
@@ -53,11 +54,16 @@ export async function removeWorktree(repoPath: string, worktreePath: string): Pr
   }
 }
 
-export function generateBranchName(taskId: string, description: string): string {
-  const slug = description
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40) || "task";
+export async function generateBranchName(taskId: string, description: string): Promise<string> {
+  const result = await complete(description, {
+    system: "Output a short professional git branch slug (lowercase, hyphens, 3-5 words). Nothing else. Example: fix-auth-token-refresh",
+    maxTokens: 30,
+  });
+
+  const slug = toSlug(result ?? "") || toSlug(description);
   return `goodboy/${slug}-${taskId.slice(0, 8)}`;
+}
+
+function toSlug(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "task";
 }

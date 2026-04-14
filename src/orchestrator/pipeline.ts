@@ -148,7 +148,7 @@ export async function runPipeline(
   }
 
   // Create worktree
-  const branch = generateBranchName(taskId, task.description);
+  const branch = await generateBranchName(taskId, task.description);
   let worktreePath: string;
   try {
     worktreePath = await createWorktree(repo.localPath, branch, taskId);
