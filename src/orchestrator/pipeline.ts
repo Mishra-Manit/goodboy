@@ -4,6 +4,7 @@ import { createLogger } from "../shared/logger.js";
 import { config, loadEnv } from "../shared/config.js";
 import { emit } from "../shared/events.js";
 import type { StageName, TaskStatus } from "../shared/types.js";
+import type { Env } from "../shared/config.js";
 import { STAGE_TO_STATUS } from "../shared/types.js";
 import * as queries from "../db/queries.js";
 import type { Task } from "../db/queries.js";
@@ -206,6 +207,20 @@ const STAGE_DISPLAY_NAMES: Record<StageName, string> = {
   revision: "Revision",
 };
 
+const STAGE_MODEL_KEYS: Record<StageName, keyof Env> = {
+  planner: "PI_MODEL_PLANNER",
+  implementer: "PI_MODEL_IMPLEMENTER",
+  reviewer: "PI_MODEL_REVIEWER",
+  pr_creator: "PI_MODEL_PR_CREATOR",
+  revision: "PI_MODEL_REVISION",
+};
+
+function getModelForStage(stage: StageName): string {
+  const env = loadEnv();
+  const stageModel = env[STAGE_MODEL_KEYS[stage]] as string | undefined;
+  return stageModel ?? env.PI_MODEL;
+}
+
 async function runStage(
   taskId: string,
   stage: StageName,
@@ -239,7 +254,7 @@ async function runStage(
     id: `${taskId}-${stage}`,
     cwd: worktreePath,
     systemPrompt,
-    model: loadEnv().PI_MODEL,
+    model: getModelForStage(stage),
     onLog: (kind, text, meta) => {
       const entry = makeEntry(taskId, stage, kind, text, meta);
       emit({ type: "log", taskId, stage, entry });

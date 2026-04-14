@@ -23,7 +23,13 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   GOOGLE_API_KEY: z.string().optional(),
+  FIREWORKS_API_KEY: z.string().optional(),
   PI_MODEL: z.string().default("openai/gpt-5.4"),
+  PI_MODEL_PLANNER: z.string().optional(),
+  PI_MODEL_IMPLEMENTER: z.string().optional(),
+  PI_MODEL_REVIEWER: z.string().optional(),
+  PI_MODEL_PR_CREATOR: z.string().optional(),
+  PI_MODEL_REVISION: z.string().optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(3333),
   HOST: z.string().default("0.0.0.0"),
 
