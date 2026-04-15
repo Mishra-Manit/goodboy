@@ -1,10 +1,14 @@
+// --- Task kinds ---
+
+export const TASK_KINDS = ["coding_task", "codebase_question", "pr_review"] as const;
+
+export type TaskKind = (typeof TASK_KINDS)[number];
+
+// --- Task statuses (generic lifecycle) ---
+
 export const TASK_STATUSES = [
   "queued",
-  "planning",
-  "implementing",
-  "reviewing",
-  "creating_pr",
-  "revision",
+  "running",
   "complete",
   "failed",
   "cancelled",
@@ -12,12 +16,19 @@ export const TASK_STATUSES = [
 
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+// --- Stage names (union across all kinds) ---
+
 export const STAGE_NAMES = [
+  // coding_task
   "planner",
   "implementer",
   "reviewer",
   "pr_creator",
   "revision",
+  // codebase_question
+  "answering",
+  // pr_review
+  "pr_reviewing",
 ] as const;
 
 export type StageName = (typeof STAGE_NAMES)[number];
@@ -31,15 +42,6 @@ export type PiOutputMarker =
   | { status: "needs_input"; questions: string[] }
   | { status: "complete" }
   | { status: "ready"; summary: string };
-
-/** Mapping from stage name to the task status it corresponds to */
-export const STAGE_TO_STATUS: Record<StageName, TaskStatus> = {
-  planner: "planning",
-  implementer: "implementing",
-  reviewer: "reviewing",
-  pr_creator: "creating_pr",
-  revision: "revision",
-};
 
 /** Structured log entry emitted by pi-rpc and stored on disk */
 export interface LogEntry {
@@ -67,7 +69,7 @@ export type LogEntryKind =
 
 /** SSE event types */
 export type SSEEvent =
-  | { type: "task_update"; taskId: string; status: TaskStatus }
+  | { type: "task_update"; taskId: string; status: TaskStatus; kind?: TaskKind }
   | { type: "stage_update"; taskId: string; stage: StageName; status: StageStatus }
   | { type: "log"; taskId: string; stage: StageName; entry: LogEntry }
   | { type: "pr_update"; taskId: string; prUrl: string };

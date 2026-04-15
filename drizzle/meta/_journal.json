@@ -8,6 +8,13 @@
       "when": 1775692044711,
       "tag": "0000_first_lenny_balinger",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776220633934,
+      "tag": "0001_happy_talkback",
+      "breakpoints": true
     }
   ]
 }

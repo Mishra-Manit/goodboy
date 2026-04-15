@@ -1,19 +1,33 @@
 import { pgTable, text, timestamp, integer, uuid, pgEnum } from "drizzle-orm/pg-core";
-import { TASK_STATUSES, STAGE_STATUSES, STAGE_NAMES } from "../shared/types.js";
 
-export const taskStatusEnum = pgEnum("task_status", [...TASK_STATUSES] as [string, ...string[]]);
-export const stageStatusEnum = pgEnum("stage_status", [...STAGE_STATUSES] as [string, ...string[]]);
-export const stageNameEnum = pgEnum("stage_name", [...STAGE_NAMES] as [string, ...string[]]);
+// Enum values inlined here so drizzle-kit can resolve schema.ts without
+// following ESM imports. The canonical TypeScript types live in shared/types.ts.
+
+export const taskKindEnum = pgEnum("task_kind", [
+  "coding_task", "codebase_question", "pr_review",
+]);
+export const taskStatusEnum = pgEnum("task_status", [
+  "queued", "running", "complete", "failed", "cancelled",
+]);
+export const stageStatusEnum = pgEnum("stage_status", [
+  "running", "complete", "failed",
+]);
+export const stageNameEnum = pgEnum("stage_name", [
+  "planner", "implementer", "reviewer", "pr_creator", "revision",
+  "answering", "pr_reviewing",
+]);
 
 export const tasks = pgTable("tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
   repo: text("repo").notNull(),
+  kind: taskKindEnum("kind").notNull().default("coding_task"),
   description: text("description").notNull(),
   status: taskStatusEnum("status").notNull().default("queued"),
   branch: text("branch"),
   worktreePath: text("worktree_path"),
   prUrl: text("pr_url"),
   prNumber: integer("pr_number"),
+  prIdentifier: text("pr_identifier"),
   error: text("error"),
   instance: text("instance").notNull(),
   telegramChatId: text("telegram_chat_id"),

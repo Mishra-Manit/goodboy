@@ -1,7 +1,7 @@
 import { eq, desc, and } from "drizzle-orm";
 import { getDb, schema } from "./index.js";
 import type { Task, TaskStage } from "./schema.js";
-import type { TaskStatus, StageStatus, StageName } from "../shared/types.js";
+import type { TaskStatus, TaskKind, StageStatus, StageName } from "../shared/types.js";
 import { loadEnv } from "../shared/config.js";
 
 export type { Task, TaskStage };
@@ -10,13 +10,22 @@ export type { Task, TaskStage };
 
 export async function createTask(data: {
   repo: string;
+  kind: TaskKind;
   description: string;
   telegramChatId: string;
+  prIdentifier?: string;
 }): Promise<Task> {
   const db = getDb();
   const [task] = await db
     .insert(schema.tasks)
-    .values({ ...data, instance: loadEnv().INSTANCE_ID })
+    .values({
+      repo: data.repo,
+      kind: data.kind,
+      description: data.description,
+      telegramChatId: data.telegramChatId,
+      prIdentifier: data.prIdentifier ?? null,
+      instance: loadEnv().INSTANCE_ID,
+    })
     .returning();
   return task;
 }
@@ -27,7 +36,7 @@ export async function getTask(id: string): Promise<Task | null> {
   return task ?? null;
 }
 
-export async function listTasks(filters?: { status?: TaskStatus; repo?: string }): Promise<Task[]> {
+export async function listTasks(filters?: { status?: TaskStatus; repo?: string; kind?: TaskKind }): Promise<Task[]> {
   const db = getDb();
   return db
     .select()
@@ -36,6 +45,7 @@ export async function listTasks(filters?: { status?: TaskStatus; repo?: string }
       eq(schema.tasks.instance, loadEnv().INSTANCE_ID),
       filters?.status ? eq(schema.tasks.status, filters.status) : undefined,
       filters?.repo ? eq(schema.tasks.repo, filters.repo) : undefined,
+      filters?.kind ? eq(schema.tasks.kind, filters.kind) : undefined,
     ))
     .orderBy(desc(schema.tasks.createdAt));
 }
