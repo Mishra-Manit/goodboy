@@ -17,6 +17,10 @@ export const stageNameEnum = pgEnum("stage_name", [
   "answering", "pr_reviewing",
 ]);
 
+export const prSessionStatusEnum = pgEnum("pr_session_status", [
+  "active", "closed",
+]);
+
 export const tasks = pgTable("tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
   repo: text("repo").notNull(),
@@ -49,5 +53,24 @@ export const taskStages = pgTable("task_stages", {
   error: text("error"),
 });
 
+export const prSessions = pgTable("pr_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  repo: text("repo").notNull(),
+  prNumber: integer("pr_number"),
+  branch: text("branch"),
+  worktreePath: text("worktree_path"),
+  status: prSessionStatusEnum("status").notNull().default("active"),
+  /** The dev-task that originated this PR (null for external reviews) */
+  originTaskId: uuid("origin_task_id").references(() => tasks.id),
+  /** Telegram chat ID for notifications */
+  telegramChatId: text("telegram_chat_id"),
+  /** Timestamp of last poll cycle (used to detect new comments) */
+  lastPolledAt: timestamp("last_polled_at"),
+  instance: text("instance").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export type Task = typeof tasks.$inferSelect;
 export type TaskStage = typeof taskStages.$inferSelect;
+export type PrSession = typeof prSessions.$inferSelect;

@@ -1,10 +1,10 @@
 import { eq, desc, and } from "drizzle-orm";
 import { getDb, schema } from "./index.js";
-import type { Task, TaskStage } from "./schema.js";
+import type { Task, TaskStage, PrSession } from "./schema.js";
 import type { TaskStatus, TaskKind, StageStatus, StageName } from "../shared/types.js";
 import { loadEnv } from "../shared/config.js";
 
-export type { Task, TaskStage };
+export type { Task, TaskStage, PrSession };
 
 // --- Tasks ---
 
@@ -120,4 +120,79 @@ export async function getStagesForTask(taskId: string): Promise<TaskStage[]> {
     .from(schema.taskStages)
     .where(eq(schema.taskStages.taskId, taskId))
     .orderBy(schema.taskStages.startedAt);
+}
+
+// --- PR Sessions ---
+
+export async function createPrSession(data: {
+  repo: string;
+  prNumber?: number;
+  branch?: string;
+  worktreePath?: string;
+  originTaskId?: string;
+  telegramChatId: string;
+}): Promise<PrSession> {
+  const db = getDb();
+  const [session] = await db
+    .insert(schema.prSessions)
+    .values({
+      repo: data.repo,
+      prNumber: data.prNumber ?? null,
+      branch: data.branch ?? null,
+      worktreePath: data.worktreePath ?? null,
+      originTaskId: data.originTaskId ?? null,
+      telegramChatId: data.telegramChatId,
+      instance: loadEnv().INSTANCE_ID,
+    })
+    .returning();
+  return session;
+}
+
+export async function getPrSession(id: string): Promise<PrSession | null> {
+  const db = getDb();
+  const [session] = await db
+    .select()
+    .from(schema.prSessions)
+    .where(eq(schema.prSessions.id, id));
+  return session ?? null;
+}
+
+export async function listActivePrSessions(): Promise<PrSession[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(schema.prSessions)
+    .where(and(
+      eq(schema.prSessions.instance, loadEnv().INSTANCE_ID),
+      eq(schema.prSessions.status, "active"),
+    ))
+    .orderBy(desc(schema.prSessions.createdAt));
+}
+
+export async function getPrSessionByOriginTask(originTaskId: string): Promise<PrSession | null> {
+  const db = getDb();
+  const [session] = await db
+    .select()
+    .from(schema.prSessions)
+    .where(eq(schema.prSessions.originTaskId, originTaskId));
+  return session ?? null;
+}
+
+export async function updatePrSession(
+  id: string,
+  data: Partial<{
+    status: "active" | "closed";
+    prNumber: number;
+    lastPolledAt: Date;
+    worktreePath: string | null;
+    branch: string | null;
+  }>,
+): Promise<PrSession | undefined> {
+  const db = getDb();
+  const [updated] = await db
+    .update(schema.prSessions)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(schema.prSessions.id, id))
+    .returning();
+  return updated;
 }

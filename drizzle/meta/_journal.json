@@ -15,6 +15,13 @@
       "when": 1776220633934,
       "tag": "0001_happy_talkback",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776289123178,
+      "tag": "0002_tidy_spiral",
+      "breakpoints": true
     }
   ]
 }
