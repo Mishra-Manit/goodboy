@@ -1,3 +1,6 @@
-export { runPipeline, deliverReply, cancelTask } from "./pipeline.js";
-export type { SendTelegram } from "./pipeline.js";
+export { cancelTask, deliverReply } from "./shared.js";
+export type { SendTelegram } from "./shared.js";
 export { readTaskLogs, readStageEntries } from "./logs.js";
+export { runPipeline } from "./dev-task/index.js";
+export { runQuestion } from "./questions/index.js";
+export { runPrReview } from "./pr-review/index.js";

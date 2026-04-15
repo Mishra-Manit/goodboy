@@ -45,6 +45,31 @@ export async function createWorktree(
   return worktreeDir;
 }
 
+/** Create a worktree checked out to a PR's head ref. */
+export async function createPrWorktree(
+  repoPath: string,
+  prNumber: string,
+  taskId: string,
+): Promise<string> {
+  const dir = path.join(repoPath, "..", `goodboy-pr-${taskId.slice(0, 8)}`);
+
+  // Clean up any existing worktree
+  try {
+    await exec("git", ["worktree", "remove", dir, "--force"], { cwd: repoPath });
+  } catch { /* may not exist */ }
+
+  const localBranch = `pr-review-${prNumber}-${taskId.slice(0, 8)}`;
+  try {
+    await exec("git", ["branch", "-D", localBranch], { cwd: repoPath });
+  } catch { /* may not exist */ }
+
+  await exec("git", ["fetch", "origin", `pull/${prNumber}/head:${localBranch}`], { cwd: repoPath });
+  await exec("git", ["worktree", "add", dir, localBranch], { cwd: repoPath });
+
+  log.info(`Created PR worktree at ${dir} for PR #${prNumber}`);
+  return dir;
+}
+
 export async function removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
   try {
     await exec("git", ["worktree", "remove", worktreePath, "--force"], { cwd: repoPath });

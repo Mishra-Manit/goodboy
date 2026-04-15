@@ -4,7 +4,7 @@ import { createLogger } from "../shared/logger.js";
 import { classifyMessage } from "../shared/classifier.js";
 import { listRepos, getRepo } from "../shared/repos.js";
 import * as queries from "../db/queries.js";
-import { runPipeline, deliverReply, cancelTask } from "../orchestrator/index.js";
+import { runPipeline, runQuestion, runPrReview, deliverReply, cancelTask } from "../orchestrator/index.js";
 import type { SendTelegram } from "../orchestrator/index.js";
 import type { Intent } from "../shared/classifier.js";
 import type { Task } from "../db/queries.js";
@@ -53,6 +53,7 @@ async function handleCodingTask(
 
   const task = await queries.createTask({
     repo: intent.repo,
+    kind: "coding_task",
     description: intent.description,
     telegramChatId: chatId,
   });
@@ -62,6 +63,59 @@ async function handleCodingTask(
 
   runPipeline(task.id, sendTelegram).catch((err) => {
     log.error(`Pipeline error for task ${task.id}`, err);
+  });
+}
+
+async function handleCodebaseQuestion(
+  intent: Extract<Intent, { type: "codebase_question" }>,
+  chatId: string,
+  sendTelegram: SendTelegram,
+  reply: (text: string) => Promise<void>,
+): Promise<void> {
+  const repo = getRepo(intent.repo);
+  if (!repo) {
+    await reply(`Repo '${intent.repo}' not found. Available: ${repoNames().join(", ")}`);
+    return;
+  }
+
+  const task = await queries.createTask({
+    repo: intent.repo,
+    kind: "codebase_question",
+    description: intent.question,
+    telegramChatId: chatId,
+  });
+
+  await reply(`Question received: ${task.id.slice(0, 8)}\nSearching the codebase...`);
+
+  runQuestion(task.id, sendTelegram).catch((err) => {
+    log.error(`Question error for task ${task.id}`, err);
+  });
+}
+
+async function handlePrReview(
+  intent: Extract<Intent, { type: "pr_review" }>,
+  chatId: string,
+  sendTelegram: SendTelegram,
+  reply: (text: string) => Promise<void>,
+): Promise<void> {
+  const repo = getRepo(intent.repo);
+  if (!repo) {
+    await reply(`Repo '${intent.repo}' not found. Available: ${repoNames().join(", ")}`);
+    return;
+  }
+
+  const task = await queries.createTask({
+    repo: intent.repo,
+    kind: "pr_review",
+    description: `Review PR ${intent.prIdentifier}`,
+    telegramChatId: chatId,
+    prIdentifier: intent.prIdentifier,
+  });
+
+  await reply(`PR review started: ${task.id.slice(0, 8)}\nReviewing PR ${intent.prIdentifier}...`);
+
+  runPrReview(task.id, sendTelegram).catch((err) => {
+    log.error(`PR review error for task ${task.id}`, err);
   });
 }
 
@@ -229,11 +283,11 @@ export function createBot(): Bot {
         break;
 
       case "pr_review":
-        await reply("PR review is not yet supported. Coming soon.");
+        await handlePrReview(intent, chatId, sendTelegram, reply);
         break;
 
       case "codebase_question":
-        await reply("Codebase questions are not yet supported. Coming soon.");
+        await handleCodebaseQuestion(intent, chatId, sendTelegram, reply);
         break;
 
       case "task_status":
