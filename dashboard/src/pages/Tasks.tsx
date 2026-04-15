@@ -20,11 +20,7 @@ import { shortId, timeAgo, cn } from "@dashboard/lib/utils";
 
 const ACTIVE_STATUSES = new Set([
   "queued",
-  "planning",
-  "implementing",
-  "reviewing",
-  "creating_pr",
-  "revision",
+  "running",
 ]);
 
 const HISTORY_FILTERS = ["all", "complete", "failed", "cancelled"] as const;
@@ -181,15 +177,17 @@ export function Tasks() {
                     {task.description}
                   </p>
 
-                  {/* Inline pipeline */}
-                  {detail && (
+                  {/* Inline pipeline (only for multi-stage kinds) */}
+                  {detail && task.kind === "coding_task" && (
                     <div className="mt-3 flex items-center justify-between">
                       <PipelineProgress
                         stages={detail.stages}
+                        kind={task.kind}
                         className="hidden sm:flex"
                       />
                       <PipelineProgress
                         stages={detail.stages}
+                        kind={task.kind}
                         mini
                         className="flex sm:hidden"
                       />

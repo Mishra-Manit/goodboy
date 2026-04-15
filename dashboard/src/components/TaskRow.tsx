@@ -1,6 +1,6 @@
 import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { shortId, timeAgo } from "@dashboard/lib/utils";
-import type { Task } from "@dashboard/lib/api";
+import { TASK_KIND_CONFIG, type Task } from "@dashboard/lib/api";
 
 interface TaskRowProps {
   task: Task;
@@ -24,6 +24,9 @@ export function TaskRow({ task, onClick, showDuration = false }: TaskRowProps) {
       </code>
       <span className="shrink-0 font-mono text-[10px] text-accent/60">
         {task.repo}
+      </span>
+      <span className="shrink-0 font-mono text-[9px] text-text-ghost/50">
+        {TASK_KIND_CONFIG[task.kind]?.label ?? task.kind}
       </span>
       <span className="flex-1 truncate text-xs text-text-dim group-hover:text-text-secondary transition-colors">
         {task.description}

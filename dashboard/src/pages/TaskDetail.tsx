@@ -6,6 +6,7 @@ import {
   fetchArtifact,
   retryTask,
   cancelTask,
+  TASK_KIND_CONFIG,
   type TaskWithStages,
   type LogEntry,
 } from "@dashboard/lib/api";
@@ -19,19 +20,7 @@ import { Markdown } from "@dashboard/components/Markdown";
 import { shortId, formatDate, timeAgo, cn } from "@dashboard/lib/utils";
 import { useState, useEffect } from "react";
 
-const ARTIFACTS = [
-  { key: "plan.md", label: "plan" },
-  { key: "implementation-summary.md", label: "summary" },
-  { key: "review.md", label: "review" },
-];
-
-const STAGE_ORDER = [
-  "planner",
-  "implementer",
-  "reviewer",
-  "pr_creator",
-  "revision",
-];
+// Derived from task.kind at render time via TASK_KIND_CONFIG
 
 export function TaskDetail() {
   const { id } = useParams<{ id: string }>();
@@ -84,11 +73,17 @@ export function TaskDetail() {
     }
   });
 
+  const kindConfig = task
+    ? TASK_KIND_CONFIG[task.kind] ?? TASK_KIND_CONFIG.coding_task
+    : TASK_KIND_CONFIG.coding_task;
+  const stageOrder = kindConfig.stages;
+  const artifacts = kindConfig.artifacts;
+
   useEffect(() => {
     if (task && !activeStage) {
       const sorted = [...(task.stages ?? [])].sort(
         (a, b) =>
-          STAGE_ORDER.indexOf(a.stage) - STAGE_ORDER.indexOf(b.stage)
+          stageOrder.indexOf(a.stage) - stageOrder.indexOf(b.stage)
       );
       const running = sorted.find((s) => s.status === "running");
       const latest = sorted[sorted.length - 1];
@@ -173,7 +168,7 @@ export function TaskDetail() {
 
   const allStages = [
     ...new Set([
-      ...STAGE_ORDER.filter((s) =>
+      ...stageOrder.filter((s) =>
         task.stages.some((ts) => ts.stage === s)
       ),
       ...Array.from(liveLogs.keys()),
@@ -199,6 +194,9 @@ export function TaskDetail() {
           </code>
           <span className="font-mono text-[11px] font-medium text-accent">
             {task.repo}
+          </span>
+          <span className="font-mono text-[10px] text-text-ghost/50">
+            {kindConfig.label}
           </span>
           <StatusBadge status={task.status} />
         </div>
@@ -258,10 +256,19 @@ export function TaskDetail() {
         </div>
       )}
 
-      {/* Pipeline */}
-      <div className="mb-8 flex justify-center py-4">
-        <PipelineProgress stages={task.stages} />
-      </div>
+      {/* Pipeline (only for multi-stage kinds) */}
+      {stageOrder.length > 1 && (
+        <div className="mb-8 flex justify-center py-4">
+          <PipelineProgress stages={task.stages} kind={task.kind} />
+        </div>
+      )}
+
+      {/* PR review context */}
+      {task.kind === "pr_review" && task.prIdentifier && (
+        <div className="mb-6 font-mono text-[11px] text-text-ghost">
+          reviewing: {task.prIdentifier}
+        </div>
+      )}
 
       {/* Logs */}
       <SectionDivider label="logs" />
@@ -308,7 +315,7 @@ export function TaskDetail() {
       <SectionDivider label="artifacts" className="mt-8" />
 
       <div className="mt-3 flex gap-1.5">
-        {ARTIFACTS.map(({ key, label }) => (
+        {artifacts.map(({ key, label }) => (
           <button
             key={key}
             onClick={() => loadArtifact(key)}

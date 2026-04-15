@@ -1,23 +1,15 @@
 import { cn } from "@dashboard/lib/utils";
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  queued: { label: "queued", color: "text-text-dim", bg: "bg-transparent" },
-  planning: { label: "planning", color: "text-accent", bg: "bg-accent-ghost" },
-  implementing: { label: "implementing", color: "text-accent", bg: "bg-accent-ghost" },
-  reviewing: { label: "reviewing", color: "text-accent", bg: "bg-accent-ghost" },
-  creating_pr: { label: "creating pr", color: "text-accent", bg: "bg-accent-ghost" },
-  revision: { label: "revision", color: "text-accent", bg: "bg-accent-ghost" },
-  complete: { label: "complete", color: "text-ok", bg: "bg-ok-dim" },
-  failed: { label: "failed", color: "text-fail", bg: "bg-fail-dim" },
-  cancelled: { label: "cancelled", color: "text-text-dim", bg: "bg-transparent" },
-  running: { label: "running", color: "text-accent", bg: "bg-accent-ghost" },
+const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  // Task-level statuses (generic lifecycle)
+  queued: { label: "queued", color: "text-text-dim" },
+  running: { label: "running", color: "text-accent" },
+  complete: { label: "complete", color: "text-ok" },
+  failed: { label: "failed", color: "text-fail" },
+  cancelled: { label: "cancelled", color: "text-text-dim" },
 };
 
-const ACTIVE_STATUSES = new Set(
-  Object.entries(STATUS_CONFIG)
-    .filter(([, v]) => v.color === "text-accent")
-    .map(([k]) => k)
-);
+const ACTIVE_STATUSES = new Set(["running"]);
 
 interface StatusBadgeProps {
   status: string;
@@ -28,7 +20,6 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   const config = STATUS_CONFIG[status] ?? {
     label: status,
     color: "text-text-dim",
-    bg: "bg-transparent",
   };
 
   return (
