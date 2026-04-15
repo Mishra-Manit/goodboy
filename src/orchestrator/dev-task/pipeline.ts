@@ -1,0 +1,423 @@
+import path from "node:path";
+import { mkdir, stat, rm } from "node:fs/promises";
+import { createLogger } from "../../shared/logger.js";
+import { config, loadEnv } from "../../shared/config.js";
+import { emit } from "../../shared/events.js";
+import { cleanupSeqCounters, resetSeq, makeEntry, appendLogEntry } from "../logs.js";
+import { getRepo } from "../../shared/repos.js";
+import { spawnPiSession, type PiSession } from "../pi-rpc.js";
+import { createWorktree, generateBranchName, syncRepo } from "../worktree.js";
+import * as queries from "../../db/queries.js";
+import type { Task } from "../../db/queries.js";
+import type { StageName, LogEntryKind, PiOutputMarker } from "../../shared/types.js";
+import type { Env } from "../../shared/config.js";
+import {
+  acquireSlot,
+  releaseSlot,
+  failTask,
+  notifyTelegram,
+  setActiveSession,
+  clearActiveSession,
+  waitForReply,
+  withTimeout,
+  STAGE_TIMEOUT_MS,
+  type SendTelegram,
+} from "../shared.js";
+import {
+  plannerPrompt,
+  implementerPrompt,
+  reviewerPrompt,
+  prCreatorPrompt,
+  type WorktreeEnv,
+} from "./prompts.js";
+
+const log = createLogger("dev-task");
+
+type CodingStageName = "planner" | "implementer" | "reviewer" | "pr_creator" | "revision";
+
+const STAGE_DISPLAY_NAMES: Record<CodingStageName, string> = {
+  planner: "Planner",
+  implementer: "Implementer",
+  reviewer: "Reviewer",
+  pr_creator: "PR Creator",
+  revision: "Revision",
+};
+
+const STAGE_MODEL_KEYS: Record<CodingStageName, keyof Env> = {
+  planner: "PI_MODEL_PLANNER",
+  implementer: "PI_MODEL_IMPLEMENTER",
+  reviewer: "PI_MODEL_REVIEWER",
+  pr_creator: "PI_MODEL_PR_CREATOR",
+  revision: "PI_MODEL_REVISION",
+};
+
+function getModelForStage(stage: CodingStageName): string {
+  const env = loadEnv();
+  const stageModel = env[STAGE_MODEL_KEYS[stage]] as string | undefined;
+  return stageModel ?? env.PI_MODEL;
+}
+
+export async function runPipeline(
+  taskId: string,
+  sendTelegram: SendTelegram,
+): Promise<void> {
+  const task = await queries.getTask(taskId);
+  if (!task) {
+    log.error(`Task ${taskId} not found`);
+    return;
+  }
+
+  const repo = getRepo(task.repo);
+  if (!repo) {
+    await failTask(taskId, `Repo '${task.repo}' not found in registry`, sendTelegram, task.telegramChatId);
+    return;
+  }
+
+  await acquireSlot();
+  log.info(`Acquired slot for task ${taskId} (running)`);
+
+  await notifyTelegram(
+    sendTelegram,
+    task.telegramChatId,
+    `Task ${task.id.slice(0, 8)} started for repo ${task.repo}.\n\n${task.description}`,
+  );
+
+  // Clean and recreate artifacts directory so retries start fresh
+  const artifactsDir = path.join(config.artifactsDir, taskId);
+  await rm(artifactsDir, { recursive: true, force: true });
+  await mkdir(artifactsDir, { recursive: true });
+
+  // Sync repo to latest origin/main before branching
+  try {
+    await syncRepo(repo.localPath);
+  } catch (err) {
+    releaseSlot();
+    await failTask(taskId, `Failed to sync repo: ${err}`, sendTelegram, task.telegramChatId);
+    return;
+  }
+
+  // Create worktree
+  const branch = await generateBranchName(taskId, task.description);
+  let worktreePath: string;
+  try {
+    worktreePath = await createWorktree(repo.localPath, branch, taskId);
+  } catch (err) {
+    releaseSlot();
+    await failTask(taskId, `Failed to create worktree: ${err}`, sendTelegram, task.telegramChatId);
+    return;
+  }
+
+  await queries.updateTask(taskId, { branch, worktreePath });
+
+  const worktreeEnv: WorktreeEnv = {
+    envNotes: repo.envNotes,
+  };
+
+  try {
+    // Stage 1: Planner (has conversation loop — handled specially)
+    await runPlannerStage(taskId, worktreePath, artifactsDir, sendTelegram, task, branch, worktreeEnv);
+    await requireArtifact(artifactsDir, "plan.md", "Planner failed to write plan.md");
+
+    // Stage 2: Implementer
+    await runCodingStage(taskId, "implementer", worktreePath, artifactsDir, sendTelegram, task, branch, worktreeEnv);
+    await requireArtifact(artifactsDir, "implementation-summary.md", "Implementer failed to write implementation-summary.md");
+
+    // Stage 3: Reviewer
+    await runCodingStage(taskId, "reviewer", worktreePath, artifactsDir, sendTelegram, task, branch, worktreeEnv);
+    await requireArtifact(artifactsDir, "review.md", "Reviewer failed to write review.md");
+
+    // Stage 4: PR Creator
+    await runCodingStage(taskId, "pr_creator", worktreePath, artifactsDir, sendTelegram, task, branch, worktreeEnv);
+
+    // Done
+    await queries.updateTask(taskId, {
+      status: "complete",
+      completedAt: new Date(),
+    });
+    emit({ type: "task_update", taskId, status: "complete" });
+
+    await notifyTelegram(
+      sendTelegram,
+      task.telegramChatId,
+      `Task ${task.id.slice(0, 8)} is complete.`,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await failTask(taskId, message, sendTelegram, task.telegramChatId);
+  } finally {
+    clearActiveSession(taskId);
+    cleanupSeqCounters(taskId);
+    releaseSlot();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Planner stage (special: has conversation loop)
+// ---------------------------------------------------------------------------
+
+async function runPlannerStage(
+  taskId: string,
+  worktreePath: string,
+  artifactsDir: string,
+  sendTelegram: SendTelegram,
+  task: Task,
+  branch: string,
+  worktreeEnv: WorktreeEnv,
+): Promise<void> {
+  const stage: StageName = "planner";
+
+  await queries.updateTask(taskId, { status: "running" });
+  emit({ type: "task_update", taskId, status: "running" });
+
+  const stageRecord = await queries.createTaskStage({ taskId, stage });
+  emit({ type: "stage_update", taskId, stage, status: "running" });
+
+  log.info(`Starting planner for task ${taskId}`);
+  await notifyTelegram(sendTelegram, task.telegramChatId, `Stage started: ${STAGE_DISPLAY_NAMES.planner}.`);
+
+  const absArtifacts = path.resolve(artifactsDir);
+  const systemPrompt = plannerPrompt(task.description, absArtifacts, worktreeEnv);
+
+  resetSeq(taskId, stage);
+
+  const session = spawnPiSession({
+    id: `${taskId}-${stage}`,
+    cwd: worktreePath,
+    systemPrompt,
+    model: getModelForStage("planner"),
+    onLog: (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => {
+      const entry = makeEntry(taskId, stage, kind, text, meta);
+      emit({ type: "log", taskId, stage, entry });
+      appendLogEntry(taskId, stage, entry).catch((err) => {
+        log.warn(`Failed to persist log entry: ${err}`);
+      });
+    },
+  });
+
+  setActiveSession(taskId, session);
+
+  const initialPrompt = `Here is the task:\n\n${task.description}\n\nStart by exploring the codebase structure, then write the plan to ${absArtifacts}/plan.md. Do not stop until the file is written.`;
+  session.sendPrompt(initialPrompt);
+
+  try {
+    let result = await withTimeout(session.waitForCompletion(), STAGE_TIMEOUT_MS, "Stage planner");
+
+    if (!task.telegramChatId) {
+      throw new Error("Cannot run planner Q&A: task has no telegramChatId");
+    }
+
+    let marker = result.marker;
+    // Handle planner conversation loop
+    while (marker?.status === "needs_input") {
+      const questions = marker.questions.join("\n\n");
+      await sendTelegram(
+        task.telegramChatId,
+        `Questions about your task:\n\n${questions}`,
+      );
+
+      const reply = await waitForReply(taskId);
+      session.sendPrompt(reply);
+      result = await withTimeout(session.waitForCompletion(), STAGE_TIMEOUT_MS, "Stage planner");
+      marker = result.marker;
+    }
+
+    if (marker?.status === "ready") {
+      await sendTelegram(
+        task.telegramChatId,
+        `Plan ready:\n\n${marker.summary}\n\nSend /go to proceed.`,
+      );
+      await waitForReply(taskId); // Wait for /go
+    }
+
+    session.kill();
+    clearActiveSession(taskId);
+
+    await queries.updateTaskStage(stageRecord.id, {
+      status: "complete",
+      completedAt: new Date(),
+    });
+    emit({ type: "stage_update", taskId, stage, status: "complete" });
+    await notifyTelegram(sendTelegram, task.telegramChatId, `Stage complete: ${STAGE_DISPLAY_NAMES.planner}.`);
+
+    log.info(`Planner complete for task ${taskId}`);
+  } catch (err) {
+    session.kill();
+    clearActiveSession(taskId);
+    await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
+    emit({ type: "stage_update", taskId, stage, status: "failed" });
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Generic coding stage (implementer, reviewer, pr_creator)
+// ---------------------------------------------------------------------------
+
+async function runCodingStage(
+  taskId: string,
+  stage: CodingStageName,
+  worktreePath: string,
+  artifactsDir: string,
+  sendTelegram: SendTelegram,
+  task: Task,
+  branch: string,
+  worktreeEnv: WorktreeEnv,
+): Promise<void> {
+  await queries.updateTask(taskId, { status: "running" });
+  emit({ type: "task_update", taskId, status: "running" });
+
+  const stageRecord = await queries.createTaskStage({ taskId, stage });
+  emit({ type: "stage_update", taskId, stage, status: "running" });
+
+  log.info(`Starting stage ${stage} for task ${taskId}`);
+  await notifyTelegram(sendTelegram, task.telegramChatId, `Stage started: ${STAGE_DISPLAY_NAMES[stage]}.`);
+
+  const absArtifacts = path.resolve(artifactsDir);
+  const planPath = path.join(absArtifacts, "plan.md");
+  const summaryPath = path.join(absArtifacts, "implementation-summary.md");
+  const reviewPath = path.join(absArtifacts, "review.md");
+
+  const systemPrompt = getCodingSystemPrompt(stage, task.description, absArtifacts, planPath, summaryPath, reviewPath, branch, task.repo, worktreeEnv);
+  const initialPrompt = getCodingInitialPrompt(stage, task.description, absArtifacts, planPath, summaryPath);
+
+  resetSeq(taskId, stage);
+
+  const session = spawnPiSession({
+    id: `${taskId}-${stage}`,
+    cwd: worktreePath,
+    systemPrompt,
+    model: getModelForStage(stage),
+    onLog: (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => {
+      const entry = makeEntry(taskId, stage, kind, text, meta);
+      emit({ type: "log", taskId, stage, entry });
+      appendLogEntry(taskId, stage, entry).catch((err) => {
+        log.warn(`Failed to persist log entry: ${err}`);
+      });
+    },
+  });
+
+  setActiveSession(taskId, session);
+  session.sendPrompt(initialPrompt);
+
+  try {
+    const result = await withTimeout(session.waitForCompletion(), STAGE_TIMEOUT_MS, `Stage ${stage}`);
+
+    session.kill();
+    clearActiveSession(taskId);
+
+    await queries.updateTaskStage(stageRecord.id, {
+      status: "complete",
+      completedAt: new Date(),
+    });
+    emit({ type: "stage_update", taskId, stage, status: "complete" });
+
+    if (stage === "pr_creator") {
+      const prUrl = extractPrUrl(result.fullOutput);
+      const prNumber = prUrl ? extractPrNumber(prUrl) : null;
+
+      if (prUrl) {
+        await queries.updateTask(taskId, { prUrl, prNumber });
+        emit({ type: "pr_update", taskId, prUrl });
+        await notifyTelegram(
+          sendTelegram,
+          task.telegramChatId,
+          `PR is up and ready for review:\n${prUrl}`,
+        );
+      } else {
+        await notifyTelegram(
+          sendTelegram,
+          task.telegramChatId,
+          "PR creator finished, but I could not detect the PR URL from output. Please verify in GitHub.",
+        );
+      }
+    } else {
+      await notifyTelegram(sendTelegram, task.telegramChatId, `Stage complete: ${STAGE_DISPLAY_NAMES[stage]}.`);
+    }
+
+    log.info(`Stage ${stage} complete for task ${taskId}`);
+  } catch (err) {
+    session.kill();
+    clearActiveSession(taskId);
+    await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
+    emit({ type: "stage_update", taskId, stage, status: "failed" });
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Prompt routing
+// ---------------------------------------------------------------------------
+
+function getCodingSystemPrompt(
+  stage: CodingStageName,
+  description: string,
+  absArtifacts: string,
+  planPath: string,
+  summaryPath: string,
+  reviewPath: string,
+  branch: string,
+  repoName: string,
+  worktreeEnv: WorktreeEnv,
+): string {
+  switch (stage) {
+    case "implementer":
+      return implementerPrompt(planPath, absArtifacts, worktreeEnv);
+    case "reviewer":
+      return reviewerPrompt(planPath, summaryPath, absArtifacts, worktreeEnv);
+    case "pr_creator":
+      return prCreatorPrompt(branch, repoName, planPath, summaryPath, reviewPath);
+    default:
+      throw new Error(`Unexpected stage for getCodingSystemPrompt: ${stage}`);
+  }
+}
+
+function getCodingInitialPrompt(
+  stage: CodingStageName,
+  description: string,
+  absArtifacts: string,
+  planPath: string,
+  summaryPath: string,
+): string {
+  switch (stage) {
+    case "implementer":
+      return `Read the plan at ${planPath}, then implement every step. Make git commits as you go. When all code is written and committed, write the summary to ${absArtifacts}/implementation-summary.md. Do not stop until both the code is committed and the summary file is written.`;
+    case "reviewer":
+      return `Read the plan at ${planPath} and the summary at ${summaryPath}. Run git diff main to see all changes. Review the code, fix any issues, then write your review to ${absArtifacts}/review.md. Do not stop until the review file is written.`;
+    case "pr_creator":
+      return `Push the branch to origin and create a GitHub PR using gh CLI. Read the artifact files for context on what to put in the PR description.`;
+    case "revision":
+      return "Read the PR feedback, make the fixes, commit, and push.";
+    default:
+      throw new Error(`Unexpected stage for getCodingInitialPrompt: ${stage}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function requireArtifact(artifactsDir: string, filename: string, errorMsg: string): Promise<void> {
+  const filePath = path.join(artifactsDir, filename);
+  try {
+    const s = await stat(filePath);
+    if (s.size === 0) {
+      throw new Error(`${errorMsg} (file is empty: ${filePath})`);
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith(errorMsg)) throw err;
+    throw new Error(`${errorMsg} (expected at ${filePath})`);
+  }
+}
+
+function extractPrUrl(text: string): string | null {
+  const matches = text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g);
+  if (!matches || matches.length === 0) return null;
+  return matches[matches.length - 1];
+}
+
+function extractPrNumber(prUrl: string): number | null {
+  const match = prUrl.match(/\/pull\/(\d+)/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
