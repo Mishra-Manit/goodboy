@@ -9,30 +9,6 @@ import type { StageName, LogEntryKind, PiOutputMarker } from "../shared/types.js
 const log = createLogger("orchestrator");
 
 // ---------------------------------------------------------------------------
-// Concurrency gate
-// ---------------------------------------------------------------------------
-
-const waitingForSlot: Array<() => void> = [];
-let runningCount = 0;
-
-export async function acquireSlot(): Promise<void> {
-  if (runningCount < config.maxParallelTasks) {
-    runningCount++;
-    return;
-  }
-  await new Promise<void>((resolve) => {
-    waitingForSlot.push(resolve);
-  });
-  runningCount++;
-}
-
-export function releaseSlot(): void {
-  runningCount--;
-  const next = waitingForSlot.shift();
-  if (next) next();
-}
-
-// ---------------------------------------------------------------------------
 // Session management
 // ---------------------------------------------------------------------------
 
