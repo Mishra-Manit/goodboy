@@ -15,6 +15,7 @@ import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { LogViewer } from "@dashboard/components/LogViewer";
 import { PipelineProgress } from "@dashboard/components/PipelineProgress";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
+import { Markdown } from "@dashboard/components/Markdown";
 import { shortId, formatDate, timeAgo, cn } from "@dashboard/lib/utils";
 import { useState, useEffect } from "react";
 
@@ -330,9 +331,9 @@ export function TaskDetail() {
               loading...
             </span>
           ) : (
-            <pre className="font-mono text-[11px] text-text-dim whitespace-pre-wrap overflow-auto max-h-[600px] leading-relaxed">
-              {artifactContent}
-            </pre>
+            <div className="overflow-auto max-h-[600px]">
+              <Markdown content={artifactContent} />
+            </div>
           )}
         </div>
       )}
