@@ -1,15 +1,9 @@
 import { cn } from "@dashboard/lib/utils";
-import type { TaskStage } from "@dashboard/lib/api";
-
-const PIPELINE_STAGES = [
-  { key: "planner", label: "Plan" },
-  { key: "implementer", label: "Implement" },
-  { key: "reviewer", label: "Review" },
-  { key: "pr_creator", label: "PR" },
-] as const;
+import { TASK_KIND_CONFIG, type TaskKind, type TaskStage } from "@dashboard/lib/api";
 
 interface PipelineProgressProps {
   stages: TaskStage[];
+  kind: TaskKind;
   className?: string;
   mini?: boolean;
 }
@@ -47,15 +41,21 @@ const LABEL_STYLES: Record<DisplayStatus, string> = {
 
 export function PipelineProgress({
   stages,
+  kind,
   className,
   mini = false,
 }: PipelineProgressProps) {
   const stageMap = new Map(stages.map((s) => [s.stage, s]));
-  const hasRevision = stageMap.has("revision");
+  const kindConfig = TASK_KIND_CONFIG[kind] ?? TASK_KIND_CONFIG.coding_task;
 
+  // Build stage list from kind config + revision if present
+  const hasRevision = stageMap.has("revision");
   const allStages = [
-    ...PIPELINE_STAGES,
-    ...(hasRevision ? [{ key: "revision" as const, label: "Revision" }] : []),
+    ...kindConfig.stages.map((key) => ({
+      key,
+      label: key.replace(/_/g, " "),
+    })),
+    ...(hasRevision ? [{ key: "revision", label: "Revision" }] : []),
   ];
 
   if (mini) {
