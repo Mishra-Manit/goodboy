@@ -169,6 +169,15 @@ export async function listActivePrSessions(): Promise<PrSession[]> {
     .orderBy(desc(schema.prSessions.createdAt));
 }
 
+export async function listPrSessions(): Promise<PrSession[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(schema.prSessions)
+    .where(eq(schema.prSessions.instance, loadEnv().INSTANCE_ID))
+    .orderBy(desc(schema.prSessions.createdAt));
+}
+
 export async function getPrSessionByOriginTask(originTaskId: string): Promise<PrSession | null> {
   const db = getDb();
   const [session] = await db

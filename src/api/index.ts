@@ -136,6 +136,12 @@ export function createApi(): Hono {
     return c.json(prs);
   });
 
+  // --- PR Sessions ---
+
+  app.get("/api/pr-sessions", async (c) => {
+    return c.json(await queries.listPrSessions());
+  });
+
   // --- SSE ---
 
   app.get("/api/events", (c) => {

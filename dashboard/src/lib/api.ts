@@ -100,6 +100,22 @@ export interface PR {
   status: TaskStatus;
 }
 
+export type PrSessionStatus = "active" | "closed";
+
+export interface PrSession {
+  id: string;
+  repo: string;
+  prNumber: number | null;
+  branch: string | null;
+  worktreePath: string | null;
+  status: PrSessionStatus;
+  originTaskId: string | null;
+  telegramChatId: string | null;
+  lastPolledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type LogEntryKind =
   | "text"
   | "tool_start"
@@ -175,4 +191,8 @@ export async function fetchRepos(): Promise<Repo[]> {
 
 export async function fetchPRs(): Promise<PR[]> {
   return request("/api/prs");
+}
+
+export async function fetchPrSessions(): Promise<PrSession[]> {
+  return request("/api/pr-sessions");
 }
