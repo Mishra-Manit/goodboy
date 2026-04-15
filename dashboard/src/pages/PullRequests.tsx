@@ -10,7 +10,6 @@ import {
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSERefresh } from "@dashboard/hooks/use-sse";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
-import { EmptyState } from "@dashboard/components/EmptyState";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { shortId, timeAgo, cn } from "@dashboard/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -54,7 +53,7 @@ export function PullRequests() {
           />
 
           {activeSessions.length === 0 ? (
-            <div className="py-6 text-center">
+            <div className="py-8 text-center">
               <span className="font-mono text-[11px] text-text-ghost">
                 No active PR sessions
               </span>
@@ -82,10 +81,11 @@ export function PullRequests() {
           />
 
           {(prs ?? []).length === 0 ? (
-            <EmptyState
-              title="No pull requests"
-              description="PRs will appear here after tasks create them"
-            />
+            <div className="py-8 text-center">
+              <span className="font-mono text-[11px] text-text-ghost">
+                No pull requests yet
+              </span>
+            </div>
           ) : (
             <div className="mt-3 space-y-0.5 stagger">
               {(prs ?? []).map((pr) => (

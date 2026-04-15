@@ -31,28 +31,33 @@ async function main(): Promise<void> {
   });
 
   const bot = createBot();
+
+  // bot.start() blocks forever (Grammy long-polling). Everything that needs
+  // to run after the bot is ready must go inside the onStart callback.
   await bot.start({
-    onStart: () => log.info("Telegram bot started"),
+    onStart: () => {
+      log.info("Telegram bot started");
+
+      const sendTelegram: SendTelegram = async (chatId, text) => {
+        await bot.api.sendMessage(Number(chatId), text);
+      };
+
+      startPrPoller(sendTelegram);
+
+      log.info("Goodboy is running");
+
+      const shutdown = async (): Promise<void> => {
+        log.info("Shutting down...");
+        stopPrPoller();
+        await bot.stop();
+        server.close();
+        process.exit(0);
+      };
+
+      process.on("SIGINT", () => void shutdown());
+      process.on("SIGTERM", () => void shutdown());
+    },
   });
-
-  const sendTelegram: SendTelegram = async (chatId, text) => {
-    await bot.api.sendMessage(Number(chatId), text);
-  };
-
-  startPrPoller(sendTelegram);
-
-  log.info("Goodboy is running");
-
-  const shutdown = async (): Promise<void> => {
-    log.info("Shutting down...");
-    stopPrPoller();
-    await bot.stop();
-    server.close();
-    process.exit(0);
-  };
-
-  process.on("SIGINT", () => void shutdown());
-  process.on("SIGTERM", () => void shutdown());
 }
 
 process.on("unhandledRejection", (reason) => {
