@@ -11,7 +11,10 @@ const listeners = new Set<Listener>();
 let es: EventSource | null = null;
 let retryTimeout: ReturnType<typeof setTimeout>;
 
-const EVENT_TYPES = ["task_update", "stage_update", "log", "pr_update"];
+const EVENT_TYPES = [
+  "task_update", "stage_update", "log", "pr_update",
+  "pr_session_update", "pr_session_log",
+];
 
 function ensureConnected(): void {
   if (es) return;

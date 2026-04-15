@@ -3,13 +3,16 @@ import { ExternalLink, ArrowUpRight, X, Eye, MessageSquare } from "lucide-react"
 import {
   fetchPRs,
   fetchPrSessions,
+  fetchPrSessionLogs,
   dismissTask,
   type PR,
   type PrSession,
+  type LogEntry,
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
-import { useSSERefresh } from "@dashboard/hooks/use-sse";
+import { useSSE, useSSERefresh } from "@dashboard/hooks/use-sse";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
+import { LogViewer } from "@dashboard/components/LogViewer";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { shortId, timeAgo, cn } from "@dashboard/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -19,12 +22,71 @@ export function PullRequests() {
   const { data: prs, loading: prsLoading, refetch: refetchPrs } = useQuery(() => fetchPRs());
   const { data: sessions, loading: sessionsLoading, refetch: refetchSessions } = useQuery(() => fetchPrSessions());
 
+  // Track which session is expanded + its logs
+  const [expandedSession, setExpandedSession] = useState<string | null>(null);
+  const [sessionLogs, setSessionLogs] = useState<Map<string, LogEntry[]>>(new Map());
+
+  // Track which sessions are currently running (pi process active)
+  const [runningSessions, setRunningSessions] = useState<Set<string>>(new Set());
+
   const refetchAll = () => { refetchPrs(); refetchSessions(); };
-  useSSERefresh(refetchAll, (e) => e.type === "pr_update" || e.type === "task_update");
+
+  useSSERefresh(refetchAll, (e) =>
+    e.type === "pr_update" || e.type === "task_update" || e.type === "pr_session_update"
+  );
+
+  // Collect live log entries from SSE
+  useSSE((event) => {
+    if (event.type === "pr_session_log") {
+      const prSessionId = event.prSessionId as string;
+      const entry = event.entry as LogEntry;
+      if (entry) {
+        setSessionLogs((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(prSessionId) ?? [];
+          next.set(prSessionId, [...existing, entry]);
+          return next;
+        });
+      }
+    }
+    if (event.type === "pr_session_update") {
+      const prSessionId = event.prSessionId as string;
+      const running = event.running as boolean;
+      setRunningSessions((prev) => {
+        const next = new Set(prev);
+        if (running) next.add(prSessionId);
+        else next.delete(prSessionId);
+        return next;
+      });
+    }
+  });
+
+  async function toggleSession(sessionId: string) {
+    if (expandedSession === sessionId) {
+      setExpandedSession(null);
+      return;
+    }
+    setExpandedSession(sessionId);
+    // Load historical logs if we don't have any yet
+    if (!sessionLogs.has(sessionId)) {
+      try {
+        const { entries } = await fetchPrSessionLogs(sessionId);
+        setSessionLogs((prev) => {
+          const next = new Map(prev);
+          // Only set if we haven't received live entries in the meantime
+          if (!next.has(sessionId) || next.get(sessionId)!.length === 0) {
+            next.set(sessionId, entries);
+          }
+          return next;
+        });
+      } catch {
+        // Logs may not exist yet
+      }
+    }
+  }
 
   const activeSessions = (sessions ?? []).filter((s) => s.status === "active");
   const closedSessions = (sessions ?? []).filter((s) => s.status === "closed");
-
   const loading = prsLoading || sessionsLoading;
 
   return (
@@ -46,7 +108,7 @@ export function PullRequests() {
         </div>
       ) : (
         <>
-          {/* ── Active PR Sessions ── */}
+          {/* -- Active PR Sessions -- */}
           <SectionDivider
             label="active sessions"
             detail={activeSessions.length > 0 ? `${activeSessions.length}` : undefined}
@@ -61,19 +123,32 @@ export function PullRequests() {
           ) : (
             <div className="mt-3 space-y-0.5 stagger">
               {activeSessions.map((session) => (
-                <PrSessionRow
-                  key={session.id}
-                  session={session}
-                  onTaskClick={session.originTaskId
-                    ? () => navigate(`/tasks/${session.originTaskId}`)
-                    : undefined
-                  }
-                />
+                <div key={session.id}>
+                  <PrSessionRow
+                    session={session}
+                    running={runningSessions.has(session.id)}
+                    expanded={expandedSession === session.id}
+                    onClick={() => toggleSession(session.id)}
+                    onTaskClick={session.originTaskId
+                      ? () => navigate(`/tasks/${session.originTaskId}`)
+                      : undefined
+                    }
+                  />
+                  {expandedSession === session.id && (
+                    <div className="mt-2 mb-3 animate-fade-up">
+                      <LogViewer
+                        entries={sessionLogs.get(session.id) ?? []}
+                        maxHeight="350px"
+                        autoScroll={runningSessions.has(session.id)}
+                      />
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )}
 
-          {/* ── Created PRs ── */}
+          {/* -- Created PRs -- */}
           <SectionDivider
             label="pull requests"
             detail={(prs ?? []).length > 0 ? `${(prs ?? []).length}` : undefined}
@@ -99,7 +174,7 @@ export function PullRequests() {
             </div>
           )}
 
-          {/* ── Closed Sessions ── */}
+          {/* -- Closed Sessions -- */}
           {closedSessions.length > 0 && (
             <>
               <SectionDivider
@@ -109,14 +184,27 @@ export function PullRequests() {
               />
               <div className="mt-3 space-y-0.5 stagger">
                 {closedSessions.map((session) => (
-                  <PrSessionRow
-                    key={session.id}
-                    session={session}
-                    onTaskClick={session.originTaskId
-                      ? () => navigate(`/tasks/${session.originTaskId}`)
-                      : undefined
-                    }
-                  />
+                  <div key={session.id}>
+                    <PrSessionRow
+                      session={session}
+                      running={false}
+                      expanded={expandedSession === session.id}
+                      onClick={() => toggleSession(session.id)}
+                      onTaskClick={session.originTaskId
+                        ? () => navigate(`/tasks/${session.originTaskId}`)
+                        : undefined
+                      }
+                    />
+                    {expandedSession === session.id && (
+                      <div className="mt-2 mb-3 animate-fade-up">
+                        <LogViewer
+                          entries={sessionLogs.get(session.id) ?? []}
+                          maxHeight="350px"
+                          autoScroll={false}
+                        />
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             </>
@@ -133,14 +221,23 @@ export function PullRequests() {
 
 interface PrSessionRowProps {
   session: PrSession;
+  running: boolean;
+  expanded: boolean;
+  onClick: () => void;
   onTaskClick?: () => void;
 }
 
-function PrSessionRow({ session, onTaskClick }: PrSessionRowProps) {
+function PrSessionRow({ session, running, expanded, onClick, onTaskClick }: PrSessionRowProps) {
   const isExternal = !session.originTaskId;
 
   return (
-    <div className="group flex items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-glass animate-fade-up">
+    <button
+      onClick={onClick}
+      className={cn(
+        "group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-glass animate-fade-up",
+        expanded && "bg-glass",
+      )}
+    >
       {/* Mode indicator */}
       {isExternal ? (
         <Eye size={11} className="text-text-ghost shrink-0" title="External review" />
@@ -160,13 +257,13 @@ function PrSessionRow({ session, onTaskClick }: PrSessionRowProps) {
 
       {/* Origin task link */}
       {onTaskClick && session.originTaskId && (
-        <button
-          onClick={onTaskClick}
-          className="flex items-center gap-0.5 font-mono text-[10px] text-text-ghost hover:text-text-dim transition-colors"
+        <span
+          onClick={(e) => { e.stopPropagation(); onTaskClick(); }}
+          className="flex items-center gap-0.5 font-mono text-[10px] text-text-ghost hover:text-text-dim transition-colors cursor-pointer"
         >
           {shortId(session.originTaskId)}
           <ArrowUpRight size={9} />
-        </button>
+        </span>
       )}
 
       {/* Branch */}
@@ -178,11 +275,23 @@ function PrSessionRow({ session, onTaskClick }: PrSessionRowProps) {
 
       <span className="flex-1" />
 
-      {/* Status */}
-      <SessionStatusBadge status={session.status} />
+      {/* Running / status indicator */}
+      {running ? (
+        <span className="inline-flex items-center gap-1.5 font-mono text-[10px] tracking-wide text-accent">
+          <span className="h-1 w-1 rounded-full bg-current animate-pulse-soft" />
+          running
+        </span>
+      ) : (
+        <span className={cn(
+          "font-mono text-[10px] tracking-wide",
+          session.status === "active" ? "text-text-dim" : "text-text-void",
+        )}>
+          {session.status === "active" ? "watching" : "closed"}
+        </span>
+      )}
 
       {/* Last polled */}
-      {session.lastPolledAt && (
+      {session.lastPolledAt && !running && (
         <span className="font-mono text-[9px] text-text-void" title="Last polled">
           polled {timeAgo(session.lastPolledAt)}
         </span>
@@ -192,33 +301,12 @@ function PrSessionRow({ session, onTaskClick }: PrSessionRowProps) {
       <span className="font-mono text-[10px] text-text-void">
         {timeAgo(session.createdAt)}
       </span>
-    </div>
+    </button>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Session Status Badge
-// ---------------------------------------------------------------------------
-
-function SessionStatusBadge({ status }: { status: string }) {
-  const isActive = status === "active";
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 font-mono text-[10px] tracking-wide",
-        isActive ? "text-accent" : "text-text-dim",
-      )}
-    >
-      {isActive && (
-        <span className="h-1 w-1 rounded-full bg-current animate-pulse-soft" />
-      )}
-      {status}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// PR Row (existing, from tasks)
+// PR Row (from tasks)
 // ---------------------------------------------------------------------------
 
 function PRRow({

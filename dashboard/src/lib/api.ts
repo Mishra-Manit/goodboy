@@ -196,3 +196,9 @@ export async function fetchPRs(): Promise<PR[]> {
 export async function fetchPrSessions(): Promise<PrSession[]> {
   return request("/api/pr-sessions");
 }
+
+export async function fetchPrSessionLogs(
+  id: string,
+): Promise<{ entries: LogEntry[] }> {
+  return request(`/api/pr-sessions/${id}/logs`);
+}
