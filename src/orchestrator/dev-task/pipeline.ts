@@ -5,7 +5,7 @@ import { config, loadEnv } from "../../shared/config.js";
 import { emit } from "../../shared/events.js";
 import { cleanupSeqCounters, resetSeq, makeEntry, appendLogEntry } from "../logs.js";
 import { getRepo } from "../../shared/repos.js";
-import { spawnPiSession, type PiSession } from "../pi-rpc.js";
+import { spawnPiSession } from "../pi-rpc.js";
 import { createWorktree, generateBranchName, syncRepo } from "../worktree.js";
 import * as queries from "../../db/queries.js";
 import type { Task } from "../../db/queries.js";
@@ -25,28 +25,24 @@ import {
   plannerPrompt,
   implementerPrompt,
   reviewerPrompt,
-  prCreatorPrompt,
   type WorktreeEnv,
 } from "./prompts.js";
+import { startPrSession } from "../pr-session/index.js";
 
 const log = createLogger("dev-task");
 
-type CodingStageName = "planner" | "implementer" | "reviewer" | "pr_creator" | "revision";
+type CodingStageName = "planner" | "implementer" | "reviewer";
 
 const STAGE_DISPLAY_NAMES: Record<CodingStageName, string> = {
   planner: "Planner",
   implementer: "Implementer",
   reviewer: "Reviewer",
-  pr_creator: "PR Creator",
-  revision: "Revision",
 };
 
 const STAGE_MODEL_KEYS: Record<CodingStageName, keyof Env> = {
   planner: "PI_MODEL_PLANNER",
   implementer: "PI_MODEL_IMPLEMENTER",
   reviewer: "PI_MODEL_REVIEWER",
-  pr_creator: "PI_MODEL_PR_CREATOR",
-  revision: "PI_MODEL_REVISION",
 };
 
 function getModelForStage(stage: CodingStageName): string {
@@ -119,10 +115,7 @@ export async function runPipeline(
     await runCodingStage(taskId, "reviewer", worktreePath, artifactsDir, sendTelegram, task, branch, worktreeEnv);
     await requireArtifact(artifactsDir, "review.md", "Reviewer failed to write review.md");
 
-    // Stage 4: PR Creator
-    await runCodingStage(taskId, "pr_creator", worktreePath, artifactsDir, sendTelegram, task, branch, worktreeEnv);
-
-    // Done
+    // Pipeline done -- mark task complete before handing off to PR session
     await queries.updateTask(taskId, {
       status: "complete",
       completedAt: new Date(),
@@ -132,8 +125,26 @@ export async function runPipeline(
     await notifyTelegram(
       sendTelegram,
       task.telegramChatId,
-      `Task ${task.id.slice(0, 8)} is complete.`,
+      `Task ${task.id.slice(0, 8)} complete. Handing off to PR session...`,
     );
+
+    // Hand off to PR session (runs independently)
+    startPrSession({
+      originTaskId: taskId,
+      repo: task.repo,
+      branch,
+      worktreePath,
+      artifactsDir,
+      sendTelegram,
+      chatId: task.telegramChatId!,
+    }).catch((err) => {
+      log.error(`PR session failed for task ${taskId}`, err);
+      notifyTelegram(
+        sendTelegram,
+        task.telegramChatId,
+        `PR session failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await failTask(taskId, message, sendTelegram, task.telegramChatId);
@@ -242,7 +253,7 @@ async function runPlannerStage(
 }
 
 // ---------------------------------------------------------------------------
-// Generic coding stage (implementer, reviewer, pr_creator)
+// Generic coding stage (implementer, reviewer)
 // ---------------------------------------------------------------------------
 
 async function runCodingStage(
@@ -269,8 +280,8 @@ async function runCodingStage(
   const summaryPath = path.join(absArtifacts, "implementation-summary.md");
   const reviewPath = path.join(absArtifacts, "review.md");
 
-  const systemPrompt = getCodingSystemPrompt(stage, task.description, absArtifacts, planPath, summaryPath, reviewPath, branch, task.repo, worktreeEnv);
-  const initialPrompt = getCodingInitialPrompt(stage, task.description, absArtifacts, planPath, summaryPath);
+  const systemPrompt = getCodingSystemPrompt(stage, absArtifacts, planPath, summaryPath, worktreeEnv);
+  const initialPrompt = getCodingInitialPrompt(stage, absArtifacts, planPath, summaryPath);
 
   resetSeq(taskId, stage);
 
@@ -303,28 +314,7 @@ async function runCodingStage(
     });
     emit({ type: "stage_update", taskId, stage, status: "complete" });
 
-    if (stage === "pr_creator") {
-      const prUrl = extractPrUrl(result.fullOutput);
-      const prNumber = prUrl ? extractPrNumber(prUrl) : null;
-
-      if (prUrl) {
-        await queries.updateTask(taskId, { prUrl, prNumber });
-        emit({ type: "pr_update", taskId, prUrl });
-        await notifyTelegram(
-          sendTelegram,
-          task.telegramChatId,
-          `PR is up and ready for review:\n${prUrl}`,
-        );
-      } else {
-        await notifyTelegram(
-          sendTelegram,
-          task.telegramChatId,
-          "PR creator finished, but I could not detect the PR URL from output. Please verify in GitHub.",
-        );
-      }
-    } else {
-      await notifyTelegram(sendTelegram, task.telegramChatId, `Stage complete: ${STAGE_DISPLAY_NAMES[stage]}.`);
-    }
+    await notifyTelegram(sendTelegram, task.telegramChatId, `Stage complete: ${STAGE_DISPLAY_NAMES[stage]}.`);
 
     log.info(`Stage ${stage} complete for task ${taskId}`);
   } catch (err) {
@@ -342,13 +332,9 @@ async function runCodingStage(
 
 function getCodingSystemPrompt(
   stage: CodingStageName,
-  description: string,
   absArtifacts: string,
   planPath: string,
   summaryPath: string,
-  reviewPath: string,
-  branch: string,
-  repoName: string,
   worktreeEnv: WorktreeEnv,
 ): string {
   switch (stage) {
@@ -356,8 +342,6 @@ function getCodingSystemPrompt(
       return implementerPrompt(planPath, absArtifacts, worktreeEnv);
     case "reviewer":
       return reviewerPrompt(planPath, summaryPath, absArtifacts, worktreeEnv);
-    case "pr_creator":
-      return prCreatorPrompt(branch, repoName, planPath, summaryPath, reviewPath);
     default:
       throw new Error(`Unexpected stage for getCodingSystemPrompt: ${stage}`);
   }
@@ -365,7 +349,6 @@ function getCodingSystemPrompt(
 
 function getCodingInitialPrompt(
   stage: CodingStageName,
-  description: string,
   absArtifacts: string,
   planPath: string,
   summaryPath: string,
@@ -375,10 +358,6 @@ function getCodingInitialPrompt(
       return `Read the plan at ${planPath}, then implement every step. Make git commits as you go. When all code is written and committed, write the summary to ${absArtifacts}/implementation-summary.md. Do not stop until both the code is committed and the summary file is written.`;
     case "reviewer":
       return `Read the plan at ${planPath} and the summary at ${summaryPath}. Run git diff main to see all changes. Review the code, fix any issues, then write your review to ${absArtifacts}/review.md. Do not stop until the review file is written.`;
-    case "pr_creator":
-      return `Push the branch to origin and create a GitHub PR using gh CLI. Read the artifact files for context on what to put in the PR description.`;
-    case "revision":
-      return "Read the PR feedback, make the fixes, commit, and push.";
     default:
       throw new Error(`Unexpected stage for getCodingInitialPrompt: ${stage}`);
   }
@@ -399,17 +378,4 @@ async function requireArtifact(artifactsDir: string, filename: string, errorMsg:
     if (err instanceof Error && err.message.startsWith(errorMsg)) throw err;
     throw new Error(`${errorMsg} (expected at ${filePath})`);
   }
-}
-
-function extractPrUrl(text: string): string | null {
-  const matches = text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g);
-  if (!matches || matches.length === 0) return null;
-  return matches[matches.length - 1];
-}
-
-function extractPrNumber(prUrl: string): number | null {
-  const match = prUrl.match(/\/pull\/(\d+)/);
-  if (!match) return null;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? parsed : null;
 }

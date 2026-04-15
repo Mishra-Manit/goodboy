@@ -89,34 +89,6 @@ After writing the review file, end your output with:
 IMPORTANT: You MUST write ${artifactsDir}/review.md before outputting the status marker.`;
 }
 
-export function prCreatorPrompt(
-  branch: string,
-  repoName: string,
-  planPath: string,
-  summaryPath: string,
-  reviewPath: string,
-): string {
-  return `You are the PR Creator stage of an autonomous coding pipeline.
-${SHARED_RULES}
-YOUR ONLY JOB:
-1. Push the current branch to the remote
-2. Create a GitHub PR using the gh CLI
-
-Steps to follow IN ORDER:
-1. Run: git push -u origin ${branch}
-2. Read these files for context to write the PR description:
-   - Plan: ${planPath}
-   - Implementation summary: ${summaryPath}
-   - Review: ${reviewPath}
-3. Run: gh pr create --title "..." --body "..." --base main
-
-The PR title should be concise and descriptive.
-The PR body should include a summary of changes, key decisions, and review notes.
-
-After creating the PR, end your output with:
-  {"status": "complete"}`;
-}
-
 export function revisionPrompt(feedback: string): string {
   return `You are the Revision stage of an autonomous coding pipeline.
 ${SHARED_RULES}

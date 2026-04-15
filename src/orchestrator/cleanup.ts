@@ -1,6 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { rm } from "node:fs/promises";
+import path from "node:path";
 import { createLogger } from "../shared/logger.js";
+import { config } from "../shared/config.js";
 import { getRepo } from "../shared/repos.js";
 import { removeWorktree } from "./worktree.js";
 import * as queries from "../db/queries.js";
@@ -75,6 +78,12 @@ export async function dismissTask(taskId: string): Promise<void> {
     await deleteLocalBranch(repo.localPath, task.branch);
   }
 
+  // Clean up any associated PR session
+  const prSession = await queries.getPrSessionByOriginTask(taskId);
+  if (prSession) {
+    await cleanupPrSession(prSession.id);
+  }
+
   // Update DB — clear all resource references
   await queries.updateTask(taskId, {
     status: "cancelled",
@@ -114,4 +123,42 @@ export async function cleanupTaskResources(taskId: string): Promise<void> {
   });
 
   log.info(`Cleaned up resources for task ${taskId}`);
+}
+
+/**
+ * Clean up a PR session: close DB record, remove worktree + branch,
+ * optionally delete session file.
+ */
+export async function cleanupPrSession(prSessionId: string): Promise<void> {
+  const session = await queries.getPrSession(prSessionId);
+  if (!session) return;
+
+  const repo = getRepo(session.repo);
+
+  // Remove worktree
+  if (session.worktreePath && repo) {
+    await removeWorktree(repo.localPath, session.worktreePath);
+  }
+
+  // Delete local branch
+  if (session.branch && repo) {
+    await deleteLocalBranch(repo.localPath, session.branch);
+  }
+
+  // Remove session file (best-effort)
+  const sessionFile = path.join(config.prSessionsDir, `${prSessionId}.jsonl`);
+  try {
+    await rm(sessionFile, { force: true });
+  } catch {
+    // may not exist
+  }
+
+  // Mark session as closed
+  await queries.updatePrSession(prSessionId, {
+    status: "closed",
+    worktreePath: null,
+    branch: null,
+  });
+
+  log.info(`Cleaned up PR session ${prSessionId}`);
 }
