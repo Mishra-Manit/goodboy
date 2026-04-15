@@ -1,47 +1,144 @@
+import type { ZodType } from "zod";
 import { loadEnv } from "./config.js";
 import { createLogger } from "./logger.js";
 
 const log = createLogger("llm");
 
+const FIREWORKS_URL = "https://api.fireworks.ai/inference/v1/chat/completions";
 const DEFAULT_MODEL = "accounts/fireworks/models/llama-v3p3-70b-instruct";
 
-interface CompleteOptions {
-  system?: string;
-  model?: string;
-  maxTokens?: number;
-  temperature?: number;
+interface ChatMessage {
+  readonly role: "system" | "user" | "assistant";
+  readonly content: string;
 }
 
+interface CompleteOptions {
+  readonly system?: string;
+  readonly model?: string;
+  readonly maxTokens?: number;
+  readonly temperature?: number;
+}
+
+interface StructuredOutputOptions<T> {
+  readonly system: string;
+  readonly prompt: string;
+  readonly schema: ZodType<T>;
+  readonly model?: string;
+  readonly maxTokens?: number;
+  readonly temperature?: number;
+}
+
+/** Raw text completion. Returns null on failure. */
 export async function complete(
   prompt: string,
-  options: CompleteOptions = {}
+  options: CompleteOptions = {},
 ): Promise<string | null> {
-  const apiKey = loadEnv().FIREWORKS_API_KEY;
-  if (!apiKey) {
-    log.warn("No FIREWORKS_API_KEY set, skipping LLM call");
-    return null;
-  }
-
   const { system, model = DEFAULT_MODEL, maxTokens = 256, temperature = 0 } = options;
 
-  const messages = [
+  const messages: readonly ChatMessage[] = [
     ...(system ? [{ role: "system" as const, content: system }] : []),
     { role: "user" as const, content: prompt },
   ];
 
+  const raw = await fireworksRequest(messages, { model, maxTokens, temperature });
+  return raw;
+}
+
+/** JSON completion parsed through a Zod schema. Throws on failure. */
+export async function structuredOutput<T>(options: StructuredOutputOptions<T>): Promise<T> {
+  const {
+    system,
+    prompt,
+    schema,
+    model = DEFAULT_MODEL,
+    maxTokens = 512,
+    temperature = 0,
+  } = options;
+
+  const messages: readonly ChatMessage[] = [
+    { role: "system", content: system },
+    { role: "user", content: prompt },
+  ];
+
+  const raw = await fireworksRequest(messages, {
+    model,
+    maxTokens,
+    temperature,
+    jsonMode: true,
+  });
+
+  if (!raw) {
+    throw new Error("LLM returned empty response in structured output mode");
+  }
+
+  let parsed: unknown;
   try {
-    const res = await fetch("https://api.fireworks.ai/inference/v1/chat/completions", {
+    parsed = JSON.parse(raw);
+  } catch {
+    log.error("LLM returned invalid JSON", { raw });
+    throw new Error("LLM returned invalid JSON");
+  }
+
+
+  const result = schema.safeParse(parsed);
+  if (!result.success) {
+    log.error("LLM output failed schema validation", {
+      raw,
+      errors: result.error.issues,
+    });
+    throw new Error(`LLM output failed schema validation: ${result.error.message}`);
+  }
+
+  return result.data;
+}
+
+// ---------------------------------------------------------------------------
+// Internal
+// ---------------------------------------------------------------------------
+
+interface RequestOptions {
+  readonly model: string;
+  readonly maxTokens: number;
+  readonly temperature: number;
+  readonly jsonMode?: boolean;
+}
+
+async function fireworksRequest(
+  messages: readonly ChatMessage[],
+  options: RequestOptions,
+): Promise<string | null> {
+  const apiKey = loadEnv().FIREWORKS_API_KEY;
+
+  const body: Record<string, unknown> = {
+    model: options.model,
+    messages,
+    max_tokens: options.maxTokens,
+    temperature: options.temperature,
+  };
+
+  if (options.jsonMode) {
+    body.response_format = { type: "json_object" };
+  }
+
+  try {
+    const res = await fetch(FIREWORKS_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
-      log.warn(`Fireworks API returned ${res.status}`);
+      const text = await res.text().catch(() => "(no body)");
+      log.warn(`Fireworks API returned ${res.status}`, { body: text });
       return null;
     }
 
-    const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
+    const data = (await res.json()) as {
+      choices: ReadonlyArray<{ message: { content: string } }>;
+    };
     return data.choices[0]?.message?.content?.trim() ?? null;
   } catch (err) {
     log.warn("Fireworks API call failed", err);
