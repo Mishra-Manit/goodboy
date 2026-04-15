@@ -1,22 +1,26 @@
 import { Bot } from "grammy";
 import { loadEnv } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
-import * as queries from "../db/queries.js";
+import { classifyMessage } from "../shared/classifier.js";
 import { listRepos, getRepo } from "../shared/repos.js";
+import * as queries from "../db/queries.js";
 import { runPipeline, deliverReply, cancelTask } from "../orchestrator/index.js";
 import type { SendTelegram } from "../orchestrator/index.js";
+import type { Intent } from "../shared/classifier.js";
+import type { Task } from "../db/queries.js";
 
 const log = createLogger("bot");
 
 /** Track which task a user is currently conversing with */
 const activeConversations = new Map<string, string>(); // chatId -> taskId
 
-import type { Task } from "../db/queries.js";
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-async function findTaskByPrefix(prefix: string): Promise<
-  | { ok: true; task: Task }
-  | { ok: false; message: string }
-> {
+async function findTaskByPrefix(
+  prefix: string,
+): Promise<{ ok: true; task: Task } | { ok: false; message: string }> {
   const tasks = await queries.listTasks();
   const matches = tasks.filter((t) => t.id.startsWith(prefix));
   if (matches.length === 0) return { ok: false, message: `Task not found: ${prefix}` };
@@ -27,15 +31,176 @@ async function findTaskByPrefix(prefix: string): Promise<
   return { ok: true, task: matches[0] };
 }
 
+function repoNames(): readonly string[] {
+  return listRepos().map((r) => r.name);
+}
+
+// ---------------------------------------------------------------------------
+// Intent handlers
+// ---------------------------------------------------------------------------
+
+async function handleCodingTask(
+  intent: Extract<Intent, { type: "coding_task" }>,
+  chatId: string,
+  sendTelegram: SendTelegram,
+  reply: (text: string) => Promise<void>,
+): Promise<void> {
+  const repo = getRepo(intent.repo);
+  if (!repo) {
+    await reply(`Repo '${intent.repo}' not found. Available: ${repoNames().join(", ")}`);
+    return;
+  }
+
+  const task = await queries.createTask({
+    repo: intent.repo,
+    description: intent.description,
+    telegramChatId: chatId,
+  });
+
+  activeConversations.set(chatId, task.id);
+  await reply(`Task created: ${task.id.slice(0, 8)}\nStarting planner...`);
+
+  runPipeline(task.id, sendTelegram).catch((err) => {
+    log.error(`Pipeline error for task ${task.id}`, err);
+  });
+}
+
+async function handleTaskStatus(
+  intent: Extract<Intent, { type: "task_status" }>,
+  reply: (text: string) => Promise<void>,
+): Promise<void> {
+  if (intent.taskPrefix) {
+    const result = await findTaskByPrefix(intent.taskPrefix);
+    if (!result.ok) {
+      await reply(result.message);
+      return;
+    }
+    const { task } = result;
+    const desc =
+      task.description.length > 80
+        ? `${task.description.slice(0, 77)}...`
+        : task.description;
+    await reply(`[${task.id.slice(0, 8)}] ${task.repo}: ${task.status}\n${desc}`);
+    return;
+  }
+
+  const tasks = await queries.listTasks();
+  const active = tasks.filter(
+    (t) => !["complete", "failed", "cancelled"].includes(t.status),
+  );
+
+  if (active.length === 0) {
+    await reply("No active tasks.");
+    return;
+  }
+
+  const lines = active.map((t) => {
+    const desc =
+      t.description.length > 80
+        ? `${t.description.slice(0, 77)}...`
+        : t.description;
+    return `- [${t.id.slice(0, 8)}] ${t.repo}: ${t.status}\n  ${desc}`;
+  });
+  await reply(`Active tasks:\n${lines.join("\n")}`);
+}
+
+async function handleTaskCancel(
+  intent: Extract<Intent, { type: "task_cancel" }>,
+  chatId: string,
+  reply: (text: string) => Promise<void>,
+): Promise<void> {
+  const result = await findTaskByPrefix(intent.taskPrefix);
+  if (!result.ok) {
+    await reply(result.message);
+    return;
+  }
+
+  cancelTask(result.task.id);
+  await queries.updateTask(result.task.id, { status: "cancelled" });
+  activeConversations.delete(chatId);
+  await reply(`Cancelled task ${result.task.id.slice(0, 8)}.`);
+}
+
+async function handleTaskRetry(
+  intent: Extract<Intent, { type: "task_retry" }>,
+  chatId: string,
+  sendTelegram: SendTelegram,
+  reply: (text: string) => Promise<void>,
+): Promise<void> {
+  const result = await findTaskByPrefix(intent.taskPrefix);
+  if (!result.ok) {
+    await reply(result.message);
+    return;
+  }
+
+  const { task } = result;
+  if (task.status !== "failed") {
+    await reply(
+      `Task ${task.id.slice(0, 8)} is not in failed state (current: ${task.status}).`,
+    );
+    return;
+  }
+
+  await queries.updateTask(task.id, { status: "queued", error: null });
+  activeConversations.set(chatId, task.id);
+  await reply(`Retrying task ${task.id.slice(0, 8)}...`);
+
+  runPipeline(task.id, sendTelegram).catch((err) => {
+    log.error(`Pipeline error for task ${task.id}`, err);
+  });
+}
+
+async function handlePlanConfirm(
+  chatId: string,
+  reply: (text: string) => Promise<void>,
+): Promise<void> {
+  const taskId = activeConversations.get(chatId);
+  if (!taskId) {
+    await reply("No task waiting for confirmation.");
+    return;
+  }
+
+  const delivered = deliverReply(taskId, "/go");
+  activeConversations.delete(chatId);
+
+  if (delivered) {
+    await reply("Proceeding with implementation...");
+  } else {
+    await reply("Task has already proceeded.");
+  }
+}
+
+async function handlePlanReply(
+  intent: Extract<Intent, { type: "plan_reply" }>,
+  chatId: string,
+  reply: (text: string) => Promise<void>,
+): Promise<void> {
+  const taskId = activeConversations.get(chatId);
+  if (!taskId) {
+    await reply("No active conversation to reply to.");
+    return;
+  }
+
+  const delivered = deliverReply(taskId, intent.reply);
+  if (delivered) {
+    await reply("Got it, passing to the planner...");
+  } else {
+    activeConversations.delete(chatId);
+    await reply("Previous task is no longer waiting for input.");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bot setup
+// ---------------------------------------------------------------------------
+
 export function createBot(): Bot {
   const env = loadEnv();
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
 
-  const allowedUserId = env.TELEGRAM_USER_ID;
-
   // Auth middleware -- restrict to single user
   bot.use(async (ctx, next) => {
-    if (String(ctx.from?.id) !== allowedUserId) {
+    if (String(ctx.from?.id) !== env.TELEGRAM_USER_ID) {
       log.warn(`Unauthorized access attempt from user ${ctx.from?.id}`);
       return;
     }
@@ -46,154 +211,64 @@ export function createBot(): Bot {
     await bot.api.sendMessage(Number(chatId), text);
   };
 
-  // --- Commands ---
-
-  bot.command("repos", async (ctx) => {
-    const repos = listRepos();
-    if (repos.length === 0) {
-      await ctx.reply("No repos registered. Set REGISTERED_REPOS in .env.");
-      return;
-    }
-    const list = repos.map((r) => `- ${r.name}: ${r.localPath}`).join("\n");
-    await ctx.reply(`Registered repos:\n${list}`);
-  });
-
-  bot.command("status", async (ctx) => {
-    const tasks = await queries.listTasks();
-    const active = tasks.filter(
-      (t) => !["complete", "failed", "cancelled"].includes(t.status)
-    );
-
-    if (active.length === 0) {
-      await ctx.reply("No active tasks.");
-      return;
-    }
-
-    const lines = active.map((t) => {
-      const desc = t.description.length > 80 ? `${t.description.slice(0, 77)}...` : t.description;
-      return `- [${t.id.slice(0, 8)}] ${t.repo}: ${t.status}\n  ${desc}`;
-    });
-    await ctx.reply(`Active tasks:\n${lines.join("\n")}`);
-  });
-
-  bot.command("cancel", async (ctx) => {
-    const taskId = ctx.match?.trim();
-    if (!taskId) {
-      await ctx.reply("Usage: /cancel <task_id>");
-      return;
-    }
-
-    const result = await findTaskByPrefix(taskId);
-    if (!result.ok) {
-      await ctx.reply(result.message);
-      return;
-    }
-
-    cancelTask(result.task.id);
-    await queries.updateTask(result.task.id, { status: "cancelled" });
-    await ctx.reply(`Cancelled task ${result.task.id.slice(0, 8)}.`);
-  });
-
-  bot.command("retry", async (ctx) => {
-    const taskId = ctx.match?.trim();
-    if (!taskId) {
-      await ctx.reply("Usage: /retry <task_id>");
-      return;
-    }
-
-    const result = await findTaskByPrefix(taskId);
-    if (!result.ok) {
-      await ctx.reply(result.message);
-      return;
-    }
-
-    const { task } = result;
-    if (task.status !== "failed") {
-      await ctx.reply(`Task ${task.id.slice(0, 8)} is not in failed state (current: ${task.status}).`);
-      return;
-    }
-
-    const chatId = String(ctx.chat.id);
-    await queries.updateTask(task.id, { status: "queued", error: null });
-    activeConversations.set(chatId, task.id);
-    await ctx.reply(`Retrying task ${task.id.slice(0, 8)}...`);
-
-    // Fire and forget
-    runPipeline(task.id, sendTelegram).catch((err) => {
-      log.error(`Pipeline error for task ${task.id}`, err);
-    });
-  });
-
-  bot.command("go", async (ctx) => {
-    const chatId = String(ctx.chat.id);
-    const taskId = activeConversations.get(chatId);
-    if (!taskId) {
-      await ctx.reply("No task waiting for confirmation.");
-      return;
-    }
-    const delivered = deliverReply(taskId, "/go");
-    activeConversations.delete(chatId);
-    if (delivered) {
-      await ctx.reply("Proceeding with implementation...");
-    } else {
-      await ctx.reply("Task has already proceeded. Check /status.");
-    }
-  });
-
-  // --- Regular messages = new task or reply to planner ---
-
+  // All text messages go through the classifier
   bot.on("message:text", async (ctx) => {
     const chatId = String(ctx.chat.id);
     const text = ctx.message.text;
+    const hasActiveConversation = activeConversations.has(chatId);
 
-    // Check if this is a reply to an active conversation
-    const conversationTaskId = activeConversations.get(chatId);
-    if (conversationTaskId) {
-      const delivered = deliverReply(conversationTaskId, text);
-      if (delivered) {
-        await ctx.reply("Got it, passing to the planner...");
-        return;
-      }
-      activeConversations.delete(chatId);
-      await ctx.reply("Previous task is no longer waiting for input. Treating as a new task...");
+    const reply = async (msg: string): Promise<void> => {
+      await ctx.reply(msg);
+    };
+
+    const intent = await classifyMessage(text, repoNames(), hasActiveConversation);
+
+    switch (intent.type) {
+      case "coding_task":
+        await handleCodingTask(intent, chatId, sendTelegram, reply);
+        break;
+
+      case "pr_review":
+        await reply("PR review is not yet supported. Coming soon.");
+        break;
+
+      case "codebase_question":
+        await reply("Codebase questions are not yet supported. Coming soon.");
+        break;
+
+      case "task_status":
+        await handleTaskStatus(intent, reply);
+        break;
+
+      case "task_cancel":
+        await handleTaskCancel(intent, chatId, reply);
+        break;
+
+      case "task_retry":
+        await handleTaskRetry(intent, chatId, sendTelegram, reply);
+        break;
+
+      case "plan_confirm":
+        await handlePlanConfirm(chatId, reply);
+        break;
+
+      case "plan_reply":
+        await handlePlanReply(intent, chatId, reply);
+        break;
+
+      case "unknown":
+        await reply(
+          "I didn't understand that. You can ask me to work on a task, check status, cancel or retry tasks, or answer planner questions.",
+        );
+        break;
     }
-
-    // Parse repo name from message (first word)
-    const parts = text.split(/\s+/);
-    if (parts.length < 2) {
-      await ctx.reply("Format: <repo_name> <task description>\n\nUse /repos to see available repos.");
-      return;
-    }
-
-    const repoName = parts[0];
-    const description = parts.slice(1).join(" ");
-
-    const repo = getRepo(repoName);
-    if (!repo) {
-      await ctx.reply(
-        `Repo '${repoName}' not found.\n\nUse /repos to see available repos.`
-      );
-      return;
-    }
-
-    // Create task
-    const task = await queries.createTask({
-      repo: repoName,
-      description,
-      telegramChatId: chatId,
-    });
-
-    activeConversations.set(chatId, task.id);
-    await ctx.reply(`Task created: ${task.id.slice(0, 8)}\nStarting planner...`);
-
-    // Fire and forget
-    runPipeline(task.id, sendTelegram).catch((err) => {
-      log.error(`Pipeline error for task ${task.id}`, err);
-    });
   });
 
   bot.catch((err) => {
-    log.error("Bot error", { error: err.message, update: err.ctx?.update?.update_id });
+    log.error("Bot error", {
+      error: err.message,
+      update: err.ctx?.update?.update_id,
+    });
   });
 
   return bot;

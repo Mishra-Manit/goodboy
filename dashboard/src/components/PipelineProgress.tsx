@@ -80,44 +80,54 @@ export function PipelineProgress({
   }
 
   return (
-    <div className={cn("flex items-center gap-0", className)}>
-      {allStages.map((ps, i) => {
-        const status = getStatus(stageMap.get(ps.key));
-        const stageData = stageMap.get(ps.key);
-
-        return (
-          <div key={ps.key} className="flex items-center">
-            {/* Connector line -- uses previous stage's status */}
-            {i > 0 && (
-              <div className={cn("h-px w-6", LINE_STYLES[getStatus(stageMap.get(allStages[i - 1].key))])} />
-            )}
-
-            {/* Stage dot + label */}
-            <div className="flex flex-col items-center gap-1">
+    <div className={cn("flex flex-col gap-1", className)}>
+      {/* Top row: dots with connector lines between them */}
+      <div className="flex items-center">
+        {allStages.map((ps, i) => {
+          const status = getStatus(stageMap.get(ps.key));
+          return (
+            <div key={ps.key} className="flex items-center">
+              {i > 0 && (
+                <div className={cn("h-px w-14", LINE_STYLES[getStatus(stageMap.get(allStages[i - 1].key))])} />
+              )}
               <div
                 className={cn(
-                  "h-2 w-2 rounded-full transition-all",
+                  "h-2 w-2 shrink-0 rounded-full transition-all",
                   DOT_STYLES[status],
                   status === "active" && "animate-pulse-soft"
                 )}
               />
-              <span
-                className={cn(
-                  "font-mono text-[9px] tracking-wide",
-                  LABEL_STYLES[status]
-                )}
-              >
-                {ps.label}
-              </span>
-              {stageData?.completedAt && stageData.startedAt && (
-                <span className="font-mono text-[8px] text-text-void">
-                  {formatDuration(stageData.startedAt, stageData.completedAt)}
-                </span>
-              )}
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
+      {/* Bottom row: labels aligned under each dot */}
+      <div className="flex items-start">
+        {allStages.map((ps, i) => {
+          const status = getStatus(stageMap.get(ps.key));
+          const stageData = stageMap.get(ps.key);
+          return (
+            <div key={ps.key} className="flex items-start">
+              {i > 0 && <div className="w-14 shrink-0" />}
+              <div className="flex w-2 flex-col items-center">
+                <span
+                  className={cn(
+                    "whitespace-nowrap font-mono text-[9px] tracking-wide",
+                    LABEL_STYLES[status]
+                  )}
+                >
+                  {ps.label}
+                </span>
+                {stageData?.completedAt && stageData.startedAt && (
+                  <span className="whitespace-nowrap font-mono text-[8px] text-text-void">
+                    {formatDuration(stageData.startedAt, stageData.completedAt)}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
