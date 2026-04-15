@@ -9,7 +9,7 @@ import { spawnPiSession } from "../pi-rpc.js";
 import { createWorktree, generateBranchName, syncRepo } from "../worktree.js";
 import * as queries from "../../db/queries.js";
 import type { Task } from "../../db/queries.js";
-import type { StageName, LogEntryKind, PiOutputMarker } from "../../shared/types.js";
+import type { StageName, LogEntryKind } from "../../shared/types.js";
 import type { Env } from "../../shared/config.js";
 import {
   failTask,
@@ -278,7 +278,6 @@ async function runCodingStage(
   const absArtifacts = path.resolve(artifactsDir);
   const planPath = path.join(absArtifacts, "plan.md");
   const summaryPath = path.join(absArtifacts, "implementation-summary.md");
-  const reviewPath = path.join(absArtifacts, "review.md");
 
   const systemPrompt = getCodingSystemPrompt(stage, absArtifacts, planPath, summaryPath, worktreeEnv);
   const initialPrompt = getCodingInitialPrompt(stage, absArtifacts, planPath, summaryPath);
@@ -303,7 +302,7 @@ async function runCodingStage(
   session.sendPrompt(initialPrompt);
 
   try {
-    const result = await withTimeout(session.waitForCompletion(), STAGE_TIMEOUT_MS, `Stage ${stage}`);
+    await withTimeout(session.waitForCompletion(), STAGE_TIMEOUT_MS, `Stage ${stage}`);
 
     session.kill();
     clearActiveSession(taskId);

@@ -267,7 +267,7 @@ export async function startExternalReview(options: {
   );
 
   try {
-    const result = await withTimeout(
+    await withTimeout(
       session.waitForCompletion(),
       SESSION_TIMEOUT_MS,
       "PR session (external review)",
