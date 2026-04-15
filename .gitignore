@@ -2,4 +2,6 @@ node_modules/
 dist/
 .env
 artifacts/
+data/pr-sessions/
+!data/pr-sessions/.gitkeep
 dashboard/dist/

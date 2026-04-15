@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import { createBot } from "./bot/index.js";
 import { createApi } from "./api/index.js";
 import { startPrPoller, stopPrPoller } from "./orchestrator/index.js";
+import type { SendTelegram } from "./orchestrator/index.js";
 import { loadEnv } from "./shared/config.js";
 import { createLogger } from "./shared/logger.js";
 
@@ -34,7 +35,11 @@ async function main(): Promise<void> {
     onStart: () => log.info("Telegram bot started"),
   });
 
-  startPrPoller();
+  const sendTelegram: SendTelegram = async (chatId, text) => {
+    await bot.api.sendMessage(Number(chatId), text);
+  };
+
+  startPrPoller(sendTelegram);
 
   log.info("Goodboy is running");
 
