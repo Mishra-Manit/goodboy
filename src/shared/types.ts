@@ -72,4 +72,6 @@ export type SSEEvent =
   | { type: "task_update"; taskId: string; status: TaskStatus; kind?: TaskKind }
   | { type: "stage_update"; taskId: string; stage: StageName; status: StageStatus }
   | { type: "log"; taskId: string; stage: StageName; entry: LogEntry }
-  | { type: "pr_update"; taskId: string; prUrl: string };
+  | { type: "pr_update"; taskId: string; prUrl: string }
+  | { type: "pr_session_update"; prSessionId: string; running: boolean }
+  | { type: "pr_session_log"; prSessionId: string; entry: LogEntry };

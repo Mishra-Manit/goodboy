@@ -3,12 +3,15 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createLogger } from "../../shared/logger.js";
 import { config, loadEnv } from "../../shared/config.js";
+import { emit } from "../../shared/events.js";
 import { spawnPiSession } from "../pi-rpc.js";
+import { makePrSessionEntry, appendPrSessionLog } from "../logs.js";
 import { createPrWorktree } from "../worktree.js";
 import { getRepo } from "../../shared/repos.js";
 import * as queries from "../../db/queries.js";
 import { prSessionPrompt, formatCommentsPrompt } from "./prompts.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../shared.js";
+import type { LogEntryKind } from "../../shared/types.js";
 import type { PrComment } from "./github.js";
 
 const exec = promisify(execFile);
@@ -19,6 +22,17 @@ const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 /** Derive the session file path from a PR session ID. */
 function sessionFilePath(prSessionId: string): string {
   return path.join(config.prSessionsDir, `${prSessionId}.jsonl`);
+}
+
+/** Build an onLog callback that emits SSE events and persists to disk. */
+function createSessionLogger(prSessionId: string) {
+  return (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => {
+    const entry = makePrSessionEntry(prSessionId, kind, text, meta);
+    emit({ type: "pr_session_log", prSessionId, entry });
+    appendPrSessionLog(prSessionId, entry).catch((err) => {
+      log.warn(`Failed to persist PR session log: ${err}`);
+    });
+  };
 }
 
 /**
@@ -64,6 +78,7 @@ export async function startPrSession(options: {
   const model = loadEnv().PI_MODEL_PR_CREATOR ?? loadEnv().PI_MODEL;
 
   log.info(`Starting PR session ${prSession.id} for task ${originTaskId}`);
+  emit({ type: "pr_session_update", prSessionId: prSession.id, running: true });
 
   const session = spawnPiSession({
     id: `pr-session-${prSession.id.slice(0, 8)}`,
@@ -71,6 +86,7 @@ export async function startPrSession(options: {
     systemPrompt,
     model,
     sessionPath,
+    onLog: createSessionLogger(prSession.id),
   });
 
   session.sendPrompt(
@@ -89,7 +105,6 @@ export async function startPrSession(options: {
 
     if (prNumber) {
       await queries.updatePrSession(prSession.id, { prNumber, lastPolledAt: new Date() });
-      // Also update the originating task with the PR info
       await queries.updateTask(originTaskId, { prUrl, prNumber });
       await notifyTelegram(
         sendTelegram,
@@ -113,6 +128,7 @@ export async function startPrSession(options: {
     );
   } finally {
     session.kill();
+    emit({ type: "pr_session_update", prSessionId: prSession.id, running: false });
   }
 }
 
@@ -156,12 +172,23 @@ export async function resumePrSession(options: {
 
   log.info(`Resuming PR session ${prSessionId} with ${comments.length} new comments`);
 
+  if (chatId) {
+    await notifyTelegram(
+      sendTelegram,
+      chatId,
+      `Found ${comments.length} new comment${comments.length === 1 ? "" : "s"} on PR #${prSession.prNumber}. Addressing now...`,
+    );
+  }
+
+  emit({ type: "pr_session_update", prSessionId, running: true });
+
   const session = spawnPiSession({
     id: `pr-session-${prSessionId.slice(0, 8)}-resume`,
     cwd: prSession.worktreePath,
     systemPrompt,
     model,
     sessionPath,
+    onLog: createSessionLogger(prSessionId),
   });
 
   session.sendPrompt(formatCommentsPrompt(comments));
@@ -193,6 +220,7 @@ export async function resumePrSession(options: {
     }
   } finally {
     session.kill();
+    emit({ type: "pr_session_update", prSessionId, running: false });
   }
 }
 
@@ -253,6 +281,7 @@ export async function startExternalReview(options: {
   const model = loadEnv().PI_MODEL_REVIEWER ?? loadEnv().PI_MODEL;
 
   log.info(`Starting external review for PR #${prNumber} on ${repo}`);
+  emit({ type: "pr_session_update", prSessionId: prSession.id, running: true });
 
   const session = spawnPiSession({
     id: `pr-session-${prSession.id.slice(0, 8)}-review`,
@@ -260,6 +289,7 @@ export async function startExternalReview(options: {
     systemPrompt,
     model,
     sessionPath,
+    onLog: createSessionLogger(prSession.id),
   });
 
   session.sendPrompt(
@@ -284,6 +314,7 @@ export async function startExternalReview(options: {
     throw err;
   } finally {
     session.kill();
+    emit({ type: "pr_session_update", prSessionId: prSession.id, running: false });
   }
 }
 

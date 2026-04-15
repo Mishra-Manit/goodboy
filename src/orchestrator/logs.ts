@@ -76,6 +76,52 @@ export async function readStageEntries(
   }
 }
 
+// ---------------------------------------------------------------------------
+// PR Session logs (stored at data/pr-sessions/<id>.log.jsonl)
+// ---------------------------------------------------------------------------
+
+export function makePrSessionEntry(
+  prSessionId: string,
+  kind: LogEntryKind,
+  text: string,
+  meta?: Record<string, unknown>,
+): LogEntry {
+  return {
+    seq: nextSeq(`pr:${prSessionId}`, "session"),
+    ts: new Date().toISOString(),
+    kind,
+    text,
+    ...(meta ? { meta } : {}),
+  };
+}
+
+export async function appendPrSessionLog(
+  prSessionId: string,
+  entry: LogEntry,
+): Promise<void> {
+  const logPath = path.join(config.prSessionsDir, `${prSessionId}.log.jsonl`);
+  await appendFile(logPath, JSON.stringify(entry) + "\n");
+}
+
+export async function readPrSessionLog(
+  prSessionId: string,
+): Promise<LogEntry[]> {
+  const logPath = path.join(config.prSessionsDir, `${prSessionId}.log.jsonl`);
+  try {
+    const content = await readFile(logPath, "utf-8");
+    return content
+      .split("\n")
+      .filter((l) => l.length > 0)
+      .map((l) => JSON.parse(l) as LogEntry);
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Task logs
+// ---------------------------------------------------------------------------
+
 /**
  * Read all logs for a task across all stages.
  */

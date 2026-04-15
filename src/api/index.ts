@@ -10,7 +10,7 @@ import { config } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
 import { TASK_STATUSES, TASK_KINDS } from "../shared/types.js";
 import type { TaskStatus, TaskKind } from "../shared/types.js";
-import { readTaskLogs } from "../orchestrator/logs.js";
+import { readTaskLogs, readPrSessionLog } from "../orchestrator/logs.js";
 import { runPipeline, runQuestion, runPrReview, cancelTask as cancelRunningTask, dismissTask } from "../orchestrator/index.js";
 
 const log = createLogger("api");
@@ -140,6 +140,13 @@ export function createApi(): Hono {
 
   app.get("/api/pr-sessions", async (c) => {
     return c.json(await queries.listPrSessions());
+  });
+
+  app.get("/api/pr-sessions/:id/logs", async (c) => {
+    const id = c.req.param("id");
+    if (!/^[0-9a-f-]{36}$/.test(id)) return c.json({ error: "Not found" }, 404);
+    const entries = await readPrSessionLog(id);
+    return c.json({ entries });
   });
 
   // --- SSE ---
