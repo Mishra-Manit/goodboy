@@ -16,28 +16,54 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // --- Types mirroring backend ---
 
+export type TaskKind = "coding_task" | "codebase_question" | "pr_review";
+
 export type TaskStatus =
   | "queued"
-  | "planning"
-  | "implementing"
-  | "reviewing"
-  | "creating_pr"
-  | "revision"
+  | "running"
   | "complete"
   | "failed"
   | "cancelled";
+
+export const TASK_KIND_CONFIG: Record<TaskKind, {
+  label: string;
+  stages: string[];
+  artifacts: { key: string; label: string }[];
+}> = {
+  coding_task: {
+    label: "coding task",
+    stages: ["planner", "implementer", "reviewer", "pr_creator"],
+    artifacts: [
+      { key: "plan.md", label: "plan" },
+      { key: "implementation-summary.md", label: "summary" },
+      { key: "review.md", label: "review" },
+    ],
+  },
+  codebase_question: {
+    label: "question",
+    stages: ["answering"],
+    artifacts: [{ key: "answer.md", label: "answer" }],
+  },
+  pr_review: {
+    label: "PR review",
+    stages: ["pr_reviewing"],
+    artifacts: [{ key: "pr-review.md", label: "review" }],
+  },
+};
 
 export type StageStatus = "running" | "complete" | "failed";
 
 export interface Task {
   id: string;
   repo: string;
+  kind: TaskKind;
   description: string;
   status: TaskStatus;
   branch: string | null;
   worktreePath: string | null;
   prUrl: string | null;
   prNumber: number | null;
+  prIdentifier: string | null;
   error: string | null;
   telegramChatId: string | null;
   createdAt: string;
@@ -102,10 +128,12 @@ export interface StageLogs {
 export async function fetchTasks(filters?: {
   status?: string;
   repo?: string;
+  kind?: string;
 }): Promise<Task[]> {
   const params = new URLSearchParams();
   if (filters?.status) params.set("status", filters.status);
   if (filters?.repo) params.set("repo", filters.repo);
+  if (filters?.kind) params.set("kind", filters.kind);
   const qs = params.toString();
   return request(`/api/tasks${qs ? `?${qs}` : ""}`);
 }

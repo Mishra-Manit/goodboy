@@ -8,10 +8,10 @@ import * as queries from "../db/queries.js";
 import { listRepos } from "../shared/repos.js";
 import { config } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
-import { TASK_STATUSES } from "../shared/types.js";
-import type { TaskStatus } from "../shared/types.js";
+import { TASK_STATUSES, TASK_KINDS } from "../shared/types.js";
+import type { TaskStatus, TaskKind } from "../shared/types.js";
 import { readTaskLogs } from "../orchestrator/logs.js";
-import { runPipeline, cancelTask as cancelRunningTask } from "../orchestrator/index.js";
+import { runPipeline, runQuestion, runPrReview, cancelTask as cancelRunningTask } from "../orchestrator/index.js";
 
 const log = createLogger("api");
 
@@ -28,7 +28,11 @@ export function createApi(): Hono {
       ? (rawStatus as TaskStatus)
       : undefined;
     const repo = c.req.query("repo");
-    const tasks = await queries.listTasks({ status, repo });
+    const rawKind = c.req.query("kind");
+    const kind = rawKind && TASK_KINDS.includes(rawKind as TaskKind)
+      ? (rawKind as TaskKind)
+      : undefined;
+    const tasks = await queries.listTasks({ status, repo, kind });
     return c.json(tasks);
   });
 
@@ -74,9 +78,18 @@ export function createApi(): Hono {
     // Dashboard-triggered retries don't have access to the bot instance,
     // so Telegram notifications are skipped. The user is watching the dashboard.
     const noopSend = async (_chatId: string, _text: string): Promise<void> => {};
-    runPipeline(task.id, noopSend).catch((err) => {
-      log.error(`Pipeline error for retried task ${task.id}`, err);
-    });
+
+    switch (task.kind) {
+      case "coding_task":
+        runPipeline(task.id, noopSend).catch((err) => log.error(`Retry error ${task.id}`, err));
+        break;
+      case "codebase_question":
+        runQuestion(task.id, noopSend).catch((err) => log.error(`Retry error ${task.id}`, err));
+        break;
+      case "pr_review":
+        runPrReview(task.id, noopSend).catch((err) => log.error(`Retry error ${task.id}`, err));
+        break;
+    }
     return c.json({ ok: true });
   });
 
