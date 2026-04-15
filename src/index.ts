@@ -2,6 +2,7 @@ import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
+import { readFile } from "node:fs/promises";
 import { createBot } from "./bot/index.js";
 import { createApi } from "./api/index.js";
 import { loadEnv } from "./shared/config.js";
@@ -16,6 +17,12 @@ async function main(): Promise<void> {
   const api = createApi();
   app.route("/", api);
   app.use("/*", serveStatic({ root: "./dashboard/dist" }));
+
+  // SPA fallback: serve index.html for any non-API route that didn't match a static file
+  app.get("*", async (c) => {
+    const html = await readFile("./dashboard/dist/index.html", "utf-8");
+    return c.html(html);
+  });
 
   const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
     log.info(`Server running on http://${env.HOST}:${info.port}`);
