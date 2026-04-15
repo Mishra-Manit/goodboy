@@ -30,14 +30,16 @@ export function spawnPiSession(options: {
   systemPrompt: string;
   model?: string;
   onEvent?: (event: PiEvent) => void;
+  /** Resume or create a persistent session file */
+  sessionPath?: string;
   /** Structured log callback */
   onLog?: (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => void;
 }): PiSession {
-  const { id, cwd, systemPrompt, model, onEvent, onLog } = options;
+  const { id, cwd, systemPrompt, model, sessionPath, onEvent, onLog } = options;
 
   const args = [
     "--mode", "rpc",
-    "--no-session",
+    ...(sessionPath ? ["--session", sessionPath] : ["--no-session"]),
     "--no-extensions",
     "--no-skills",
     "--no-prompt-templates",
