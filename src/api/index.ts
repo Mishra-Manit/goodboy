@@ -11,7 +11,7 @@ import { createLogger } from "../shared/logger.js";
 import { TASK_STATUSES, TASK_KINDS } from "../shared/types.js";
 import type { TaskStatus, TaskKind } from "../shared/types.js";
 import { readTaskLogs } from "../orchestrator/logs.js";
-import { runPipeline, runQuestion, runPrReview, cancelTask as cancelRunningTask } from "../orchestrator/index.js";
+import { runPipeline, runQuestion, runPrReview, cancelTask as cancelRunningTask, dismissTask } from "../orchestrator/index.js";
 
 const log = createLogger("api");
 
@@ -99,6 +99,19 @@ export function createApi(): Hono {
     cancelRunningTask(task.id);
     await queries.updateTask(task.id, { status: "cancelled" });
     return c.json({ ok: true });
+  });
+
+  app.post("/api/tasks/:id/dismiss", async (c) => {
+    try {
+      await dismissTask(c.req.param("id"));
+      return c.json({ ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("not found")) return c.json({ error: message }, 404);
+      if (message.includes("Cannot dismiss")) return c.json({ error: message }, 409);
+      log.error(`Dismiss error for ${c.req.param("id")}`, err);
+      return c.json({ error: message }, 500);
+    }
   });
 
   // --- Repos ---

@@ -1,5 +1,6 @@
-import { ExternalLink, ArrowUpRight } from "lucide-react";
-import { fetchPRs, type PR } from "@dashboard/lib/api";
+import { useState } from "react";
+import { ExternalLink, ArrowUpRight, X } from "lucide-react";
+import { fetchPRs, dismissTask, type PR } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSERefresh } from "@dashboard/hooks/use-sse";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
@@ -45,6 +46,7 @@ export function PullRequests() {
                 key={pr.taskId}
                 pr={pr}
                 onTaskClick={() => navigate(`/tasks/${pr.taskId}`)}
+                onDismiss={refetch}
               />
             ))}
           </div>
@@ -57,10 +59,27 @@ export function PullRequests() {
 function PRRow({
   pr,
   onTaskClick,
+  onDismiss,
 }: {
   pr: PR;
   onTaskClick: () => void;
+  onDismiss: () => void;
 }) {
+  const [dismissing, setDismissing] = useState(false);
+  const canDismiss = pr.status !== "running" && pr.status !== "queued";
+
+  const handleDismiss = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!canDismiss || dismissing) return;
+    setDismissing(true);
+    try {
+      await dismissTask(pr.taskId);
+      onDismiss();
+    } catch {
+      setDismissing(false);
+    }
+  };
+
   return (
     <div className="group flex items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-glass animate-fade-up">
       <span className="font-mono text-[10px] text-accent/60">{pr.repo}</span>
@@ -93,6 +112,17 @@ function PRRow({
           <ExternalLink size={10} />
           view
         </a>
+      )}
+
+      {canDismiss && (
+        <button
+          onClick={handleDismiss}
+          disabled={dismissing}
+          className="flex items-center gap-1 font-mono text-[10px] text-text-ghost hover:text-fail transition-colors disabled:opacity-40"
+          title="Close PR and clean up"
+        >
+          <X size={12} />
+        </button>
       )}
     </div>
   );

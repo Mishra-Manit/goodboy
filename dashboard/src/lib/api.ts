@@ -165,6 +165,10 @@ export async function cancelTask(id: string): Promise<void> {
   await request(`/api/tasks/${id}/cancel`, { method: "POST" });
 }
 
+export async function dismissTask(id: string): Promise<void> {
+  await request(`/api/tasks/${id}/dismiss`, { method: "POST" });
+}
+
 export async function fetchRepos(): Promise<Repo[]> {
   return request("/api/repos");
 }
