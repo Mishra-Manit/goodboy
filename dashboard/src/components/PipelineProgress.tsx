@@ -80,7 +80,7 @@ export function PipelineProgress({
   }
 
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div className={cn("flex flex-col gap-1 pl-4", className)}>
       {/* Top row: dots with connector lines between them */}
       <div className="flex items-center">
         {allStages.map((ps, i) => {

@@ -5,6 +5,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { readFile } from "node:fs/promises";
 import { createBot } from "./bot/index.js";
 import { createApi } from "./api/index.js";
+import { startPrPoller, stopPrPoller } from "./orchestrator/index.js";
 import { loadEnv } from "./shared/config.js";
 import { createLogger } from "./shared/logger.js";
 
@@ -33,10 +34,13 @@ async function main(): Promise<void> {
     onStart: () => log.info("Telegram bot started"),
   });
 
+  startPrPoller();
+
   log.info("Goodboy is running");
 
   const shutdown = async (): Promise<void> => {
     log.info("Shutting down...");
+    stopPrPoller();
     await bot.stop();
     server.close();
     process.exit(0);

@@ -112,7 +112,10 @@ async function handlePrReview(
     prIdentifier: intent.prIdentifier,
   });
 
-  await reply(`PR review started: ${task.id.slice(0, 8)}\nReviewing PR ${intent.prIdentifier}...`);
+  await reply(
+    `PR review request recorded: ${task.id.slice(0, 8)}\n` +
+    `Automated PR review is currently stubbed for ${intent.prIdentifier}.`,
+  );
 
   runPrReview(task.id, sendTelegram).catch((err) => {
     log.error(`PR review error for task ${task.id}`, err);
