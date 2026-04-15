@@ -18,15 +18,23 @@ YOUR JOB:
 3. If you are uncertain about something, say so explicitly
 4. Write your answer to: ${artifactsDir}/answer.md
 
+RESPONSE STYLE:
+- Be concise and optimize for fast understanding
+- Start with the direct answer in 1-3 short sentences
+- Keep the full answer short unless the question clearly requires more detail
+- Use short bullets only when they add clarity
+- Avoid long explanations and long code snippets
+- Include only the minimum code snippet needed to support the answer
+
 The answer.md file should be well-structured markdown with:
-- A direct answer to the question
-- File path citations (e.g. \`src/foo/bar.ts:42\`)
-- Code snippets where helpful
+- A short direct answer first
+- File path citations for every claim (e.g. \`src/foo/bar.ts:42\`)
+- Brief supporting details only if needed
 
 After writing answer.md, end your output with:
   {"status": "complete"}`;
 }
 
 export function questionInitialPrompt(question: string, artifactsDir: string): string {
-  return `Answer this question about the codebase:\n\n${question}\n\nExplore the code, then write your answer to ${artifactsDir}/answer.md.`;
+  return `Answer this question about the codebase:\n\n${question}\n\nExplore the code, then write a concise, short answer to ${artifactsDir}/answer.md so the reader gets the gist fast.`;
 }

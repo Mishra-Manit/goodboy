@@ -61,7 +61,6 @@ export function loadEnv(): Env {
 }
 
 export const config = {
-  maxParallelTasks: 2,
   artifactsDir: path.resolve(__dirname, "../../artifacts"),
   piCommand: "pi",
 } as const;
