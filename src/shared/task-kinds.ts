@@ -9,7 +9,7 @@ export interface TaskKindConfig {
 export const TASK_KIND_CONFIG: Record<TaskKind, TaskKindConfig> = {
   coding_task: {
     label: "coding task",
-    stages: ["planner", "implementer", "reviewer", "pr_creator"],
+    stages: ["planner", "implementer", "reviewer"],
     artifacts: [
       { key: "plan.md", label: "plan" },
       { key: "implementation-summary.md", label: "summary" },
