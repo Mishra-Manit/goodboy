@@ -12,8 +12,6 @@ import type { Task } from "../../db/queries.js";
 import type { StageName, LogEntryKind, PiOutputMarker } from "../../shared/types.js";
 import type { Env } from "../../shared/config.js";
 import {
-  acquireSlot,
-  releaseSlot,
   failTask,
   notifyTelegram,
   setActiveSession,
@@ -73,9 +71,6 @@ export async function runPipeline(
     return;
   }
 
-  await acquireSlot();
-  log.info(`Acquired slot for task ${taskId} (running)`);
-
   await notifyTelegram(
     sendTelegram,
     task.telegramChatId,
@@ -91,7 +86,6 @@ export async function runPipeline(
   try {
     await syncRepo(repo.localPath);
   } catch (err) {
-    releaseSlot();
     await failTask(taskId, `Failed to sync repo: ${err}`, sendTelegram, task.telegramChatId);
     return;
   }
@@ -102,7 +96,6 @@ export async function runPipeline(
   try {
     worktreePath = await createWorktree(repo.localPath, branch, taskId);
   } catch (err) {
-    releaseSlot();
     await failTask(taskId, `Failed to create worktree: ${err}`, sendTelegram, task.telegramChatId);
     return;
   }
@@ -147,7 +140,6 @@ export async function runPipeline(
   } finally {
     clearActiveSession(taskId);
     cleanupSeqCounters(taskId);
-    releaseSlot();
   }
 }
 

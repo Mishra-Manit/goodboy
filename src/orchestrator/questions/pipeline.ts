@@ -8,8 +8,6 @@ import { getRepo } from "../../shared/repos.js";
 import { syncRepo } from "../worktree.js";
 import * as queries from "../../db/queries.js";
 import {
-  acquireSlot,
-  releaseSlot,
   failTask,
   notifyTelegram,
   runStage,
@@ -36,9 +34,6 @@ export async function runQuestion(
     return;
   }
 
-  await acquireSlot();
-  log.info(`Acquired slot for question ${taskId}`);
-
   await notifyTelegram(
     sendTelegram,
     task.telegramChatId,
@@ -53,7 +48,6 @@ export async function runQuestion(
   try {
     await syncRepo(repo.localPath);
   } catch (err) {
-    releaseSlot();
     await failTask(taskId, `Failed to sync repo: ${err}`, sendTelegram, task.telegramChatId);
     return;
   }
@@ -98,6 +92,5 @@ export async function runQuestion(
   } finally {
     clearActiveSession(taskId);
     cleanupSeqCounters(taskId);
-    releaseSlot();
   }
 }
