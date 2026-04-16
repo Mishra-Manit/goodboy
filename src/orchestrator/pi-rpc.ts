@@ -158,6 +158,7 @@ export function spawnPiSession(options: {
 
       emitLog("tool_start", summary, {
         tool: toolName,
+        toolCallId,
         args: args ? truncateArgs(args) : undefined,
       });
     }
@@ -174,6 +175,7 @@ export function spawnPiSession(options: {
 
       emitLog("tool_end", `${toolName} ${isError ? "FAILED" : "done"}`, {
         tool: toolName,
+        toolCallId,
         ok: !isError,
         durationMs,
       });
@@ -181,7 +183,7 @@ export function spawnPiSession(options: {
       // Emit truncated tool output for visibility
       if (result && result.trim().length > 0) {
         const truncated = result.length > 500 ? result.slice(0, 500) + `... (${result.length} chars)` : result;
-        emitLog("tool_output", truncated, { tool: toolName });
+        emitLog("tool_output", truncated, { tool: toolName, toolCallId });
       }
     }
 

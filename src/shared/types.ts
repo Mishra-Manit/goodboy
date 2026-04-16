@@ -55,14 +55,21 @@ export interface LogEntry {
 }
 
 export type LogEntryKind =
-  | "text"        // Agent prose / reasoning output
-  | "tool_start"  // Tool invocation started
-  | "tool_end"    // Tool invocation finished
-  | "tool_output" // Truncated tool result
-  | "stage_info"  // Stage lifecycle message
-  | "rpc"         // RPC protocol message
-  | "error"       // Error / warning
-  | "stderr";     // Raw stderr
+  | "text"         // Agent prose / reasoning output
+  | "tool_start"   // Tool invocation started
+  | "tool_update"  // Streaming progress from a long-running tool (e.g. subagent)
+  | "tool_end"     // Tool invocation finished
+  | "tool_output"  // Truncated tool result
+  | "stage_info"   // Stage lifecycle message
+  | "rpc"          // RPC protocol message
+  | "error"        // Error / warning
+  | "stderr";      // Raw stderr
+
+/**
+ * Meta conventions for tool lifecycle entries. All tool_* entries include
+ * `tool` (toolName) and `toolCallId` so the dashboard can correlate updates,
+ * outputs, and the terminal tool_end to the originating start event.
+ */
 
 /** SSE event types */
 export type SSEEvent =

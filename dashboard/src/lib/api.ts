@@ -135,6 +135,7 @@ export interface PrSessionWithRuns extends PrSession {
 export type LogEntryKind =
   | "text"
   | "tool_start"
+  | "tool_update"
   | "tool_end"
   | "tool_output"
   | "stage_info"
