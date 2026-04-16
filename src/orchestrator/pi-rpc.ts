@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createLogger } from "../shared/logger.js";
 import { config } from "../shared/config.js";
 import type { PiOutputMarker, LogEntryKind } from "../shared/types.js";
+import { createSubagentCoalescer } from "./rpc-coalesce.js";
 
 const log = createLogger("pi-rpc");
 
@@ -77,6 +78,8 @@ export function spawnPiSession(options: {
     onLog?.(kind, text, meta);
   }
 
+  const subagentCoalescer = createSubagentCoalescer(emitLog);
+
   // Proper JSONL reader -- split only on \n, not Unicode line separators
   function attachJsonlReader(
     stream: NodeJS.ReadableStream,
@@ -145,33 +148,50 @@ export function spawnPiSession(options: {
 
       activeTools.set(toolCallId, Date.now());
 
-      // Build a readable summary for the text field
-      let summary: string;
-      if (toolName === "bash") {
-        const cmd = (args?.command as string) ?? "";
-        summary = cmd.length > 200 ? cmd.slice(0, 200) + "..." : cmd;
-      } else if (["read", "edit", "write"].includes(toolName)) {
-        summary = (args?.path as string) ?? "";
+      if (toolName === "subagent") {
+        emitSubagentStart(toolCallId, args, emitLog);
       } else {
-        summary = toolName;
+        let summary: string;
+        if (toolName === "bash") {
+          const cmd = (args?.command as string) ?? "";
+          summary = cmd.length > 200 ? cmd.slice(0, 200) + "..." : cmd;
+        } else if (["read", "edit", "write"].includes(toolName)) {
+          summary = (args?.path as string) ?? "";
+        } else {
+          summary = toolName;
+        }
+        emitLog("tool_start", summary, {
+          tool: toolName,
+          toolCallId,
+          args: args ? truncateArgs(args) : undefined,
+        });
       }
+    }
 
-      emitLog("tool_start", summary, {
-        tool: toolName,
-        toolCallId,
-        args: args ? truncateArgs(args) : undefined,
-      });
+    // Streaming progress from long-running tools. Only subagent is subscribed
+    // for v1 -- built-in tools rarely have useful mid-execution state.
+    if (event.type === "tool_execution_update") {
+      const toolName = event.toolName as string;
+      if (toolName !== "subagent") return;
+      const toolCallId = (event.toolCallId as string) ?? toolName;
+      subagentCoalescer.push(toolCallId, event.partialResult);
     }
 
     if (event.type === "tool_execution_end") {
       const toolName = event.toolName as string;
       const toolCallId = (event.toolCallId as string) ?? toolName;
       const isError = event.isError as boolean;
-      const result = event.result as string | undefined;
+      const result = event.result;
 
       const startTime = activeTools.get(toolCallId);
       const durationMs = startTime ? Date.now() - startTime : undefined;
       activeTools.delete(toolCallId);
+
+      if (toolName === "subagent") {
+        subagentCoalescer.end(toolCallId);
+        emitSubagentEnd(toolCallId, result, isError, durationMs, emitLog);
+        return;
+      }
 
       emitLog("tool_end", `${toolName} ${isError ? "FAILED" : "done"}`, {
         tool: toolName,
@@ -181,8 +201,9 @@ export function spawnPiSession(options: {
       });
 
       // Emit truncated tool output for visibility
-      if (result && result.trim().length > 0) {
-        const truncated = result.length > 500 ? result.slice(0, 500) + `... (${result.length} chars)` : result;
+      const resultStr = typeof result === "string" ? result : undefined;
+      if (resultStr && resultStr.trim().length > 0) {
+        const truncated = resultStr.length > 500 ? resultStr.slice(0, 500) + `... (${resultStr.length} chars)` : resultStr;
         emitLog("tool_output", truncated, { tool: toolName, toolCallId });
       }
     }
@@ -275,6 +296,7 @@ export function spawnPiSession(options: {
         rejectCompletion = null;
         resolveCompletion = null;
       }
+      subagentCoalescer.flushAll();
       try {
         proc.stdin!.write(JSON.stringify({ type: "abort" }) + "\n");
       } catch {
@@ -286,6 +308,167 @@ export function spawnPiSession(options: {
       proc.once("exit", () => clearTimeout(killTimer));
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Subagent-specific emit helpers
+// ---------------------------------------------------------------------------
+
+type EmitLog = (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => void;
+
+/** Max bytes of a single worker's finalOutput we persist; plenty for our rigid
+ *  Finding/Evidence/Caveats format which is typically <2KB. */
+const SUBAGENT_OUTPUT_CAP = 8192;
+
+function emitSubagentStart(
+  toolCallId: string,
+  args: Record<string, unknown> | undefined,
+  emitLog: EmitLog,
+): void {
+  const tasks = extractSubagentTasks(args);
+  const mode: string =
+    Array.isArray((args as { chain?: unknown })?.chain) ? "chain"
+    : Array.isArray((args as { tasks?: unknown })?.tasks) ? "parallel"
+    : typeof (args as { action?: unknown })?.action === "string" ? "management"
+    : "single";
+
+  const taskCount = tasks.length;
+  const text =
+    mode === "parallel" ? `subagent \u00b7 parallel (${taskCount} tasks)`
+    : mode === "chain" ? `subagent \u00b7 chain (${taskCount})`
+    : mode === "management" ? `subagent \u00b7 ${String((args as { action?: unknown })?.action)}`
+    : `subagent \u00b7 ${tasks[0]?.agent ?? "?"}`;
+
+  emitLog("tool_start", text, {
+    tool: "subagent",
+    toolCallId,
+    mode,
+    taskCount,
+    tasks,
+  });
+}
+
+function emitSubagentEnd(
+  toolCallId: string,
+  rawResult: unknown,
+  isError: boolean,
+  durationMs: number | undefined,
+  emitLog: EmitLog,
+): void {
+  const details = parseSubagentDetails(rawResult);
+  const results = details?.results ?? [];
+
+  let completedCount = 0;
+  let failedCount = 0;
+  let totalTokensIn = 0;
+  let totalTokensOut = 0;
+  let totalCost = 0;
+
+  // Emit one tool_output per worker, in workerIndex order.
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const ok = typeof r.exitCode === "number" ? r.exitCode === 0 : !r.error;
+    if (ok) completedCount++;
+    else failedCount++;
+    if (r.usage) {
+      totalTokensIn += Number(r.usage.input ?? 0);
+      totalTokensOut += Number(r.usage.output ?? 0);
+      totalCost += Number(r.usage.cost ?? 0);
+    }
+
+    const finalOutput = typeof r.finalOutput === "string" && r.finalOutput.length > 0
+      ? r.finalOutput
+      : (r.error ? `Error: ${r.error}` : "");
+    const capped = finalOutput.length > SUBAGENT_OUTPUT_CAP
+      ? finalOutput.slice(0, SUBAGENT_OUTPUT_CAP) + `... (${finalOutput.length} chars)`
+      : finalOutput;
+
+    emitLog("tool_output", capped, {
+      tool: "subagent",
+      toolCallId,
+      workerIndex: i,
+      agent: r.agent,
+      task: trimTask(r.task),
+      status: ok ? "completed" : "failed",
+      tokens: r.usage ? Number(r.usage.input ?? 0) + Number(r.usage.output ?? 0) : undefined,
+      durationMs: r.progress?.durationMs,
+      error: r.error,
+    });
+  }
+
+  const taskCount = results.length;
+  const ok = !isError && failedCount === 0 && taskCount > 0;
+  const text = taskCount > 0
+    ? `subagent ${ok ? "done" : "done with errors"} (${completedCount}/${taskCount} ok)`
+    : `subagent ${isError ? "FAILED" : "done"}`;
+
+  emitLog("tool_end", text, {
+    tool: "subagent",
+    toolCallId,
+    ok,
+    durationMs,
+    taskCount,
+    completedCount,
+    failedCount,
+    totalTokensIn,
+    totalTokensOut,
+    totalCost,
+  });
+}
+
+interface SubagentTaskSummary {
+  agent: string;
+  task: string;
+}
+
+function extractSubagentTasks(args: Record<string, unknown> | undefined): SubagentTaskSummary[] {
+  if (!args) return [];
+  if (Array.isArray(args.tasks)) {
+    return args.tasks
+      .filter((t): t is Record<string, unknown> => !!t && typeof t === "object")
+      .map((t) => ({ agent: String(t.agent ?? "?"), task: trimTask(t.task) }));
+  }
+  if (Array.isArray(args.chain)) {
+    return args.chain
+      .filter((t): t is Record<string, unknown> => !!t && typeof t === "object")
+      .map((t) => ({ agent: String(t.agent ?? "?"), task: trimTask(t.task) }));
+  }
+  if (typeof args.agent === "string") {
+    return [{ agent: args.agent, task: trimTask(args.task) }];
+  }
+  return [];
+}
+
+function trimTask(task: unknown): string {
+  if (typeof task !== "string") return "";
+  return task.length > 200 ? task.slice(0, 200) + "..." : task;
+}
+
+interface SubagentWorkerResult {
+  agent?: string;
+  task?: string;
+  exitCode?: number;
+  error?: string;
+  finalOutput?: string;
+  usage?: { input?: number; output?: number; cost?: number };
+  progress?: { durationMs?: number };
+}
+
+function parseSubagentDetails(result: unknown): { results: SubagentWorkerResult[] } | null {
+  if (!result) return null;
+  // pi-subagents returns a structured Details object directly; some pi
+  // versions wrap it as a JSON string inside the tool result envelope.
+  if (typeof result === "object") {
+    const obj = result as { results?: SubagentWorkerResult[] };
+    if (Array.isArray(obj.results)) return { results: obj.results };
+  }
+  if (typeof result === "string") {
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed && Array.isArray(parsed.results)) return { results: parsed.results };
+    } catch { /* not JSON */ }
+  }
+  return null;
 }
 
 /** Detect raw tool event JSON that leaks into the text stream (duplicates structured entries) */
