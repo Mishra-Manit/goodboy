@@ -106,6 +106,7 @@ export interface PrSession {
   id: string;
   repo: string;
   prNumber: number | null;
+  prUrl: string | null;
   branch: string | null;
   worktreePath: string | null;
   status: PrSessionStatus;

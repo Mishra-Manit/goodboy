@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { subscribe } from "../shared/events.js";
 import * as queries from "../db/queries.js";
-import { listRepos } from "../shared/repos.js";
+import { listRepos, buildPrUrl } from "../shared/repos.js";
 import { config } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
 import { TASK_STATUSES, TASK_KINDS } from "../shared/types.js";
@@ -139,7 +139,8 @@ export function createApi(): Hono {
   // --- PR Sessions ---
 
   app.get("/api/pr-sessions", async (c) => {
-    return c.json(await queries.listPrSessions());
+    const sessions = await queries.listPrSessions();
+    return c.json(sessions.map((s) => ({ ...s, prUrl: buildPrUrl(s.repo, s.prNumber) })));
   });
 
   app.get("/api/pr-sessions/:id", async (c) => {
@@ -147,7 +148,7 @@ export function createApi(): Hono {
     const session = await queries.getPrSession(id);
     if (!session) return c.json({ error: "Not found" }, 404);
     const runs = await queries.getRunsForPrSession(id);
-    return c.json({ ...session, runs });
+    return c.json({ ...session, prUrl: buildPrUrl(session.repo, session.prNumber), runs });
   });
 
   app.get("/api/pr-sessions/:id/logs", async (c) => {

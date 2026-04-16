@@ -150,10 +150,10 @@ export function PrSessionDetail() {
         </div>
 
         {/* GitHub link */}
-        {session.prNumber && (
+        {session.prUrl && (
           <div className="mt-2">
             <a
-              href={`https://github.com/${session.repo}/pull/${session.prNumber}`}
+              href={session.prUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 font-mono text-[10px] text-text-ghost hover:text-accent transition-colors"
