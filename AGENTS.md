@@ -13,18 +13,22 @@ npm run dev:dashboard    # Dashboard only (vite build --watch, no HMR)
 npm run build            # Production: tsc (backend) + vite build (dashboard)
 npm run start            # Run compiled backend: node dist/index.js
 npm run db:generate      # Generate migration SQL from schema changes
-npm run db:migrate       # Apply migrations to Neon (runs automatically on deploy)
+npm run db:migrate       # Apply migrations to Neon (run manually from laptop before deploying dependent code)
 npm run db:push          # Push schema directly to Neon (bypass migrations)
 npm run db:studio        # Open Drizzle Studio
 ```
 
-Deploy (must be on `main` branch):
+Deploy runs on the EC2 host:
 ```bash
-bash deploy.sh
-# Pushes to origin, SSHs into EC2, pulls, installs, builds, migrates, restarts
+ssh goodboy
+./deploy-goodboy.sh
+# Pulls latest main, npm ci, npm run build, restarts the systemd service.
 ```
 
-Deploy runs `npm run db:migrate` automatically. Always commit before deploying.
+DB migrations are NOT part of the deploy. If a commit adds a new file under
+`drizzle/`, apply it from your laptop first with `npm run db:migrate` before
+deploying the code that depends on it. This keeps schema changes human-gated
+and separate from the "restart the server" step.
 
 ## Stack (locked -- do not swap)
 

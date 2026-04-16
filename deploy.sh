@@ -21,8 +21,7 @@ npm ci
 echo "Building..."
 npm run build
 
-echo "Applying DB migrations..."
-npm run db:migrate
+# All db changes are applied before deployment
 
 echo "Restarting service..."
 sudo systemctl restart "$SERVICE"
