@@ -4,15 +4,12 @@ import { createLogger } from "../shared/logger.js";
 import { classifyMessage } from "../shared/classifier.js";
 import { listRepos, getRepo } from "../shared/repos.js";
 import * as queries from "../db/queries.js";
-import { runPipeline, runQuestion, runPrReview, deliverReply, cancelTask } from "../orchestrator/index.js";
+import { runPipeline, runQuestion, runPrReview, cancelTask } from "../orchestrator/index.js";
 import type { SendTelegram } from "../orchestrator/index.js";
 import type { Intent } from "../shared/classifier.js";
 import type { Task } from "../db/queries.js";
 
 const log = createLogger("bot");
-
-/** Track which task a user is currently conversing with */
-const activeConversations = new Map<string, string>(); // chatId -> taskId
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -58,7 +55,6 @@ async function handleCodingTask(
     telegramChatId: chatId,
   });
 
-  activeConversations.set(chatId, task.id);
   await reply(`Task created: ${task.id.slice(0, 8)}\nStarting planner...`);
 
   runPipeline(task.id, sendTelegram).catch((err) => {
@@ -174,7 +170,6 @@ async function handleTaskCancel(
 
   cancelTask(result.task.id);
   await queries.updateTask(result.task.id, { status: "cancelled" });
-  activeConversations.delete(chatId);
   await reply(`Cancelled task ${result.task.id.slice(0, 8)}.`);
 }
 
@@ -199,52 +194,11 @@ async function handleTaskRetry(
   }
 
   await queries.updateTask(task.id, { status: "queued", error: null });
-  activeConversations.set(chatId, task.id);
   await reply(`Retrying task ${task.id.slice(0, 8)}...`);
 
   runPipeline(task.id, sendTelegram).catch((err) => {
     log.error(`Pipeline error for task ${task.id}`, err);
   });
-}
-
-async function handlePlanConfirm(
-  chatId: string,
-  reply: (text: string) => Promise<void>,
-): Promise<void> {
-  const taskId = activeConversations.get(chatId);
-  if (!taskId) {
-    await reply("No task waiting for confirmation.");
-    return;
-  }
-
-  const delivered = deliverReply(taskId, "/go");
-  activeConversations.delete(chatId);
-
-  if (delivered) {
-    await reply("Proceeding with implementation...");
-  } else {
-    await reply("Task has already proceeded.");
-  }
-}
-
-async function handlePlanReply(
-  intent: Extract<Intent, { type: "plan_reply" }>,
-  chatId: string,
-  reply: (text: string) => Promise<void>,
-): Promise<void> {
-  const taskId = activeConversations.get(chatId);
-  if (!taskId) {
-    await reply("No active conversation to reply to.");
-    return;
-  }
-
-  const delivered = deliverReply(taskId, intent.reply);
-  if (delivered) {
-    await reply("Got it, passing to the planner...");
-  } else {
-    activeConversations.delete(chatId);
-    await reply("Previous task is no longer waiting for input.");
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -272,13 +226,12 @@ export function createBot(): Bot {
   bot.on("message:text", async (ctx) => {
     const chatId = String(ctx.chat.id);
     const text = ctx.message.text;
-    const hasActiveConversation = activeConversations.has(chatId);
 
     const reply = async (msg: string): Promise<void> => {
       await ctx.reply(msg);
     };
 
-    const intent = await classifyMessage(text, repoNames(), hasActiveConversation);
+    const intent = await classifyMessage(text, repoNames());
 
     switch (intent.type) {
       case "coding_task":
@@ -305,17 +258,9 @@ export function createBot(): Bot {
         await handleTaskRetry(intent, chatId, sendTelegram, reply);
         break;
 
-      case "plan_confirm":
-        await handlePlanConfirm(chatId, reply);
-        break;
-
-      case "plan_reply":
-        await handlePlanReply(intent, chatId, reply);
-        break;
-
       case "unknown":
         await reply(
-          "I didn't understand that. You can ask me to work on a task, check status, cancel or retry tasks, or answer planner questions.",
+          "I didn't understand that. You can ask me to work on a task, check status, or cancel/retry tasks.",
         );
         break;
     }

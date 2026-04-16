@@ -41,15 +41,6 @@ const taskRetryIntent = z.object({
   taskPrefix: z.string(),
 });
 
-const planConfirmIntent = z.object({
-  type: z.literal("plan_confirm"),
-});
-
-const planReplyIntent = z.object({
-  type: z.literal("plan_reply"),
-  reply: z.string(),
-});
-
 const unknownIntent = z.object({
   type: z.literal("unknown"),
   rawText: z.string(),
@@ -62,8 +53,6 @@ const intentSchema = z.discriminatedUnion("type", [
   taskStatusIntent,
   taskCancelIntent,
   taskRetryIntent,
-  planConfirmIntent,
-  planReplyIntent,
   unknownIntent,
 ]);
 
@@ -73,26 +62,15 @@ export type Intent = z.infer<typeof intentSchema>;
 // System prompt
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(
-  repoNames: readonly string[],
-  hasActiveConversation: boolean,
-): string {
+function buildSystemPrompt(repoNames: readonly string[]): string {
   const repoList = repoNames.length > 0
     ? repoNames.map((r) => `  - ${r}`).join("\n")
     : "  (none registered)";
-
-  const conversationContext = hasActiveConversation
-    ? `The user is currently in an active conversation with a planner agent that may be waiting for input.
-If the message is a direct answer, clarification, or confirmation for the planner, classify as "plan_reply" or "plan_confirm".
-Only classify as something else if the message is clearly a new task, command, or question unrelated to the ongoing conversation.`
-    : `There is no active conversation. Do not classify as "plan_reply" or "plan_confirm".`;
 
   return `You are a message intent classifier for a coding agent system. Analyze the user's message and classify it into exactly one intent.
 
 Available repositories:
 ${repoList}
-
-${conversationContext}
 
 Intent types:
 
@@ -114,17 +92,12 @@ Intent types:
 6. "task_retry" -- The user wants to retry a failed task.
    Extract the task ID prefix.
 
-7. "plan_confirm" -- The user is confirming a plan and wants to proceed. Messages like "go", "do it", "ship it", "yes", "proceed", "looks good".
-
-8. "plan_reply" -- The user is answering a question from the planner. The reply field should contain the full message text.
-
-9. "unknown" -- The message does not fit any of the above categories.
+7. "unknown" -- The message does not fit any of the above categories.
 
 Rules:
 - The repo name MUST exactly match one of the available repos listed above. If the user references a repo that is not in the list, classify as "unknown".
 - For "coding_task", do not include the repo name in the description -- separate them cleanly.
 - For task IDs, extract whatever ID fragment the user provides (e.g. "a1b2c3d4").
-- When in doubt between "plan_reply" and a new task, prefer "plan_reply" if there is an active conversation.
 - Respond with a single JSON object. No extra text, no markdown, no explanation.
 
 The JSON object MUST have a "type" field as the FIRST key. Exact schemas:
@@ -135,8 +108,6 @@ The JSON object MUST have a "type" field as the FIRST key. Exact schemas:
 {"type": "task_status"} or {"type": "task_status", "taskPrefix": "<id prefix>"}
 {"type": "task_cancel", "taskPrefix": "<id prefix>"}
 {"type": "task_retry", "taskPrefix": "<id prefix>"}
-{"type": "plan_confirm"}
-{"type": "plan_reply", "reply": "<full message text>"}
 {"type": "unknown", "rawText": "<original message>"}`;
 }
 
@@ -147,11 +118,10 @@ The JSON object MUST have a "type" field as the FIRST key. Exact schemas:
 export async function classifyMessage(
   text: string,
   repoNames: readonly string[],
-  hasActiveConversation: boolean,
 ): Promise<Intent> {
   try {
     const intent = await structuredOutput({
-      system: buildSystemPrompt(repoNames, hasActiveConversation),
+      system: buildSystemPrompt(repoNames),
       prompt: text,
       schema: intentSchema,
       temperature: 0,

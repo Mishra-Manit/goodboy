@@ -38,10 +38,7 @@ export const STAGE_STATUSES = ["running", "complete", "failed"] as const;
 export type StageStatus = (typeof STAGE_STATUSES)[number];
 
 /** Structured marker emitted by pi instances at end of output */
-export type PiOutputMarker =
-  | { status: "needs_input"; questions: string[] }
-  | { status: "complete" }
-  | { status: "ready"; summary: string };
+export type PiOutputMarker = { status: "complete" };
 
 /** Structured log entry emitted by pi-rpc and stored on disk */
 export interface LogEntry {

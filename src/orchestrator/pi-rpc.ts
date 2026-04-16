@@ -320,8 +320,7 @@ function extractMarker(text: string): PiOutputMarker | null {
     if (!line.startsWith("{")) continue;
     try {
       const parsed = JSON.parse(line);
-      if (parsed && typeof parsed.status === "string" &&
-          ["needs_input", "complete", "ready"].includes(parsed.status)) {
+      if (parsed && parsed.status === "complete") {
         return parsed as PiOutputMarker;
       }
     } catch { /* not JSON */ }

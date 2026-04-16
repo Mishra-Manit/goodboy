@@ -9,14 +9,13 @@ import { spawnPiSession } from "../pi-rpc.js";
 import { createWorktree, generateBranchName, syncRepo } from "../worktree.js";
 import * as queries from "../../db/queries.js";
 import type { Task } from "../../db/queries.js";
-import type { StageName, LogEntryKind } from "../../shared/types.js";
+import type { LogEntryKind } from "../../shared/types.js";
 import type { Env } from "../../shared/config.js";
 import {
   failTask,
   notifyTelegram,
   setActiveSession,
   clearActiveSession,
-  waitForReply,
   withTimeout,
   STAGE_TIMEOUT_MS,
   type SendTelegram,
@@ -103,8 +102,8 @@ export async function runPipeline(
   };
 
   try {
-    // Stage 1: Planner (has conversation loop — handled specially)
-    await runPlannerStage(taskId, worktreePath, artifactsDir, sendTelegram, task, branch, worktreeEnv);
+    // Stage 1: Planner
+    await runCodingStage(taskId, "planner", worktreePath, artifactsDir, sendTelegram, task, branch, worktreeEnv);
     await requireArtifact(artifactsDir, "plan.md", "Planner failed to write plan.md");
 
     // Stage 2: Implementer
@@ -155,105 +154,7 @@ export async function runPipeline(
 }
 
 // ---------------------------------------------------------------------------
-// Planner stage (special: has conversation loop)
-// ---------------------------------------------------------------------------
-
-async function runPlannerStage(
-  taskId: string,
-  worktreePath: string,
-  artifactsDir: string,
-  sendTelegram: SendTelegram,
-  task: Task,
-  branch: string,
-  worktreeEnv: WorktreeEnv,
-): Promise<void> {
-  const stage: StageName = "planner";
-
-  await queries.updateTask(taskId, { status: "running" });
-  emit({ type: "task_update", taskId, status: "running" });
-
-  const stageRecord = await queries.createTaskStage({ taskId, stage });
-  emit({ type: "stage_update", taskId, stage, status: "running" });
-
-  log.info(`Starting planner for task ${taskId}`);
-  await notifyTelegram(sendTelegram, task.telegramChatId, `Stage started: ${STAGE_DISPLAY_NAMES.planner}.`);
-
-  const absArtifacts = path.resolve(artifactsDir);
-  const systemPrompt = plannerPrompt(task.description, absArtifacts, worktreeEnv);
-
-  resetSeq(taskId, stage);
-
-  const session = spawnPiSession({
-    id: `${taskId}-${stage}`,
-    cwd: worktreePath,
-    systemPrompt,
-    model: getModelForStage("planner"),
-    onLog: (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => {
-      const entry = makeEntry(taskId, stage, kind, text, meta);
-      emit({ type: "log", taskId, stage, entry });
-      appendLogEntry(taskId, stage, entry).catch((err) => {
-        log.warn(`Failed to persist log entry: ${err}`);
-      });
-    },
-  });
-
-  setActiveSession(taskId, session);
-
-  const initialPrompt = `Here is the task:\n\n${task.description}\n\nStart by exploring the codebase structure, then write the plan to ${absArtifacts}/plan.md. Do not stop until the file is written.`;
-  session.sendPrompt(initialPrompt);
-
-  try {
-    let result = await withTimeout(session.waitForCompletion(), STAGE_TIMEOUT_MS, "Stage planner");
-
-    if (!task.telegramChatId) {
-      throw new Error("Cannot run planner Q&A: task has no telegramChatId");
-    }
-
-    let marker = result.marker;
-    // Handle planner conversation loop
-    while (marker?.status === "needs_input") {
-      const questions = marker.questions.join("\n\n");
-      await sendTelegram(
-        task.telegramChatId,
-        `Questions about your task:\n\n${questions}`,
-      );
-
-      const reply = await waitForReply(taskId);
-      session.sendPrompt(reply);
-      result = await withTimeout(session.waitForCompletion(), STAGE_TIMEOUT_MS, "Stage planner");
-      marker = result.marker;
-    }
-
-    if (marker?.status === "ready") {
-      await sendTelegram(
-        task.telegramChatId,
-        `Plan ready:\n\n${marker.summary}\n\nSend /go to proceed.`,
-      );
-      await waitForReply(taskId); // Wait for /go
-    }
-
-    session.kill();
-    clearActiveSession(taskId);
-
-    await queries.updateTaskStage(stageRecord.id, {
-      status: "complete",
-      completedAt: new Date(),
-    });
-    emit({ type: "stage_update", taskId, stage, status: "complete" });
-    await notifyTelegram(sendTelegram, task.telegramChatId, `Stage complete: ${STAGE_DISPLAY_NAMES.planner}.`);
-
-    log.info(`Planner complete for task ${taskId}`);
-  } catch (err) {
-    session.kill();
-    clearActiveSession(taskId);
-    await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
-    emit({ type: "stage_update", taskId, stage, status: "failed" });
-    throw err;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Generic coding stage (implementer, reviewer)
+// Generic coding stage (planner, implementer, reviewer)
 // ---------------------------------------------------------------------------
 
 async function runCodingStage(
@@ -279,8 +180,8 @@ async function runCodingStage(
   const planPath = path.join(absArtifacts, "plan.md");
   const summaryPath = path.join(absArtifacts, "implementation-summary.md");
 
-  const systemPrompt = getCodingSystemPrompt(stage, absArtifacts, planPath, summaryPath, worktreeEnv);
-  const initialPrompt = getCodingInitialPrompt(stage, absArtifacts, planPath, summaryPath);
+  const systemPrompt = getCodingSystemPrompt(stage, absArtifacts, planPath, summaryPath, worktreeEnv, task.description);
+  const initialPrompt = getCodingInitialPrompt(stage, absArtifacts, planPath, summaryPath, task.description);
 
   resetSeq(taskId, stage);
 
@@ -335,14 +236,15 @@ function getCodingSystemPrompt(
   planPath: string,
   summaryPath: string,
   worktreeEnv: WorktreeEnv,
+  taskDescription: string,
 ): string {
   switch (stage) {
+    case "planner":
+      return plannerPrompt(taskDescription, absArtifacts, worktreeEnv);
     case "implementer":
       return implementerPrompt(planPath, absArtifacts, worktreeEnv);
     case "reviewer":
       return reviewerPrompt(planPath, summaryPath, absArtifacts, worktreeEnv);
-    default:
-      throw new Error(`Unexpected stage for getCodingSystemPrompt: ${stage}`);
   }
 }
 
@@ -351,14 +253,15 @@ function getCodingInitialPrompt(
   absArtifacts: string,
   planPath: string,
   summaryPath: string,
+  taskDescription: string,
 ): string {
   switch (stage) {
+    case "planner":
+      return `Here is the task:\n\n${taskDescription}\n\nStart by exploring the codebase structure, then write the plan to ${absArtifacts}/plan.md. Do not stop until the file is written.`;
     case "implementer":
       return `Read the plan at ${planPath}, then implement every step. Make git commits as you go. When all code is written and committed, write the summary to ${absArtifacts}/implementation-summary.md. Do not stop until both the code is committed and the summary file is written.`;
     case "reviewer":
       return `Read the plan at ${planPath} and the summary at ${summaryPath}. Run git diff main to see all changes. Review the code, fix any issues, then write your review to ${absArtifacts}/review.md. Do not stop until the review file is written.`;
-    default:
-      throw new Error(`Unexpected stage for getCodingInitialPrompt: ${stage}`);
   }
 }
 

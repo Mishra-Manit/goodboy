@@ -27,48 +27,9 @@ export function cancelTask(taskId: string): boolean {
   if (session) {
     session.kill();
     activeSessions.delete(taskId);
-  }
-  const pending = pendingReplies.get(taskId);
-  if (pending) {
-    pending.reject(new Error("Task cancelled"));
-    pendingReplies.delete(taskId);
-  }
-  return !!(session || pending);
-}
-
-// ---------------------------------------------------------------------------
-// Reply waiting (for planner conversation loop)
-// ---------------------------------------------------------------------------
-
-const pendingReplies = new Map<string, {
-  resolve: (reply: string) => void;
-  reject: (err: Error) => void;
-}>();
-
-const REPLY_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
-
-export function deliverReply(taskId: string, reply: string): boolean {
-  const pending = pendingReplies.get(taskId);
-  if (pending) {
-    pending.resolve(reply);
-    pendingReplies.delete(taskId);
     return true;
   }
   return false;
-}
-
-export function waitForReply(taskId: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      pendingReplies.delete(taskId);
-      reject(new Error("Timed out waiting for user reply (1h)"));
-    }, REPLY_TIMEOUT_MS);
-
-    pendingReplies.set(taskId, {
-      resolve: (reply) => { clearTimeout(timer); resolve(reply); },
-      reject: (err) => { clearTimeout(timer); reject(err); },
-    });
-  });
 }
 
 // ---------------------------------------------------------------------------

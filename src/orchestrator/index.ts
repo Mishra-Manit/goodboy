@@ -1,4 +1,4 @@
-export { cancelTask, deliverReply } from "./shared.js";
+export { cancelTask } from "./shared.js";
 export type { SendTelegram } from "./shared.js";
 export { readTaskLogs, readStageEntries } from "./logs.js";
 export { runPipeline } from "./dev-task/index.js";

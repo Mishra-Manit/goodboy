@@ -21,13 +21,7 @@ The plan.md file MUST contain:
 - Steps: numbered implementation steps with exact file paths
 - Risks: anything that might go wrong
 
-If the task is unclear and you need clarification, output this JSON marker:
-  {"status": "needs_input", "questions": ["question1", "question2"]}
-
-For complex tasks that need user confirmation before proceeding, output:
-  {"status": "ready", "summary": "Brief summary of the plan"}
-
-Otherwise, after writing plan.md, end your output with:
+After writing plan.md, end your output with:
   {"status": "complete"}
 
 IMPORTANT: You MUST write the file ${artifactsDir}/plan.md before outputting the status marker. The next stage depends on this file existing.`;
