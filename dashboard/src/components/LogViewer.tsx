@@ -16,6 +16,7 @@ import {
 const KIND_COLOR: Record<LogEntryKind, string> = {
   text: "text-text-secondary",
   tool_start: "text-text-secondary",
+  tool_update: "text-text-ghost",
   tool_end: "text-text-secondary",
   tool_output: "text-text-ghost",
   stage_info: "text-accent",
@@ -239,7 +240,7 @@ function FilterTab({
 /* ── Log line (non-tool) ── */
 
 function LogLine({ entry, compact }: { entry: LogEntry; compact: boolean }) {
-  if (entry.kind === "tool_output" || entry.kind === "tool_end") return null;
+  if (entry.kind === "tool_output" || entry.kind === "tool_end" || entry.kind === "tool_update") return null;
 
   // Skip raw JSON tool events that leaked through
   if (entry.kind === "text" && isRawToolJson(entry.text)) return null;
@@ -284,10 +285,13 @@ interface ToolGroupData {
   type: "group";
   startSeq: number;
   toolName: string;
+  toolCallId?: string;
   summary: string;
   entries: LogEntry[];
   ok: boolean;
   durationMs?: number;
+  /** True once a tool_end entry has been seen for this group. */
+  done: boolean;
 }
 
 function ToolGroup({
@@ -301,6 +305,17 @@ function ToolGroup({
   onToggle: () => void;
   compact: boolean;
 }) {
+  if (group.toolName === "subagent") {
+    return (
+      <SubagentCard
+        group={group}
+        collapsed={collapsed}
+        onToggle={onToggle}
+        compact={compact}
+      />
+    );
+  }
+
   const Icon = TOOL_ICON[group.toolName] ?? Terminal;
   const Chevron = collapsed ? ChevronRight : ChevronDown;
 
@@ -366,6 +381,225 @@ function ToolGroup({
       )}
     </div>
   );
+}
+
+/* ── Subagent card ── live parallel-worker render for subagent tool calls ── */
+
+interface SubagentWorkerSnapshot {
+  index: number;
+  agent: string;
+  status: string;
+  task: string;
+  currentTool?: string;
+  toolCount: number;
+  tokens: number;
+  durationMs: number;
+  error?: string;
+  finalOutput?: string;
+}
+
+function SubagentCard({
+  group,
+  collapsed,
+  onToggle,
+  compact,
+}: {
+  group: ToolGroupData;
+  collapsed: boolean;
+  onToggle: () => void;
+  compact: boolean;
+}) {
+  const Chevron = collapsed ? ChevronRight : ChevronDown;
+  const startEntry = group.entries[0];
+  const endEntry = group.entries.find((e) => e.kind === "tool_end");
+  const latestUpdate = [...group.entries].reverse().find((e) => e.kind === "tool_update");
+  const outputs = group.entries.filter((e) => e.kind === "tool_output");
+
+  const mode = (startEntry.meta?.mode as string) ?? "parallel";
+  const taskCount = (startEntry.meta?.taskCount as number) ?? 0;
+  const startTasks = (startEntry.meta?.tasks as Array<{ agent: string; task: string }>) ?? [];
+
+  // Merge live progress with final outputs. Prefer final outputs when present.
+  const workers = useMemo<SubagentWorkerSnapshot[]>(() => {
+    const progress = (latestUpdate?.meta?.progress as SubagentWorkerSnapshot[] | undefined) ?? [];
+
+    // Seed from startTasks so we always show the right number of slots.
+    const seeded: SubagentWorkerSnapshot[] = startTasks.map((t, i) => ({
+      index: i,
+      agent: t.agent,
+      status: "pending",
+      task: t.task,
+      toolCount: 0,
+      tokens: 0,
+      durationMs: 0,
+    }));
+
+    for (const p of progress) {
+      if (typeof p.index === "number" && seeded[p.index]) {
+        seeded[p.index] = { ...seeded[p.index], ...p };
+      }
+    }
+
+    for (const o of outputs) {
+      const idx = o.meta?.workerIndex as number | undefined;
+      if (idx === undefined || !seeded[idx]) continue;
+      seeded[idx] = {
+        ...seeded[idx],
+        status: (o.meta?.status as string) ?? seeded[idx].status,
+        tokens: (o.meta?.tokens as number | undefined) ?? seeded[idx].tokens,
+        durationMs: (o.meta?.durationMs as number | undefined) ?? seeded[idx].durationMs,
+        error: (o.meta?.error as string | undefined) ?? seeded[idx].error,
+        finalOutput: o.text,
+      };
+    }
+
+    return seeded;
+  }, [startTasks, latestUpdate, outputs]);
+
+  const completedCount = (endEntry?.meta?.completedCount as number | undefined) ?? workers.filter((w) => w.status === "completed").length;
+  const failedCount = (endEntry?.meta?.failedCount as number | undefined) ?? workers.filter((w) => w.status === "failed").length;
+  const totalCost = (endEntry?.meta?.totalCost as number | undefined) ?? 0;
+
+  const header = group.done
+    ? `${completedCount}/${taskCount} ok${failedCount > 0 ? ` \u00b7 ${failedCount} failed` : ""}`
+    : `${workers.filter((w) => w.status === "running").length} running \u00b7 ${completedCount} done${failedCount > 0 ? ` \u00b7 ${failedCount} failed` : ""}`;
+
+  return (
+    <div className={cn("py-0.5")}>
+      <button
+        onClick={onToggle}
+        className={cn(
+          "flex w-full items-center gap-2 text-left rounded px-1 -mx-1 py-0.5 transition-colors",
+          "hover:bg-glass",
+          group.done && failedCount > 0 && "bg-fail-dim/20",
+          !group.done && "bg-accent-dim/10"
+        )}
+      >
+        {!compact && (
+          <span className="shrink-0 w-14 text-text-void tabular-nums text-[10px]">
+            {formatTime(group.entries[0]?.ts ?? "")}
+          </span>
+        )}
+
+        <Terminal size={11} className="shrink-0 text-accent" />
+
+        <span className="shrink-0 text-text-dim font-medium text-[11px]">
+          subagent
+        </span>
+
+        <span className="shrink-0 text-text-ghost text-[10px]">
+          {mode} ({taskCount})
+        </span>
+
+        <span className="flex-1 truncate text-text-ghost text-[10px]">
+          {header}
+        </span>
+
+        <span className="shrink-0 flex items-center gap-2">
+          {group.durationMs !== undefined && (
+            <span className="text-text-void text-[10px] tabular-nums">
+              {group.durationMs > 1000 ? `${(group.durationMs / 1000).toFixed(1)}s` : `${group.durationMs}ms`}
+            </span>
+          )}
+          {totalCost > 0 && (
+            <span className="text-text-void text-[10px] tabular-nums">
+              ${totalCost.toFixed(4)}
+            </span>
+          )}
+          <span
+            className={cn(
+              "text-[9px] font-medium px-1 py-px rounded",
+              !group.done
+                ? "text-accent/70 bg-accent-dim/40"
+                : group.ok
+                ? "text-ok/70 bg-ok-dim"
+                : "text-fail/70 bg-fail-dim"
+            )}
+          >
+            {!group.done ? "running" : group.ok ? "ok" : "err"}
+          </span>
+          <Chevron size={10} className="text-text-void" />
+        </span>
+      </button>
+
+      {!collapsed && (
+        <div className="ml-[76px] pl-3 py-1 border-l border-glass-border space-y-1">
+          {workers.map((w) => (
+            <SubagentWorkerRow key={w.index} worker={w} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SubagentWorkerRow({ worker }: { worker: SubagentWorkerSnapshot }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const statusLabel =
+    worker.status === "completed" ? "done"
+    : worker.status === "failed" ? "failed"
+    : worker.status === "running" ? "running"
+    : "pending";
+
+  const statusClass =
+    worker.status === "completed" ? "text-ok/70"
+    : worker.status === "failed" ? "text-fail/70"
+    : worker.status === "running" ? "text-accent/80"
+    : "text-text-void";
+
+  const liveLine =
+    worker.status === "running"
+      ? `${worker.currentTool ? `${worker.currentTool} \u00b7 ` : ""}${worker.toolCount} tools \u00b7 ${formatTokens(worker.tokens)} tok${worker.durationMs > 0 ? ` \u00b7 ${formatDuration(worker.durationMs)}` : ""}`
+      : worker.status === "completed"
+      ? `${worker.toolCount} tools \u00b7 ${formatTokens(worker.tokens)} tok${worker.durationMs > 0 ? ` \u00b7 ${formatDuration(worker.durationMs)}` : ""}`
+      : worker.status === "failed"
+      ? worker.error ?? "failed"
+      : "waiting";
+
+  const hasOutput = !!worker.finalOutput && worker.finalOutput.length > 0;
+
+  return (
+    <div className="py-0.5">
+      <button
+        onClick={() => hasOutput && setExpanded((v) => !v)}
+        className={cn(
+          "flex w-full items-start gap-2 text-left rounded px-1 -mx-1 py-0.5",
+          hasOutput && "hover:bg-glass cursor-pointer"
+        )}
+        disabled={!hasOutput}
+      >
+        <span className={cn("shrink-0 text-[9px] font-medium px-1 py-px rounded tabular-nums", statusClass)}>
+          {statusLabel}
+        </span>
+        <span className="shrink-0 text-text-void text-[10px] tabular-nums w-5">
+          #{worker.index + 1}
+        </span>
+        <span className="flex-1 text-text-ghost text-[10px] truncate">
+          {worker.task}
+        </span>
+        <span className="shrink-0 text-text-void text-[10px]">
+          {liveLine}
+        </span>
+      </button>
+
+      {expanded && hasOutput && (
+        <div className="ml-4 mt-1 py-1 px-2 bg-bg rounded text-[10px] text-text-secondary whitespace-pre-wrap break-words">
+          {worker.finalOutput}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatTokens(tokens: number): string {
+  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
+  return `${tokens}`;
+}
+
+function formatDuration(ms: number): string {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${ms}ms`;
 }
 
 /* ── Tool output renderer ── */
@@ -510,6 +744,12 @@ function OutputLine({
 
 type ProcessedItem = { type: "line"; entry: LogEntry } | ToolGroupData;
 
+/**
+ * Correlate tool lifecycle entries by toolCallId (preferred) or tool name
+ * (fallback for old logs that predate toolCallId in meta). A match pulls the
+ * entry into the group regardless of kind -- includes tool_update,
+ * tool_output, tool_end, and legacy text-carried raw JSON tool events.
+ */
 function groupToolCalls(entries: LogEntry[]): ProcessedItem[] {
   const result: ProcessedItem[] = [];
   let i = 0;
@@ -519,20 +759,32 @@ function groupToolCalls(entries: LogEntry[]): ProcessedItem[] {
 
     if (entry.kind === "tool_start") {
       const toolName = (entry.meta?.tool as string) ?? "tool";
+      const toolCallId = entry.meta?.toolCallId as string | undefined;
       const group: LogEntry[] = [entry];
       let ok = true;
       let durationMs: number | undefined;
+      let done = false;
+
+      const matches = (e: LogEntry): boolean => {
+        if (toolCallId && e.meta?.toolCallId === toolCallId) return true;
+        if (!toolCallId && e.meta?.tool === toolName) return true;
+        return false;
+      };
 
       let j = i + 1;
       while (j < entries.length) {
         const next = entries[j];
-        if (next.kind === "tool_output" && next.meta?.tool === toolName) {
+        if (
+          (next.kind === "tool_output" || next.kind === "tool_update") &&
+          matches(next)
+        ) {
           group.push(next);
           j++;
-        } else if (next.kind === "tool_end" && next.meta?.tool === toolName) {
+        } else if (next.kind === "tool_end" && matches(next)) {
           group.push(next);
           ok = (next.meta?.ok as boolean) ?? true;
           durationMs = next.meta?.durationMs as number | undefined;
+          done = true;
           j++;
           break;
         } else if (next.kind === "text" && isRawToolJson(next.text)) {
@@ -547,10 +799,12 @@ function groupToolCalls(entries: LogEntry[]): ProcessedItem[] {
         type: "group",
         startSeq: entry.seq,
         toolName,
+        toolCallId,
         summary: entry.text,
         entries: group,
         ok,
         durationMs,
+        done,
       });
       i = j;
     } else {
