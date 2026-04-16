@@ -34,13 +34,21 @@ export function spawnPiSession(options: {
   sessionPath?: string;
   /** Structured log callback */
   onLog?: (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => void;
+  /**
+   * Explicit extension paths to load. Discovery stays disabled via
+   * --no-extensions; each path is passed with -e. Default is no extensions.
+   */
+  extensions?: string[];
+  /** Additional environment variables merged on top of process.env. */
+  envOverrides?: Record<string, string>;
 }): PiSession {
-  const { id, cwd, systemPrompt, model, sessionPath, onEvent, onLog } = options;
+  const { id, cwd, systemPrompt, model, sessionPath, onEvent, onLog, extensions, envOverrides } = options;
 
   const args = [
     "--mode", "rpc",
     ...(sessionPath ? ["--session", sessionPath] : ["--no-session"]),
     "--no-extensions",
+    ...(extensions?.flatMap((p) => ["-e", p]) ?? []),
     "--no-skills",
     "--no-prompt-templates",
     "--system-prompt", systemPrompt,
@@ -49,12 +57,12 @@ export function spawnPiSession(options: {
     args.push("--model", model);
   }
 
-  log.info(`Spawning pi session ${id} in ${cwd}`);
+  log.info(`Spawning pi session ${id} in ${cwd}${extensions?.length ? ` with extensions: ${extensions.join(", ")}` : ""}`);
 
   const proc = spawn(config.piCommand, args, {
     cwd,
     stdio: ["pipe", "pipe", "pipe"],
-    env: process.env,
+    env: { ...process.env, ...(envOverrides ?? {}) },
   });
 
   let fullOutput = "";
