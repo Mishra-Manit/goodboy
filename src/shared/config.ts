@@ -1,8 +1,26 @@
 import { z } from "zod";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+
+/**
+ * Resolve the pi-subagents extension entry point at startup.
+ * Fails loud so deploys do not silently lose the planner's delegation tool.
+ */
+function resolveSubagentExtensionPath(): string {
+  try {
+    return require.resolve("pi-subagents/index.ts");
+  } catch (err) {
+    throw new Error(
+      `Failed to resolve pi-subagents extension. Install it with 'npm install'. Original: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
 
 const repoEntrySchema = z.object({
   localPath: z.string().min(1),
@@ -64,4 +82,5 @@ export const config = {
   artifactsDir: path.resolve(__dirname, "../../artifacts"),
   prSessionsDir: path.resolve(__dirname, "../../data/pr-sessions"),
   piCommand: "pi",
+  subagentExtensionPath: resolveSubagentExtensionPath(),
 } as const;
