@@ -1,11 +1,30 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { cp, stat } from "node:fs/promises";
 import path from "node:path";
 import { createLogger } from "../shared/logger.js";
+import { config } from "../shared/config.js";
 import { complete } from "../shared/llm.js";
 
 const exec = promisify(execFile);
 const log = createLogger("worktree");
+
+/**
+ * Copy pi-assets/* into <worktreePath>/.pi/agent/*, silently overwriting any
+ * pre-existing .pi/agent/ directory from the target repo. Worktree destruction
+ * cleans this up naturally; no manual teardown needed.
+ */
+async function copyPiAssets(worktreePath: string): Promise<void> {
+  try {
+    await stat(config.piAssetsDir);
+  } catch {
+    log.warn(`pi-assets directory missing at ${config.piAssetsDir}; skipping copy`);
+    return;
+  }
+  const dest = path.join(worktreePath, ".pi", "agent");
+  await cp(config.piAssetsDir, dest, { recursive: true, force: true });
+  log.info(`Copied pi-assets into ${dest}`);
+}
 
 /** Fetch latest origin/main and hard-reset so worktrees branch from up-to-date code. */
 export async function syncRepo(repoPath: string): Promise<void> {
@@ -42,6 +61,7 @@ export async function createWorktree(
   await exec("git", ["worktree", "add", "-b", branch, worktreeDir], { cwd: repoPath });
 
   log.info(`Created worktree at ${worktreeDir} on branch ${branch}`);
+  await copyPiAssets(worktreeDir);
   return worktreeDir;
 }
 
@@ -67,6 +87,7 @@ export async function createPrWorktree(
   await exec("git", ["worktree", "add", dir, localBranch], { cwd: repoPath });
 
   log.info(`Created PR worktree at ${dir} for PR #${prNumber}`);
+  await copyPiAssets(dir);
   return dir;
 }
 

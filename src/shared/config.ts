@@ -81,6 +81,7 @@ export function loadEnv(): Env {
 export const config = {
   artifactsDir: path.resolve(__dirname, "../../artifacts"),
   prSessionsDir: path.resolve(__dirname, "../../data/pr-sessions"),
+  piAssetsDir: path.resolve(__dirname, "../../pi-assets"),
   piCommand: "pi",
   subagentExtensionPath: resolveSubagentExtensionPath(),
 } as const;
