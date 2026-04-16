@@ -1,39 +1,39 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="goodboy"
+# Derive paths from this scripts location so it works on any host/user
+PROJECT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+SERVICE="goodboy"
 
-# Guard: must be on main branch
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-if [[ "$CURRENT_BRANCH" != "main" ]]; then
-  echo "Error: deploy must run from main, currently on '$CURRENT_BRANCH'"
-  exit 1
-fi
+echo "========================================"
+echo "Starting Deployment: Goodboy"
+echo "Project: $PROJECT_DIR"
+echo "========================================"
 
-echo "Deploying goodboy to EC2..."
+cd "$PROJECT_DIR"
 
-echo "Pushing to origin..."
-git push origin main
-
-echo "Pulling and building on EC2..."
-ssh "$HOST" bash -s << 'EOF'
-set -euo pipefail
-cd ~/goodboy
-
+echo "Pulling latest code..."
 git pull --ff-only
+
+echo "Installing dependencies..."
 npm ci
+
+echo "Building..."
 npm run build
+
+echo "Applying DB migrations..."
 npm run db:migrate
 
-sudo systemctl restart goodboy
+echo "Restarting service..."
+sudo systemctl restart "$SERVICE"
 
+echo "Waiting for service to come up..."
 for i in {1..10}; do
   sleep 1
-  if sudo systemctl is-active --quiet goodboy; then
-    echo "Deploy successful -- goodboy is running"
+  if sudo systemctl is-active --quiet "$SERVICE"; then
+    echo "Deploy successful -- $SERVICE is running"
     exit 0
   fi
 done
-echo "Deploy FAILED -- check logs with: sudo journalctl -u goodboy -n 50"
+echo "Deploy FAILED -- check logs with: sudo journalctl -u $SERVICE -n 50"
 exit 1
-EOF
