@@ -185,11 +185,18 @@ async function runCodingStage(
 
   resetSeq(taskId, stage);
 
+  // Only the planner gets the pi-subagents extension for parallel codebase
+  // exploration. Other stages stay on --no-extensions for reproducibility.
+  const stageExtensions = stage === "planner" ? [config.subagentExtensionPath] : undefined;
+  const stageEnv = stage === "planner" ? { PI_SUBAGENT_MAX_DEPTH: "1" } : undefined;
+
   const session = spawnPiSession({
     id: `${taskId}-${stage}`,
     cwd: worktreePath,
     systemPrompt,
     model: getModelForStage(stage),
+    extensions: stageExtensions,
+    envOverrides: stageEnv,
     onLog: (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => {
       const entry = makeEntry(taskId, stage, kind, text, meta);
       emit({ type: "log", taskId, stage, entry });

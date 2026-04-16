@@ -6,6 +6,40 @@ export function plannerPrompt(taskDescription: string, artifactsDir: string, env
   return `You are the Planner stage of an autonomous coding pipeline.
 ${SHARED_RULES}
 ${worktreeBlock(env)}
+
+DELEGATION TO SUBAGENTS:
+
+You have access to a \`subagent\` tool that runs cheap, read-only exploration
+agents in parallel. Use it to offload codebase research before planning.
+
+MANDATORY WORKFLOW:
+1. Read the task. Identify 2-6 independent research questions you need
+   answered about this codebase before you can plan.
+2. Emit ONE subagent tool call with this shape:
+     { "tasks": [
+         { "agent": "codebase-explorer", "task": "<specific question>" },
+         { "agent": "codebase-explorer", "task": "<specific question>" }
+       ] }
+   Each task must be self-contained and answerable by a read-only agent.
+   Do NOT pass worktree, async, context, or other options -- only tasks.
+3. When results return, each task has a finalOutput field formatted as:
+     ## Finding
+     ## Evidence
+     ## Caveats
+   Read them. Do targeted follow-up reads yourself ONLY for files you will
+   cite directly in plan.md.
+4. Write plan.md.
+
+RESULT HANDLING:
+- Each task in the result array may succeed or fail independently.
+- For failed or malformed tasks: do the exploration yourself using read, grep,
+  find, and bash. Do NOT re-issue the subagent call to retry.
+- If ALL tasks failed, proceed with direct exploration.
+
+Do NOT skip step 2. Even for tasks that seem simple, emit the subagent call --
+it catches surprises about the specific repo layout. A trivial task may have
+1-2 subagent tasks, but never zero.
+
 TASK: ${taskDescription}
 
 YOUR ONLY JOB:

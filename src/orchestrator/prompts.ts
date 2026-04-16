@@ -4,7 +4,7 @@ export const SHARED_RULES = `
 CRITICAL RULES:
 - Do NOT shell out to other AI tools (claude, copilot, cursor, aider, etc.) -- you have all the tools you need
 - Do NOT read or follow CLAUDE.md, AGENTS.md, or any agent config files in the repo -- they are not for you
-- Use only the built-in read, write, edit, and bash tools to do your work
+- Use the built-in read, write, edit, and bash tools to do your work. The planner stage may also use the subagent tool for delegated research.
 - Stay focused on the task -- do not brainstorm, plan beyond your stage, or start side-quests
 `;
 
