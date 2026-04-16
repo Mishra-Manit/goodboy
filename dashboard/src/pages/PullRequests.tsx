@@ -3,16 +3,13 @@ import { ExternalLink, ArrowUpRight, X, Eye, MessageSquare } from "lucide-react"
 import {
   fetchPRs,
   fetchPrSessions,
-  fetchPrSessionLogs,
   dismissTask,
   type PR,
   type PrSession,
-  type LogEntry,
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSE, useSSERefresh } from "@dashboard/hooks/use-sse";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
-import { LogViewer } from "@dashboard/components/LogViewer";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { shortId, timeAgo, cn } from "@dashboard/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -21,10 +18,6 @@ export function PullRequests() {
   const navigate = useNavigate();
   const { data: prs, loading: prsLoading, refetch: refetchPrs } = useQuery(() => fetchPRs());
   const { data: sessions, loading: sessionsLoading, refetch: refetchSessions } = useQuery(() => fetchPrSessions());
-
-  // Track which session is expanded + its logs
-  const [expandedSession, setExpandedSession] = useState<string | null>(null);
-  const [sessionLogs, setSessionLogs] = useState<Map<string, LogEntry[]>>(new Map());
 
   // Track which sessions are currently running (pi process active)
   const [runningSessions, setRunningSessions] = useState<Set<string>>(new Set());
@@ -35,20 +28,7 @@ export function PullRequests() {
     e.type === "pr_update" || e.type === "task_update" || e.type === "pr_session_update"
   );
 
-  // Collect live log entries from SSE
   useSSE((event) => {
-    if (event.type === "pr_session_log") {
-      const prSessionId = event.prSessionId as string;
-      const entry = event.entry as LogEntry;
-      if (entry) {
-        setSessionLogs((prev) => {
-          const next = new Map(prev);
-          const existing = next.get(prSessionId) ?? [];
-          next.set(prSessionId, [...existing, entry]);
-          return next;
-        });
-      }
-    }
     if (event.type === "pr_session_update") {
       const prSessionId = event.prSessionId as string;
       const running = event.running as boolean;
@@ -60,30 +40,6 @@ export function PullRequests() {
       });
     }
   });
-
-  async function toggleSession(sessionId: string) {
-    if (expandedSession === sessionId) {
-      setExpandedSession(null);
-      return;
-    }
-    setExpandedSession(sessionId);
-    // Load historical logs if we don't have any yet
-    if (!sessionLogs.has(sessionId)) {
-      try {
-        const { entries } = await fetchPrSessionLogs(sessionId);
-        setSessionLogs((prev) => {
-          const next = new Map(prev);
-          // Only set if we haven't received live entries in the meantime
-          if (!next.has(sessionId) || next.get(sessionId)!.length === 0) {
-            next.set(sessionId, entries);
-          }
-          return next;
-        });
-      } catch {
-        // Logs may not exist yet
-      }
-    }
-  }
 
   const activeSessions = (sessions ?? []).filter((s) => s.status === "active");
   const closedSessions = (sessions ?? []).filter((s) => s.status === "closed");
@@ -123,27 +79,16 @@ export function PullRequests() {
           ) : (
             <div className="mt-3 space-y-0.5 stagger">
               {activeSessions.map((session) => (
-                <div key={session.id}>
-                  <PrSessionRow
-                    session={session}
-                    running={runningSessions.has(session.id)}
-                    expanded={expandedSession === session.id}
-                    onClick={() => toggleSession(session.id)}
-                    onTaskClick={session.originTaskId
-                      ? () => navigate(`/tasks/${session.originTaskId}`)
-                      : undefined
-                    }
-                  />
-                  {expandedSession === session.id && (
-                    <div className="mt-2 mb-3 animate-fade-up">
-                      <LogViewer
-                        entries={sessionLogs.get(session.id) ?? []}
-                        maxHeight="350px"
-                        autoScroll={runningSessions.has(session.id)}
-                      />
-                    </div>
-                  )}
-                </div>
+                <PrSessionRow
+                  key={session.id}
+                  session={session}
+                  running={runningSessions.has(session.id)}
+                  onClick={() => navigate(`/prs/${session.id}`)}
+                  onTaskClick={session.originTaskId
+                    ? () => navigate(`/tasks/${session.originTaskId}`)
+                    : undefined
+                  }
+                />
               ))}
             </div>
           )}
@@ -184,27 +129,16 @@ export function PullRequests() {
               />
               <div className="mt-3 space-y-0.5 stagger">
                 {closedSessions.map((session) => (
-                  <div key={session.id}>
-                    <PrSessionRow
-                      session={session}
-                      running={false}
-                      expanded={expandedSession === session.id}
-                      onClick={() => toggleSession(session.id)}
-                      onTaskClick={session.originTaskId
-                        ? () => navigate(`/tasks/${session.originTaskId}`)
-                        : undefined
-                      }
-                    />
-                    {expandedSession === session.id && (
-                      <div className="mt-2 mb-3 animate-fade-up">
-                        <LogViewer
-                          entries={sessionLogs.get(session.id) ?? []}
-                          maxHeight="350px"
-                          autoScroll={false}
-                        />
-                      </div>
-                    )}
-                  </div>
+                  <PrSessionRow
+                    key={session.id}
+                    session={session}
+                    running={false}
+                    onClick={() => navigate(`/prs/${session.id}`)}
+                    onTaskClick={session.originTaskId
+                      ? () => navigate(`/tasks/${session.originTaskId}`)
+                      : undefined
+                    }
+                  />
                 ))}
               </div>
             </>
@@ -222,21 +156,17 @@ export function PullRequests() {
 interface PrSessionRowProps {
   session: PrSession;
   running: boolean;
-  expanded: boolean;
   onClick: () => void;
   onTaskClick?: () => void;
 }
 
-function PrSessionRow({ session, running, expanded, onClick, onTaskClick }: PrSessionRowProps) {
+function PrSessionRow({ session, running, onClick, onTaskClick }: PrSessionRowProps) {
   const isExternal = !session.originTaskId;
 
   return (
     <button
       onClick={onClick}
-      className={cn(
-        "group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-glass animate-fade-up",
-        expanded && "bg-glass",
-      )}
+      className="group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-glass animate-fade-up"
     >
       {/* Mode indicator */}
       {isExternal ? (

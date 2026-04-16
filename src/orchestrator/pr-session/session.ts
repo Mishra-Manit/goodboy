@@ -25,9 +25,9 @@ function sessionFilePath(prSessionId: string): string {
 }
 
 /** Build an onLog callback that emits SSE events and persists to disk. */
-function createSessionLogger(prSessionId: string) {
+function createSessionLogger(prSessionId: string, runId: string) {
   return (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => {
-    const entry = makePrSessionEntry(prSessionId, kind, text, meta);
+    const entry = makePrSessionEntry(prSessionId, kind, text, meta, runId);
     emit({ type: "pr_session_log", prSessionId, entry });
     appendPrSessionLog(prSessionId, entry).catch((err) => {
       log.warn(`Failed to persist PR session log: ${err}`);
@@ -77,6 +77,11 @@ export async function startPrSession(options: {
 
   const model = loadEnv().PI_MODEL_PR_CREATOR ?? loadEnv().PI_MODEL;
 
+  const run = await queries.createPrSessionRun({
+    prSessionId: prSession.id,
+    trigger: "pr_creation",
+  });
+
   log.info(`Starting PR session ${prSession.id} for task ${originTaskId}`);
   emit({ type: "pr_session_update", prSessionId: prSession.id, running: true });
 
@@ -86,7 +91,7 @@ export async function startPrSession(options: {
     systemPrompt,
     model,
     sessionPath,
-    onLog: createSessionLogger(prSession.id),
+    onLog: createSessionLogger(prSession.id, run.id),
   });
 
   session.sendPrompt(
@@ -119,8 +124,15 @@ export async function startPrSession(options: {
         "PR session finished, but I could not detect the PR URL from output. Check GitHub.",
       );
     }
+
+    await queries.updatePrSessionRun(run.id, { status: "complete", completedAt: new Date() });
   } catch (err) {
     log.error(`PR session create failed for task ${originTaskId}`, err);
+    await queries.updatePrSessionRun(run.id, {
+      status: "failed",
+      error: err instanceof Error ? err.message : String(err),
+      completedAt: new Date(),
+    });
     await notifyTelegram(
       sendTelegram,
       chatId,
@@ -170,6 +182,12 @@ export async function resumePrSession(options: {
 
   const model = loadEnv().PI_MODEL_REVISION ?? loadEnv().PI_MODEL;
 
+  const run = await queries.createPrSessionRun({
+    prSessionId,
+    trigger: "comments",
+    comments,
+  });
+
   log.info(`Resuming PR session ${prSessionId} with ${comments.length} new comments`);
 
   if (chatId) {
@@ -188,7 +206,7 @@ export async function resumePrSession(options: {
     systemPrompt,
     model,
     sessionPath,
-    onLog: createSessionLogger(prSessionId),
+    onLog: createSessionLogger(prSessionId, run.id),
   });
 
   session.sendPrompt(formatCommentsPrompt(comments));
@@ -201,6 +219,7 @@ export async function resumePrSession(options: {
     );
 
     await queries.updatePrSession(prSessionId, { lastPolledAt: new Date() });
+    await queries.updatePrSessionRun(run.id, { status: "complete", completedAt: new Date() });
 
     if (chatId) {
       await notifyTelegram(
@@ -211,6 +230,11 @@ export async function resumePrSession(options: {
     }
   } catch (err) {
     log.error(`PR session resume failed for ${prSessionId}`, err);
+    await queries.updatePrSessionRun(run.id, {
+      status: "failed",
+      error: err instanceof Error ? err.message : String(err),
+      completedAt: new Date(),
+    });
     if (chatId) {
       await notifyTelegram(
         sendTelegram,
@@ -280,6 +304,11 @@ export async function startExternalReview(options: {
 
   const model = loadEnv().PI_MODEL_REVIEWER ?? loadEnv().PI_MODEL;
 
+  const run = await queries.createPrSessionRun({
+    prSessionId: prSession.id,
+    trigger: "external_review",
+  });
+
   log.info(`Starting external review for PR #${prNumber} on ${repo}`);
   emit({ type: "pr_session_update", prSessionId: prSession.id, running: true });
 
@@ -289,7 +318,7 @@ export async function startExternalReview(options: {
     systemPrompt,
     model,
     sessionPath,
-    onLog: createSessionLogger(prSession.id),
+    onLog: createSessionLogger(prSession.id, run.id),
   });
 
   session.sendPrompt(
@@ -304,6 +333,7 @@ export async function startExternalReview(options: {
     );
 
     await queries.updatePrSession(prSession.id, { lastPolledAt: new Date() });
+    await queries.updatePrSessionRun(run.id, { status: "complete", completedAt: new Date() });
     await notifyTelegram(
       sendTelegram,
       chatId,
@@ -311,6 +341,11 @@ export async function startExternalReview(options: {
     );
   } catch (err) {
     log.error(`External review failed for PR #${prNumber} on ${repo}`, err);
+    await queries.updatePrSessionRun(run.id, {
+      status: "failed",
+      error: err instanceof Error ? err.message : String(err),
+      completedAt: new Date(),
+    });
     throw err;
   } finally {
     session.kill();

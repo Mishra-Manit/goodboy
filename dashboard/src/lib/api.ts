@@ -116,6 +116,21 @@ export interface PrSession {
   updatedAt: string;
 }
 
+export interface PrSessionRun {
+  id: string;
+  prSessionId: string;
+  trigger: string;
+  comments: Array<{ author: string; body: string; path?: string; line?: number }> | null;
+  status: string;
+  error: string | null;
+  startedAt: string;
+  completedAt: string | null;
+}
+
+export interface PrSessionWithRuns extends PrSession {
+  runs: PrSessionRun[];
+}
+
 export type LogEntryKind =
   | "text"
   | "tool_start"
@@ -195,6 +210,12 @@ export async function fetchPRs(): Promise<PR[]> {
 
 export async function fetchPrSessions(): Promise<PrSession[]> {
   return request("/api/pr-sessions");
+}
+
+export async function fetchPrSessionDetail(
+  id: string,
+): Promise<PrSessionWithRuns> {
+  return request(`/api/pr-sessions/${id}`);
 }
 
 export async function fetchPrSessionLogs(

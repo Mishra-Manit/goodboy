@@ -142,6 +142,14 @@ export function createApi(): Hono {
     return c.json(await queries.listPrSessions());
   });
 
+  app.get("/api/pr-sessions/:id", async (c) => {
+    const id = c.req.param("id");
+    const session = await queries.getPrSession(id);
+    if (!session) return c.json({ error: "Not found" }, 404);
+    const runs = await queries.getRunsForPrSession(id);
+    return c.json({ ...session, runs });
+  });
+
   app.get("/api/pr-sessions/:id/logs", async (c) => {
     const id = c.req.param("id");
     if (!/^[0-9a-f-]{36}$/.test(id)) return c.json({ error: "Not found" }, 404);

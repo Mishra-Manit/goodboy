@@ -85,13 +85,15 @@ export function makePrSessionEntry(
   kind: LogEntryKind,
   text: string,
   meta?: Record<string, unknown>,
+  runId?: string,
 ): LogEntry {
+  const entryMeta = { ...meta, ...(runId ? { runId } : {}) };
   return {
     seq: nextSeq(`pr:${prSessionId}`, "session"),
     ts: new Date().toISOString(),
     kind,
     text,
-    ...(meta ? { meta } : {}),
+    ...(Object.keys(entryMeta).length > 0 ? { meta: entryMeta } : {}),
   };
 }
 
