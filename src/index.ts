@@ -26,7 +26,7 @@ async function main(): Promise<void> {
     return c.html(html);
   });
 
-  const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
+  const server = serve({ fetch: app.fetch, port: env.PORT, hostname: env.HOST }, (info) => {
     log.info(`Server running on http://${env.HOST}:${info.port}`);
   });
 
