@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, uuid, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, uuid, pgEnum, jsonb } from "drizzle-orm/pg-core";
 
 // Enum values inlined here so drizzle-kit can resolve schema.ts without
 // following ESM imports. The canonical TypeScript types live in shared/types.ts.
@@ -71,6 +71,20 @@ export const prSessions = pgTable("pr_sessions", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const prSessionRuns = pgTable("pr_session_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  prSessionId: uuid("pr_session_id")
+    .notNull()
+    .references(() => prSessions.id),
+  trigger: text("trigger").notNull(),       // "pr_creation" | "comments" | "external_review"
+  comments: jsonb("comments"),               // PrComment[] that triggered this run, null for non-comment triggers
+  status: text("status").notNull(),          // "running" | "complete" | "failed"
+  error: text("error"),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
 export type Task = typeof tasks.$inferSelect;
 export type TaskStage = typeof taskStages.$inferSelect;
 export type PrSession = typeof prSessions.$inferSelect;
+export type PrSessionRun = typeof prSessionRuns.$inferSelect;

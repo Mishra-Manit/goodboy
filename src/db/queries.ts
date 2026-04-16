@@ -1,10 +1,10 @@
 import { eq, desc, and } from "drizzle-orm";
 import { getDb, schema } from "./index.js";
-import type { Task, TaskStage, PrSession } from "./schema.js";
+import type { Task, TaskStage, PrSession, PrSessionRun } from "./schema.js";
 import type { TaskStatus, TaskKind, StageStatus, StageName } from "../shared/types.js";
 import { loadEnv } from "../shared/config.js";
 
-export type { Task, TaskStage, PrSession };
+export type { Task, TaskStage, PrSession, PrSessionRun };
 
 // --- Tasks ---
 
@@ -204,4 +204,50 @@ export async function updatePrSession(
     .where(eq(schema.prSessions.id, id))
     .returning();
   return updated;
+}
+
+// --- PR Session Runs ---
+
+export async function createPrSessionRun(data: {
+  prSessionId: string;
+  trigger: string;
+  comments?: unknown;
+}): Promise<PrSessionRun> {
+  const db = getDb();
+  const [run] = await db
+    .insert(schema.prSessionRuns)
+    .values({
+      prSessionId: data.prSessionId,
+      trigger: data.trigger,
+      comments: data.comments ?? null,
+      status: "running",
+    })
+    .returning();
+  return run;
+}
+
+export async function updatePrSessionRun(
+  id: string,
+  data: Partial<{
+    status: string;
+    error: string | null;
+    completedAt: Date;
+  }>,
+): Promise<PrSessionRun | undefined> {
+  const db = getDb();
+  const [updated] = await db
+    .update(schema.prSessionRuns)
+    .set(data)
+    .where(eq(schema.prSessionRuns.id, id))
+    .returning();
+  return updated;
+}
+
+export async function getRunsForPrSession(prSessionId: string): Promise<PrSessionRun[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(schema.prSessionRuns)
+    .where(eq(schema.prSessionRuns.prSessionId, prSessionId))
+    .orderBy(schema.prSessionRuns.startedAt);
 }
