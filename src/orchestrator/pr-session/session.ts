@@ -35,6 +35,22 @@ function createSessionLogger(prSessionId: string, runId: string) {
   };
 }
 
+async function transferTaskGitOwnership(taskId: string, prSessionId: string): Promise<void> {
+  try {
+    await queries.updateTask(taskId, {
+      worktreePath: null,
+      branch: null,
+    });
+  } catch (err) {
+    await queries.updatePrSession(prSessionId, {
+      status: "closed",
+      worktreePath: null,
+      branch: null,
+    });
+    throw err;
+  }
+}
+
 /**
  * Start a new PR session after the dev-task reviewer completes.
  * Creates the PR and persists the session for future comment rounds.
@@ -60,6 +76,8 @@ export async function startPrSession(options: {
     originTaskId,
     telegramChatId: chatId,
   });
+
+  await transferTaskGitOwnership(originTaskId, prSession.id);
 
   const sessionPath = sessionFilePath(prSession.id);
   const planPath = path.join(artifactsDir, "plan.md");

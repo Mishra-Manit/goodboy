@@ -45,6 +45,22 @@ async function deleteLocalBranch(repoPath: string, branch: string): Promise<void
   }
 }
 
+async function cleanupGitResources(
+  repoPath: string,
+  resources: {
+    worktreePath: string | null;
+    branch: string | null;
+  },
+): Promise<void> {
+  if (resources.worktreePath) {
+    await removeWorktree(repoPath, resources.worktreePath);
+  }
+
+  if (resources.branch) {
+    await deleteLocalBranch(repoPath, resources.branch);
+  }
+}
+
 /**
  * Full dismiss: close PR on GitHub, remove worktree, delete branches, update DB.
  * Used when the user explicitly rejects a task's output.
@@ -68,20 +84,11 @@ export async function dismissTask(taskId: string): Promise<void> {
     if (nwo) await closePr(nwo, task.prNumber);
   }
 
-  // Remove worktree
-  if (task.worktreePath && repo) {
-    await removeWorktree(repo.localPath, task.worktreePath);
-  }
-
-  // Delete local branch
-  if (task.branch && repo) {
-    await deleteLocalBranch(repo.localPath, task.branch);
-  }
-
-  // Clean up any associated PR session
   const prSession = await queries.getPrSessionByOriginTask(taskId);
   if (prSession) {
     await cleanupPrSession(prSession.id);
+  } else if (repo) {
+    await cleanupGitResources(repo.localPath, task);
   }
 
   // Update DB — clear all resource references
@@ -109,13 +116,7 @@ export async function cleanupTaskResources(taskId: string): Promise<void> {
   const repo = getRepo(task.repo);
   if (!repo) return;
 
-  if (task.worktreePath) {
-    await removeWorktree(repo.localPath, task.worktreePath);
-  }
-
-  if (task.branch) {
-    await deleteLocalBranch(repo.localPath, task.branch);
-  }
+  await cleanupGitResources(repo.localPath, task);
 
   await queries.updateTask(taskId, {
     worktreePath: null,
@@ -135,14 +136,8 @@ export async function cleanupPrSession(prSessionId: string): Promise<void> {
 
   const repo = getRepo(session.repo);
 
-  // Remove worktree
-  if (session.worktreePath && repo) {
-    await removeWorktree(repo.localPath, session.worktreePath);
-  }
-
-  // Delete local branch
-  if (session.branch && repo) {
-    await deleteLocalBranch(repo.localPath, session.branch);
+  if (repo) {
+    await cleanupGitResources(repo.localPath, session);
   }
 
   // Remove session file (best-effort)
@@ -159,6 +154,13 @@ export async function cleanupPrSession(prSessionId: string): Promise<void> {
     worktreePath: null,
     branch: null,
   });
+
+  if (session.originTaskId) {
+    await queries.updateTask(session.originTaskId, {
+      worktreePath: null,
+      branch: null,
+    });
+  }
 
   log.info(`Cleaned up PR session ${prSessionId}`);
 }

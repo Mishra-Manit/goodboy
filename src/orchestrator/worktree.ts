@@ -9,6 +9,10 @@ import { complete } from "../shared/llm.js";
 const exec = promisify(execFile);
 const log = createLogger("worktree");
 
+function isMissingWorktreeError(err: unknown): boolean {
+  return err instanceof Error && err.message.includes("is not a working tree");
+}
+
 /**
  * Copy pi-assets/* into <worktreePath>/.pi/*, silently overwriting any
  * pre-existing .pi/ directory from the target repo. Worktree destruction
@@ -102,7 +106,11 @@ export async function removeWorktree(repoPath: string, worktreePath: string): Pr
     log.info(`Removed worktree at ${worktreePath}`);
     return;
   } catch (err) {
-    log.warn(`git worktree remove failed for ${worktreePath}, falling back to manual cleanup`, err);
+    if (isMissingWorktreeError(err)) {
+      log.info(`Worktree ${worktreePath} is already detached from git, removing directory directly`);
+    } else {
+      log.warn(`git worktree remove failed for ${worktreePath}, falling back to manual cleanup`, err);
+    }
   }
 
   // Fallback: directory exists on disk but git no longer considers it a
