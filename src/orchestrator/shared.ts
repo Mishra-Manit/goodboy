@@ -139,6 +139,7 @@ export async function runStage(options: {
     );
 
     session.kill();
+    await session.waitForExit();
     clearActiveSession(taskId);
 
     await queries.updateTaskStage(stageRecord.id, {
@@ -152,6 +153,7 @@ export async function runStage(options: {
     return result;
   } catch (err) {
     session.kill();
+    await session.waitForExit();
     clearActiveSession(taskId);
     await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
     emit({ type: "stage_update", taskId, stage, status: "failed" });

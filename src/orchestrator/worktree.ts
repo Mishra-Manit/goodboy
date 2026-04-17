@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { cp, stat } from "node:fs/promises";
+import { cp, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { createLogger } from "../shared/logger.js";
 import { config } from "../shared/config.js";
@@ -10,9 +10,13 @@ const exec = promisify(execFile);
 const log = createLogger("worktree");
 
 /**
- * Copy pi-assets/* into <worktreePath>/.pi/agent/*, silently overwriting any
- * pre-existing .pi/agent/ directory from the target repo. Worktree destruction
+ * Copy pi-assets/* into <worktreePath>/.pi/*, silently overwriting any
+ * pre-existing .pi/ directory from the target repo. Worktree destruction
  * cleans this up naturally; no manual teardown needed.
+ *
+ * Destination is `<worktree>/.pi/` (not `.pi/agent/`) so that pi-subagents
+ * discovers project-scoped agents at `<worktree>/.pi/agents/*.md`, which is
+ * where its findNearestProjectAgentsDir helper looks.
  */
 async function copyPiAssets(worktreePath: string): Promise<void> {
   try {
@@ -21,7 +25,7 @@ async function copyPiAssets(worktreePath: string): Promise<void> {
     log.warn(`pi-assets directory missing at ${config.piAssetsDir}; skipping copy`);
     return;
   }
-  const dest = path.join(worktreePath, ".pi", "agent");
+  const dest = path.join(worktreePath, ".pi");
   await cp(config.piAssetsDir, dest, { recursive: true, force: true });
   log.info(`Copied pi-assets into ${dest}`);
 }
@@ -92,11 +96,30 @@ export async function createPrWorktree(
 }
 
 export async function removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
+  // Try the clean path first: let git remove the worktree and its metadata.
   try {
     await exec("git", ["worktree", "remove", worktreePath, "--force"], { cwd: repoPath });
     log.info(`Removed worktree at ${worktreePath}`);
+    return;
   } catch (err) {
-    log.warn(`Failed to remove worktree at ${worktreePath}`, err);
+    log.warn(`git worktree remove failed for ${worktreePath}, falling back to manual cleanup`, err);
+  }
+
+  // Fallback: directory exists on disk but git no longer considers it a
+  // registered worktree (e.g. metadata was pruned, repo was re-cloned, or a
+  // previous cleanup partially succeeded). Remove the directory ourselves
+  // and prune stale worktree metadata so future operations don't trip on it.
+  try {
+    await rm(worktreePath, { recursive: true, force: true });
+    log.info(`Removed worktree directory at ${worktreePath}`);
+  } catch (err) {
+    log.warn(`Failed to rm worktree directory at ${worktreePath}`, err);
+  }
+
+  try {
+    await exec("git", ["worktree", "prune"], { cwd: repoPath });
+  } catch (err) {
+    log.warn(`git worktree prune failed in ${repoPath}`, err);
   }
 }
 
