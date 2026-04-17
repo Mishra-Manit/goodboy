@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { cn } from "@dashboard/lib/utils";
 import type { LogEntry, LogEntryKind } from "@dashboard/lib/api";
+import { logEntryKey, sortLogEntries } from "@dashboard/lib/logs";
 import {
   ChevronRight,
   ChevronDown,
@@ -58,7 +59,8 @@ export function LogViewer({
   const [userScrolled, setUserScrolled] = useState(false);
   const [filter, setFilter] = useState<FilterMode>("all");
 
-  const processed = useMemo(() => groupToolCalls(entries), [entries]);
+  const normalizedEntries = useMemo(() => sortLogEntries(entries), [entries]);
+  const processed = useMemo(() => groupToolCalls(normalizedEntries), [normalizedEntries]);
 
   const filtered = useMemo(() => {
     if (filter === "all") return processed;
@@ -102,7 +104,7 @@ export function LogViewer({
     if (autoScroll && !userScrolled && containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [entries, autoScroll, userScrolled]);
+  }, [normalizedEntries, autoScroll, userScrolled]);
 
   function handleScroll() {
     if (!containerRef.current) return;
@@ -119,7 +121,7 @@ export function LogViewer({
     });
   }
 
-  if (entries.length === 0) {
+  if (normalizedEntries.length === 0) {
     return (
       <div className={cn("rounded-lg bg-bg-raised p-4", className)}>
         <span className="font-mono text-xs text-text-void animate-pulse-soft">
@@ -171,7 +173,7 @@ export function LogViewer({
         {filtered.map((item) =>
           item.type === "group" ? (
             <ToolGroup
-              key={item.startSeq}
+              key={toolGroupKey(item)}
               group={item}
               collapsed={collapsedTools.has(item.startSeq)}
               onToggle={() => toggleTool(item.startSeq)}
@@ -179,7 +181,7 @@ export function LogViewer({
             />
           ) : (
             <LogLine
-              key={item.entry.seq}
+              key={logEntryKey(item.entry)}
               entry={item.entry}
               compact={compact}
             />
@@ -743,6 +745,11 @@ function OutputLine({
 /* ── Grouping logic ── */
 
 type ProcessedItem = { type: "line"; entry: LogEntry } | ToolGroupData;
+
+function toolGroupKey(group: ToolGroupData): string {
+  const firstEntry = group.entries[0];
+  return `${firstEntry?.ts ?? ""}:${group.startSeq}:${group.toolCallId ?? group.toolName}`;
+}
 
 /**
  * Correlate tool lifecycle entries by toolCallId (preferred) or tool name

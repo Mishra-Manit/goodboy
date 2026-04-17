@@ -140,6 +140,7 @@ export async function startPrSession(options: {
     );
   } finally {
     session.kill();
+    await session.waitForExit();
     emit({ type: "pr_session_update", prSessionId: prSession.id, running: false });
   }
 }
@@ -244,6 +245,7 @@ export async function resumePrSession(options: {
     }
   } finally {
     session.kill();
+    await session.waitForExit();
     emit({ type: "pr_session_update", prSessionId, running: false });
   }
 }
@@ -349,6 +351,7 @@ export async function startExternalReview(options: {
     throw err;
   } finally {
     session.kill();
+    await session.waitForExit();
     emit({ type: "pr_session_update", prSessionId: prSession.id, running: false });
   }
 }

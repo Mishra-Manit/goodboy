@@ -12,6 +12,7 @@ import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSE, useSSERefresh } from "@dashboard/hooks/use-sse";
 import { LogViewer } from "@dashboard/components/LogViewer";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
+import { mergeLogEntries } from "@dashboard/lib/logs";
 import { shortId, formatDate, timeAgo, cn } from "@dashboard/lib/utils";
 
 const TRIGGER_LABELS: Record<string, string> = {
@@ -61,9 +62,7 @@ export function PrSessionDetail() {
   // Merge disk + live logs, deduplicate by seq
   const allLogs = useMemo(() => {
     const disk = logsData?.entries ?? [];
-    const maxDiskSeq = disk.length > 0 ? disk[disk.length - 1].seq : -1;
-    const newLive = liveLogs.filter((e) => e.seq > maxDiskSeq);
-    return [...disk, ...newLive];
+    return mergeLogEntries(disk, liveLogs);
   }, [logsData, liveLogs]);
 
   // Group logs by runId from metadata

@@ -5,6 +5,7 @@ import type { LogEntry, LogEntryKind } from "../shared/types.js";
 
 /** Per-stage sequence counters (taskId:stage -> next seq) */
 const seqCounters = new Map<string, number>();
+const writeQueues = new Map<string, Promise<void>>();
 
 function nextSeq(taskId: string, stage: string): number {
   const key = `${taskId}:${stage}`;
@@ -42,6 +43,25 @@ export function makeEntry(
   };
 }
 
+function sortEntries(entries: LogEntry[]): LogEntry[] {
+  return [...entries].sort((a, b) => {
+    const tsCompare = a.ts.localeCompare(b.ts);
+    if (tsCompare !== 0) return tsCompare;
+    return a.seq - b.seq;
+  });
+}
+
+function enqueueWrite(queueKey: string, write: () => Promise<void>): Promise<void> {
+  const previous = writeQueues.get(queueKey) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(write);
+  writeQueues.set(queueKey, next);
+  return next.finally(() => {
+    if (writeQueues.get(queueKey) === next) {
+      writeQueues.delete(queueKey);
+    }
+  });
+}
+
 /**
  * Append a structured log entry to the stage JSONL file on disk.
  * Logs are stored at: artifacts/<taskId>/<stage>.jsonl
@@ -51,10 +71,13 @@ export async function appendLogEntry(
   stage: string,
   entry: LogEntry
 ): Promise<void> {
-  const dir = path.join(config.artifactsDir, taskId);
-  await mkdir(dir, { recursive: true });
-  const logPath = path.join(dir, `${stage}.jsonl`);
-  await appendFile(logPath, JSON.stringify(entry) + "\n");
+  const queueKey = `task:${taskId}:${stage}`;
+  return enqueueWrite(queueKey, async () => {
+    const dir = path.join(config.artifactsDir, taskId);
+    await mkdir(dir, { recursive: true });
+    const logPath = path.join(dir, `${stage}.jsonl`);
+    await appendFile(logPath, JSON.stringify(entry) + "\n");
+  });
 }
 
 /**
@@ -67,10 +90,10 @@ export async function readStageEntries(
   const logPath = path.join(config.artifactsDir, taskId, `${stage}.jsonl`);
   try {
     const content = await readFile(logPath, "utf-8");
-    return content
+    return sortEntries(content
       .split("\n")
       .filter((l) => l.length > 0)
-      .map((l) => JSON.parse(l) as LogEntry);
+      .map((l) => JSON.parse(l) as LogEntry));
   } catch {
     return [];
   }
@@ -101,8 +124,11 @@ export async function appendPrSessionLog(
   prSessionId: string,
   entry: LogEntry,
 ): Promise<void> {
-  const logPath = path.join(config.prSessionsDir, `${prSessionId}.log.jsonl`);
-  await appendFile(logPath, JSON.stringify(entry) + "\n");
+  const queueKey = `pr:${prSessionId}`;
+  return enqueueWrite(queueKey, async () => {
+    const logPath = path.join(config.prSessionsDir, `${prSessionId}.log.jsonl`);
+    await appendFile(logPath, JSON.stringify(entry) + "\n");
+  });
 }
 
 export async function readPrSessionLog(
@@ -111,10 +137,10 @@ export async function readPrSessionLog(
   const logPath = path.join(config.prSessionsDir, `${prSessionId}.log.jsonl`);
   try {
     const content = await readFile(logPath, "utf-8");
-    return content
+    return sortEntries(content
       .split("\n")
       .filter((l) => l.length > 0)
-      .map((l) => JSON.parse(l) as LogEntry);
+      .map((l) => JSON.parse(l) as LogEntry));
   } catch {
     return [];
   }

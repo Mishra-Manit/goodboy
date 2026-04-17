@@ -29,6 +29,33 @@ interface PartialDetails {
   progressSummary?: { toolCount?: number; tokens?: number; durationMs?: number };
 }
 
+/**
+ * pi-agent-core tool update payloads are `AgentToolResult<Details>` =
+ * `{ content, details: { mode, progress, results, ... } }`. Older shapes with
+ * `progress` at the top level are still accepted as a defensive fallback.
+ */
+function normalizePartial(raw: unknown): PartialDetails {
+  if (!raw || typeof raw !== "object") return {};
+  const obj = raw as {
+    details?: PartialDetails;
+    mode?: string;
+    progress?: Array<Record<string, unknown>>;
+    progressSummary?: PartialDetails["progressSummary"];
+  };
+  if (obj.details && typeof obj.details === "object") {
+    return {
+      mode: obj.details.mode,
+      progress: obj.details.progress,
+      progressSummary: obj.details.progressSummary,
+    };
+  }
+  return {
+    mode: obj.mode,
+    progress: obj.progress,
+    progressSummary: obj.progressSummary,
+  };
+}
+
 interface PendingEntry {
   timer: ReturnType<typeof setTimeout> | null;
   latest: PartialDetails;
@@ -105,8 +132,7 @@ export function createSubagentCoalescer(emitLog: EmitLog): SubagentCoalescer {
 
   return {
     push(toolCallId, partialResult) {
-      if (!partialResult || typeof partialResult !== "object") return;
-      const details = partialResult as PartialDetails;
+      const details = normalizePartial(partialResult);
 
       const existing = pending.get(toolCallId);
       const updateSeq = (existing?.updateSeq ?? 0) + 1;

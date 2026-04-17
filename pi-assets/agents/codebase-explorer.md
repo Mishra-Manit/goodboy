@@ -1,7 +1,7 @@
 ---
 name: codebase-explorer
 description: Read-only codebase exploration. Returns compact structured findings.
-model: accounts/fireworks/models/llama-v3p3-70b-instruct
+model: accounts/fireworks/models/kimi-k2p5
 tools: read, bash, grep, find
 extensions:
 inheritSkills: false

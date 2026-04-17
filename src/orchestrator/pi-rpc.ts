@@ -19,6 +19,7 @@ export interface PiSession {
     marker: PiOutputMarker | null;
     fullOutput: string;
   }>;
+  waitForExit: () => Promise<void>;
   kill: () => void;
 }
 
@@ -69,7 +70,13 @@ export function spawnPiSession(options: {
   let fullOutput = "";
   let resolveCompletion: ((result: { marker: PiOutputMarker | null; fullOutput: string }) => void) | null = null;
   let rejectCompletion: ((err: Error) => void) | null = null;
+  let resolveExit: (() => void) | null = null;
   let textLineBuffer = "";
+  let suppressExitLog = false;
+
+  const exitPromise = new Promise<void>((resolve) => {
+    resolveExit = resolve;
+  });
 
   /** Track active tool calls for duration measurement */
   const activeTools = new Map<string, number>(); // toolCallId -> startTime
@@ -252,15 +259,22 @@ export function spawnPiSession(options: {
     }
   });
 
-  proc.on("exit", (code) => {
+  proc.on("exit", (code, signal) => {
     log.info(`Pi session ${id} exited with code ${code}`);
-    emitLog("stage_info", `Process exited with code ${code}`);
+    if (!suppressExitLog) {
+      const exitText = signal
+        ? `Process exited via signal ${signal}`
+        : `Process exited with code ${code}`;
+      emitLog("stage_info", exitText);
+    }
     // If the process exits before agent_end, resolve with what we have
     if (resolveCompletion) {
       resolveCompletion({ marker: extractMarker(fullOutput), fullOutput });
       resolveCompletion = null;
       rejectCompletion = null;
     }
+    resolveExit?.();
+    resolveExit = null;
   });
 
   return {
@@ -290,7 +304,17 @@ export function spawnPiSession(options: {
       });
     },
 
+    waitForExit() {
+      if (proc.exitCode !== null) {
+        return Promise.resolve();
+      }
+      return exitPromise;
+    },
+
     kill() {
+      if (resolveCompletion === null && rejectCompletion === null) {
+        suppressExitLog = true;
+      }
       if (rejectCompletion) {
         rejectCompletion(new Error("Session killed"));
         rejectCompletion = null;
@@ -454,18 +478,31 @@ interface SubagentWorkerResult {
   progress?: { durationMs?: number };
 }
 
+/**
+ * Tool results from pi-agent-core are AgentToolResult objects: `{ content,
+ * details, isError? }`. pi-subagents puts its parallel/chain results under
+ * `details.results`. We also handle the top-level shape and stringified JSON
+ * as defensive fallbacks for forward-compat with future pi versions.
+ */
 function parseSubagentDetails(result: unknown): { results: SubagentWorkerResult[] } | null {
   if (!result) return null;
-  // pi-subagents returns a structured Details object directly; some pi
-  // versions wrap it as a JSON string inside the tool result envelope.
-  if (typeof result === "object") {
-    const obj = result as { results?: SubagentWorkerResult[] };
-    if (Array.isArray(obj.results)) return { results: obj.results };
-  }
+  const tryShape = (obj: unknown): SubagentWorkerResult[] | null => {
+    if (!obj || typeof obj !== "object") return null;
+    const r = obj as {
+      details?: { results?: SubagentWorkerResult[] };
+      results?: SubagentWorkerResult[];
+    };
+    if (Array.isArray(r.details?.results)) return r.details!.results!;
+    if (Array.isArray(r.results)) return r.results!;
+    return null;
+  };
+  const direct = tryShape(result);
+  if (direct) return { results: direct };
   if (typeof result === "string") {
     try {
       const parsed = JSON.parse(result);
-      if (parsed && Array.isArray(parsed.results)) return { results: parsed.results };
+      const fromJson = tryShape(parsed);
+      if (fromJson) return { results: fromJson };
     } catch { /* not JSON */ }
   }
   return null;

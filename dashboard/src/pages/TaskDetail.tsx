@@ -17,6 +17,7 @@ import { LogViewer } from "@dashboard/components/LogViewer";
 import { PipelineProgress } from "@dashboard/components/PipelineProgress";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { Markdown } from "@dashboard/components/Markdown";
+import { mergeLogEntries } from "@dashboard/lib/logs";
 import { shortId, formatDate, timeAgo, cn } from "@dashboard/lib/utils";
 import { useState, useEffect } from "react";
 
@@ -161,9 +162,7 @@ export function TaskDetail() {
   function getLogsForStage(stage: string): LogEntry[] {
     const disk = diskLogs.find((l) => l.stage === stage)?.entries ?? [];
     const live = liveLogs.get(stage) ?? [];
-    const maxDiskSeq = disk.length > 0 ? disk[disk.length - 1].seq : -1;
-    const newLive = live.filter((e) => e.seq > maxDiskSeq);
-    return [...disk, ...newLive];
+    return mergeLogEntries(disk, live);
   }
 
   const allStages = [

@@ -188,7 +188,17 @@ async function runCodingStage(
   // Only the planner gets the pi-subagents extension for parallel codebase
   // exploration. Other stages stay on --no-extensions for reproducibility.
   const stageExtensions = stage === "planner" ? [config.subagentExtensionPath] : undefined;
-  const stageEnv = stage === "planner" ? { PI_SUBAGENT_MAX_DEPTH: "1" } : undefined;
+
+  // Point every pi child at the committed models.json inside the worktree so
+  // planner/implementer/reviewer (and their subagent children, which inherit
+  // process.env) resolve custom Fireworks models without relying on the host
+  // machine's ~/.pi/agent/models.json.
+  const stageEnv: Record<string, string> = {
+    PI_CODING_AGENT_DIR: path.join(worktreePath, ".pi", "agent"),
+  };
+  if (stage === "planner") {
+    stageEnv.PI_SUBAGENT_MAX_DEPTH = "1";
+  }
 
   const session = spawnPiSession({
     id: `${taskId}-${stage}`,
@@ -213,6 +223,7 @@ async function runCodingStage(
     await withTimeout(session.waitForCompletion(), STAGE_TIMEOUT_MS, `Stage ${stage}`);
 
     session.kill();
+    await session.waitForExit();
     clearActiveSession(taskId);
 
     await queries.updateTaskStage(stageRecord.id, {
@@ -226,6 +237,7 @@ async function runCodingStage(
     log.info(`Stage ${stage} complete for task ${taskId}`);
   } catch (err) {
     session.kill();
+    await session.waitForExit();
     clearActiveSession(taskId);
     await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
     emit({ type: "stage_update", taskId, stage, status: "failed" });
