@@ -189,13 +189,10 @@ async function runCodingStage(
   // exploration. Other stages stay on --no-extensions for reproducibility.
   const stageExtensions = stage === "planner" ? [config.subagentExtensionPath] : undefined;
 
-  // Point every pi child at the committed models.json inside the worktree so
-  // planner/implementer/reviewer (and their subagent children, which inherit
-  // process.env) resolve custom Fireworks models without relying on the host
-  // machine's ~/.pi/agent/models.json.
-  const stageEnv: Record<string, string> = {
-    PI_CODING_AGENT_DIR: path.join(worktreePath, ".pi", "agent"),
-  };
+  // Pi children (planner/implementer/reviewer and their subagents) resolve
+  // models from the host's ~/.pi/agent/models.json, which is where the
+  // Fireworks Kimi K2.5 provider entry lives.
+  const stageEnv: Record<string, string> = {};
   if (stage === "planner") {
     stageEnv.PI_SUBAGENT_MAX_DEPTH = "1";
   }

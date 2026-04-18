@@ -15,40 +15,24 @@ project-scoped agents at `<cwd>/.pi/agents/` via its
 
 ```
 pi-assets/
-  agent/             → <worktree>/.pi/agent/             (pi core agent dir -- models.json, etc)
-    models.json
   agents/            → <worktree>/.pi/agents/            (pi-subagents project scope)
-  skills/            → <worktree>/.pi/skills/            (reserved)
-  prompt-templates/  → <worktree>/.pi/prompt-templates/  (reserved)
-  rules/             → <worktree>/.pi/rules/             (reserved)
 ```
-
-Two dirs look similar but serve different tools:
-- `.pi/agent/` is pi core's user config directory (models.json, auth.json, etc).
-  Goodboy points stage pi processes at this via `PI_CODING_AGENT_DIR`.
-- `.pi/agents/` is where pi-subagents discovers project-scoped agent
-  definitions. Required path, set by pi-subagents.
 
 ## Current assets
 
-### `agent/models.json`
-
-Pins custom Fireworks-hosted models for pi's model registry:
-- `accounts/fireworks/models/llama-v3p3-70b-instruct` — used by the
-  codebase-explorer subagent for fast read-only exploration.
-- `accounts/fireworks/models/kimi-k2p5` — available for main pipeline
-  stages (planner/implementer/reviewer) via `PI_MODEL_*` env vars.
-
-Api key is resolved from the `FIREWORKS_API_KEY` environment variable at
-request time, so no secrets are committed. Every stage in the pipeline sets
-`PI_CODING_AGENT_DIR=<worktree>/.pi/agent` so stage and subagent pi processes
-all read this file instead of the host's `~/.pi/agent/models.json`.
-
 ### `agents/codebase-explorer.md`
 
-Read-only Llama 3.3 70B subagent invoked by the planner for parallel
+Read-only Kimi K2.5 subagent invoked by the planner for parallel
 codebase research. Returns a rigid `## Finding / ## Evidence / ## Caveats`
 markdown block per query.
+
+## Model registry
+
+Kimi K2.5 (via Fireworks) is the only model goodboy uses, wired in through
+the host's `~/.pi/agent/models.json` on both the laptop and the EC2 host.
+Stage pi processes inherit that file naturally — no project-local override,
+no `PI_CODING_AGENT_DIR` env var. If you spin up a fresh machine, add the
+Fireworks provider there before running a task.
 
 ## Conventions
 
