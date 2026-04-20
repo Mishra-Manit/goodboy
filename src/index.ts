@@ -3,7 +3,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { readFile } from "node:fs/promises";
-import { createBot } from "./bot/index.js";
+import { createTelegramBot } from "./telegram/index.js";
 import { createApi } from "./api/index.js";
 import { startPrPoller, stopPrPoller } from "./pipelines/pr-session/poller.js";
 import type { SendTelegram } from "./core/stage.js";
@@ -30,16 +30,16 @@ async function main(): Promise<void> {
     log.info(`Server running on http://${env.HOST}:${info.port}`);
   });
 
-  const bot = createBot();
+  const telegramBot = createTelegramBot();
 
-  // bot.start() blocks forever (Grammy long-polling). Everything that needs
+  // telegramBot.start() blocks forever (Grammy long-polling). Everything that needs
   // to run after the bot is ready must go inside the onStart callback.
-  await bot.start({
+  await telegramBot.start({
     onStart: () => {
       log.info("Telegram bot started");
 
       const sendTelegram: SendTelegram = async (chatId, text) => {
-        await bot.api.sendMessage(Number(chatId), text);
+        await telegramBot.api.sendMessage(Number(chatId), text);
       };
 
       startPrPoller(sendTelegram);
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
       const shutdown = async (): Promise<void> => {
         log.info("Shutting down...");
         stopPrPoller();
-        await bot.stop();
+        await telegramBot.stop();
         server.close();
         process.exit(0);
       };

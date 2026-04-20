@@ -14,6 +14,10 @@ export function listRepos(): readonly Repo[] {
   }));
 }
 
+export function listRepoNames(): readonly string[] {
+  return listRepos().map((r) => r.name);
+}
+
 export function getRepo(name: string): Repo | null {
   const entry = loadEnv().REGISTERED_REPOS[name];
   if (!entry) return null;
