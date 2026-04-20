@@ -3,21 +3,17 @@ import { mkdir, stat, rm } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
 import { config, loadEnv } from "../../shared/config.js";
 import { emit } from "../../shared/events.js";
-import { cleanupSeqCounters, resetSeq, makeEntry, appendLogEntry } from "../../core/logs.js";
+import { cleanupSeqCounters } from "../../core/logs.js";
 import { getRepo } from "../../shared/repos.js";
-import { spawnPiSession } from "../../core/pi/session.js";
 import { createWorktree, generateBranchName, syncRepo } from "../../core/worktree.js";
 import * as queries from "../../db/queries.js";
 import type { Task } from "../../db/queries.js";
-import type { LogEntryKind } from "../../shared/types.js";
 import type { Env } from "../../shared/config.js";
 import {
   failTask,
   notifyTelegram,
-  setActiveSession,
   clearActiveSession,
-  withTimeout,
-  STAGE_TIMEOUT_MS,
+  runStage,
   type SendTelegram,
 } from "../../core/stage.js";
 import {
@@ -167,15 +163,6 @@ async function runCodingStage(
   branch: string,
   worktreeEnv: WorktreeEnv,
 ): Promise<void> {
-  await queries.updateTask(taskId, { status: "running" });
-  emit({ type: "task_update", taskId, status: "running" });
-
-  const stageRecord = await queries.createTaskStage({ taskId, stage });
-  emit({ type: "stage_update", taskId, stage, status: "running" });
-
-  log.info(`Starting stage ${stage} for task ${taskId}`);
-  await notifyTelegram(sendTelegram, task.telegramChatId, `Stage started: ${STAGE_DISPLAY_NAMES[stage]}.`);
-
   const absArtifacts = path.resolve(artifactsDir);
   const planPath = path.join(absArtifacts, "plan.md");
   const summaryPath = path.join(absArtifacts, "implementation-summary.md");
@@ -183,63 +170,29 @@ async function runCodingStage(
   const systemPrompt = getCodingSystemPrompt(stage, absArtifacts, planPath, summaryPath, worktreeEnv, task.description);
   const initialPrompt = getCodingInitialPrompt(stage, absArtifacts, planPath, summaryPath, task.description);
 
-  resetSeq(taskId, stage);
-
   // Only the planner gets the pi-subagents extension for parallel codebase
   // exploration. Other stages stay on --no-extensions for reproducibility.
-  const stageExtensions = stage === "planner" ? [config.subagentExtensionPath] : undefined;
+  const extensions = stage === "planner" ? [config.subagentExtensionPath] : undefined;
 
-  // Pi children (planner/implementer/reviewer and their subagents) resolve
-  // models from the host's ~/.pi/agent/models.json, which is where the
-  // Fireworks Kimi K2.5 provider entry lives.
-  const stageEnv: Record<string, string> = {};
-  if (stage === "planner") {
-    stageEnv.PI_SUBAGENT_MAX_DEPTH = "1";
-  }
+  // Cap subagent recursion depth so the planner's explorers cannot themselves
+  // spawn more subagents.
+  const envOverrides: Record<string, string> = stage === "planner"
+    ? { PI_SUBAGENT_MAX_DEPTH: "1" }
+    : {};
 
-  const session = spawnPiSession({
-    id: `${taskId}-${stage}`,
+  await runStage({
+    taskId,
+    stage,
     cwd: worktreePath,
     systemPrompt,
+    initialPrompt,
     model: getModelForStage(stage),
-    extensions: stageExtensions,
-    envOverrides: stageEnv,
-    onLog: (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => {
-      const entry = makeEntry(taskId, stage, kind, text, meta);
-      emit({ type: "log", taskId, stage, entry });
-      appendLogEntry(taskId, stage, entry).catch((err) => {
-        log.warn(`Failed to persist log entry: ${err}`);
-      });
-    },
+    sendTelegram,
+    chatId: task.telegramChatId,
+    stageLabel: STAGE_DISPLAY_NAMES[stage],
+    extensions,
+    envOverrides,
   });
-
-  setActiveSession(taskId, session);
-  session.sendPrompt(initialPrompt);
-
-  try {
-    await withTimeout(session.waitForCompletion(), STAGE_TIMEOUT_MS, `Stage ${stage}`);
-
-    session.kill();
-    await session.waitForExit();
-    clearActiveSession(taskId);
-
-    await queries.updateTaskStage(stageRecord.id, {
-      status: "complete",
-      completedAt: new Date(),
-    });
-    emit({ type: "stage_update", taskId, stage, status: "complete" });
-
-    await notifyTelegram(sendTelegram, task.telegramChatId, `Stage complete: ${STAGE_DISPLAY_NAMES[stage]}.`);
-
-    log.info(`Stage ${stage} complete for task ${taskId}`);
-  } catch (err) {
-    session.kill();
-    await session.waitForExit();
-    clearActiveSession(taskId);
-    await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
-    emit({ type: "stage_update", taskId, stage, status: "failed" });
-    throw err;
-  }
 }
 
 // ---------------------------------------------------------------------------

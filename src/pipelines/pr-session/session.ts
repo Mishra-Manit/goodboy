@@ -12,7 +12,7 @@ import * as queries from "../../db/queries.js";
 import { prSessionPrompt, formatCommentsPrompt } from "./prompts.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import type { LogEntryKind } from "../../shared/types.js";
-import type { PrComment } from "../../core/github.js";
+import { parseNwo, parsePrNumberFromUrl, type PrComment } from "../../core/github.js";
 
 const exec = promisify(execFile);
 const log = createLogger("pr-session");
@@ -124,7 +124,7 @@ export async function startPrSession(options: {
     );
 
     const prUrl = extractPrUrl(result.fullOutput);
-    const prNumber = prUrl ? extractPrNumber(prUrl) : null;
+    const prNumber = prUrl ? parsePrNumberFromUrl(prUrl) : null;
 
     if (prNumber) {
       await queries.updatePrSession(prSession.id, { prNumber, lastPolledAt: new Date() });
@@ -313,11 +313,11 @@ export async function startExternalReview(options: {
   });
 
   const sessionPath = sessionFilePath(prSession.id);
-  const nwo = ghNwo(repoConfig.githubUrl ?? "");
+  const nwo = repoConfig.githubUrl ? parseNwo(repoConfig.githubUrl) : null;
 
   const systemPrompt = prSessionPrompt({
     mode: "review",
-    repo: nwo || repo,
+    repo: nwo ?? repo,
     branch,
     prNumber,
   });
@@ -378,21 +378,12 @@ export async function startExternalReview(options: {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Extract the most recent PR URL from agent output. Agent text may mention
+ * other PRs for context, so we take the last match as the one it just created.
+ */
 function extractPrUrl(text: string): string | null {
   const matches = text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g);
   if (!matches || matches.length === 0) return null;
   return matches[matches.length - 1];
-}
-
-function extractPrNumber(prUrl: string): number | null {
-  const match = prUrl.match(/\/pull\/(\d+)/);
-  if (!match) return null;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-/** Extract "owner/repo" from a GitHub URL. */
-function ghNwo(githubUrl: string): string {
-  const match = githubUrl.match(/github\.com\/([^/]+\/[^/]+?)(?:\.git)?$/);
-  return match?.[1] ?? "";
 }

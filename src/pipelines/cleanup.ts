@@ -6,20 +6,12 @@ import { createLogger } from "../shared/logger.js";
 import { config } from "../shared/config.js";
 import { getRepo } from "../shared/repos.js";
 import { removeWorktree } from "../core/worktree.js";
+import { parseNwo } from "../core/github.js";
 import * as queries from "../db/queries.js";
 import { emit } from "../shared/events.js";
 
 const exec = promisify(execFile);
 const log = createLogger("cleanup");
-
-/**
- * Extract "owner/repo" from a GitHub URL like
- * "https://github.com/Mishra-Manit/coliseum.git"
- */
-function ghNwo(githubUrl: string): string | null {
-  const match = githubUrl.match(/github\.com\/([^/]+\/[^/]+?)(?:\.git)?$/);
-  return match?.[1] ?? null;
-}
 
 /** Close a GitHub PR and delete its remote branch via `gh`. */
 async function closePr(nwo: string, prNumber: number): Promise<void> {
@@ -80,7 +72,7 @@ export async function dismissTask(taskId: string): Promise<void> {
 
   // Close PR on GitHub
   if (task.prNumber && repo?.githubUrl) {
-    const nwo = ghNwo(repo.githubUrl);
+    const nwo = parseNwo(repo.githubUrl);
     if (nwo) await closePr(nwo, task.prNumber);
   }
 

@@ -1,6 +1,5 @@
 import { createLogger } from "../shared/logger.js";
 import { emit } from "../shared/events.js";
-import { config } from "../shared/config.js";
 import * as queries from "../db/queries.js";
 import { spawnPiSession, type PiSession } from "./pi/session.js";
 import { appendLogEntry, makeEntry, resetSeq } from "./logs.js";
@@ -97,10 +96,19 @@ export async function runStage(options: {
   sendTelegram: SendTelegram;
   chatId: string | null;
   stageLabel: string;
+  /** Extensions to load via `-e`. Discovery stays disabled. */
+  extensions?: string[];
+  /** Extra env vars merged on top of process.env for the pi subprocess. */
+  envOverrides?: Record<string, string>;
+  /** Resume/create a persistent session file for this stage. */
+  sessionPath?: string;
+  /** Override the default 30-minute stage timeout. */
+  timeoutMs?: number;
 }): Promise<{ marker: PiOutputMarker | null; fullOutput: string }> {
   const {
     taskId, stage, cwd, systemPrompt, initialPrompt,
     model, sendTelegram, chatId, stageLabel,
+    extensions, envOverrides, sessionPath, timeoutMs,
   } = options;
 
   await queries.updateTask(taskId, { status: "running" });
@@ -119,6 +127,9 @@ export async function runStage(options: {
     cwd,
     systemPrompt,
     model,
+    extensions,
+    envOverrides,
+    sessionPath,
     onLog: (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => {
       const entry = makeEntry(taskId, stage, kind, text, meta);
       emit({ type: "log", taskId, stage, entry });
@@ -134,7 +145,7 @@ export async function runStage(options: {
   try {
     const result = await withTimeout(
       session.waitForCompletion(),
-      STAGE_TIMEOUT_MS,
+      timeoutMs ?? STAGE_TIMEOUT_MS,
       `Stage ${stage}`,
     );
 

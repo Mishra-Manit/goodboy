@@ -5,10 +5,10 @@ import {
   getPrComments,
   getPrReviewComments,
   isPrClosed,
+  parseNwo,
 } from "../../core/github.js";
 import { resumePrSession } from "./session.js";
 import { cleanupPrSession } from "../cleanup.js";
-import type { PrComment } from "../../core/github.js";
 import type { SendTelegram } from "../../core/stage.js";
 
 const log = createLogger("pr-poller");
@@ -41,7 +41,7 @@ export function startPrPoller(sendTelegram: SendTelegram): void {
         continue;
       }
 
-      const nwo = ghNwo(repo.githubUrl);
+      const nwo = parseNwo(repo.githubUrl);
       if (!nwo) continue;
 
       // Check if PR is still open
@@ -107,8 +107,3 @@ export function stopPrPoller(): void {
   log.info("PR poller stopped");
 }
 
-/** Extract "owner/repo" from a GitHub URL. */
-function ghNwo(githubUrl: string): string | null {
-  const match = githubUrl.match(/github\.com\/([^/]+\/[^/]+?)(?:\.git)?$/);
-  return match?.[1] ?? null;
-}

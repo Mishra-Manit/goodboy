@@ -1,6 +1,7 @@
 import { createLogger } from "../../shared/logger.js";
 import { emit } from "../../shared/events.js";
 import * as queries from "../../db/queries.js";
+import { parsePrIdentifier } from "../../core/github.js";
 import { startExternalReview } from "../pr-session/session.js";
 import {
   failTask,
@@ -20,7 +21,7 @@ export async function runPrReview(
     return;
   }
 
-  const prNumber = extractPrNumber(task.prIdentifier);
+  const prNumber = parsePrIdentifier(task.prIdentifier);
   if (!prNumber) {
     await failTask(
       taskId,
@@ -57,14 +58,3 @@ export async function runPrReview(
   }
 }
 
-function extractPrNumber(identifier: string): number | null {
-  // Handle URLs like https://github.com/owner/repo/pull/42
-  const urlMatch = identifier.match(/\/pull\/(\d+)/);
-  if (urlMatch) return Number(urlMatch[1]);
-
-  // Handle plain numbers like "42" or "#42"
-  const numMatch = identifier.match(/#?(\d+)/);
-  if (numMatch) return Number(numMatch[1]);
-
-  return null;
-}
