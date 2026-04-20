@@ -1,3 +1,5 @@
+/** Markdown renderer pinned to the dashboard's design tokens. */
+
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@dashboard/lib/utils";
@@ -22,7 +24,7 @@ export function Markdown({ content, className }: MarkdownProps) {
         "prose-blockquote:border-accent-dim prose-blockquote:text-text-ghost",
         "prose-hr:border-glass-border",
         "prose-th:text-text-secondary prose-td:text-text-dim",
-        className
+        className,
       )}
     >
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>

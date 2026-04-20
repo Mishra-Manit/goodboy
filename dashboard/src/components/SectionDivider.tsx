@@ -1,3 +1,5 @@
+/** Thin horizontal divider with an inline section label. */
+
 import { cn } from "@dashboard/lib/utils";
 
 interface SectionDividerProps {
@@ -13,11 +15,7 @@ export function SectionDivider({ label, detail, className }: SectionDividerProps
       <span className="font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-text-ghost">
         {label}
       </span>
-      {detail && (
-        <span className="font-mono text-[10px] text-text-void">
-          {detail}
-        </span>
-      )}
+      {detail && <span className="font-mono text-[10px] text-text-void">{detail}</span>}
       <div className="h-px flex-1 bg-text-void" />
     </div>
   );

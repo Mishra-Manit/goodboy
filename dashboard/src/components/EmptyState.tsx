@@ -1,3 +1,5 @@
+/** Centered "nothing here" copy. Use inside `<PageState empty={...}>` or on its own. */
+
 interface EmptyStateProps {
   title: string;
   description?: string;

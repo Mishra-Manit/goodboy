@@ -1,5 +1,10 @@
+/** Dot-and-line pipeline status. `mini` collapses to just the dots. */
+
 import { cn } from "@dashboard/lib/utils";
+import { formatDuration } from "@dashboard/lib/format";
 import { TASK_KIND_CONFIG, type TaskKind, type TaskStage } from "@dashboard/lib/api";
+
+type DisplayStatus = "pending" | "active" | "complete" | "failed";
 
 interface PipelineProgressProps {
   stages: TaskStage[];
@@ -8,136 +13,77 @@ interface PipelineProgressProps {
   mini?: boolean;
 }
 
-type DisplayStatus = "pending" | "active" | "complete" | "failed";
-
-function getStatus(stage: TaskStage | undefined): DisplayStatus {
-  if (!stage) return "pending";
-  if (stage.status === "complete") return "complete";
-  if (stage.status === "failed") return "failed";
-  if (stage.status === "running") return "active";
-  return "pending";
-}
-
-const DOT_STYLES: Record<DisplayStatus, string> = {
+const DOT: Record<DisplayStatus, string> = {
   pending: "bg-text-void",
-  active: "bg-accent shadow-[0_0_8px_rgba(212,160,23,0.5)]",
+  active: "bg-accent shadow-[0_0_8px_rgba(212,160,23,0.5)] animate-pulse-soft",
   complete: "bg-ok",
   failed: "bg-fail",
 };
 
-const LINE_STYLES: Record<DisplayStatus, string> = {
-  pending: "bg-text-void",
-  active: "bg-text-ghost",
-  complete: "bg-text-ghost",
-  failed: "bg-text-ghost",
-};
-
-const LABEL_STYLES: Record<DisplayStatus, string> = {
+const LABEL: Record<DisplayStatus, string> = {
   pending: "text-text-void",
   active: "text-accent",
   complete: "text-text-dim",
   failed: "text-fail",
 };
 
-export function PipelineProgress({
-  stages,
-  kind,
-  className,
-  mini = false,
-}: PipelineProgressProps) {
+export function PipelineProgress({ stages, kind, className, mini = false }: PipelineProgressProps) {
   const stageMap = new Map(stages.map((s) => [s.stage, s]));
   const kindConfig = TASK_KIND_CONFIG[kind] ?? TASK_KIND_CONFIG.coding_task;
-
-  // Build stage list from kind config + revision if present
-  const hasRevision = stageMap.has("revision");
-  const allStages = [
-    ...kindConfig.stages.map((key) => ({
-      key,
-      label: key.replace(/_/g, " "),
-    })),
-    ...(hasRevision ? [{ key: "revision", label: "Revision" }] : []),
+  const names = [
+    ...kindConfig.stages,
+    ...(stageMap.has("revision") ? ["revision"] : []),
   ];
 
   if (mini) {
     return (
       <div className={cn("flex items-center gap-1.5", className)}>
-        {allStages.map((ps) => {
-          const status = getStatus(stageMap.get(ps.key));
-          return (
-            <div
-              key={ps.key}
-              title={ps.label}
-              className={cn(
-                "h-1.5 w-1.5 rounded-full transition-all",
-                DOT_STYLES[status],
-                status === "active" && "animate-pulse-soft"
-              )}
-            />
-          );
-        })}
+        {names.map((name) => (
+          <span
+            key={name}
+            title={name}
+            className={cn("h-1.5 w-1.5 rounded-full", DOT[displayStatus(stageMap.get(name))])}
+          />
+        ))}
       </div>
     );
   }
 
   return (
-    <div className={cn("flex flex-col gap-1 pl-4", className)}>
-      {/* Top row: dots with connector lines between them */}
-      <div className="flex items-center">
-        {allStages.map((ps, i) => {
-          const status = getStatus(stageMap.get(ps.key));
-          return (
-            <div key={ps.key} className="flex items-center">
-              {i > 0 && (
-                <div className={cn("h-px w-14", LINE_STYLES[getStatus(stageMap.get(allStages[i - 1].key))])} />
+    <div className={cn("flex items-start gap-14", className)}>
+      {names.map((name, i) => {
+        const stage = stageMap.get(name);
+        const status = displayStatus(stage);
+        return (
+          <div key={name} className="relative flex flex-col items-center gap-1">
+            {i > 0 && (
+              <span className="absolute right-full top-1 h-px w-14 bg-text-ghost" aria-hidden />
+            )}
+            <span className={cn("h-2 w-2 rounded-full", DOT[status])} />
+            <span
+              className={cn(
+                "whitespace-nowrap font-mono text-[9px] tracking-wide",
+                LABEL[status],
               )}
-              <div
-                className={cn(
-                  "h-2 w-2 shrink-0 rounded-full transition-all",
-                  DOT_STYLES[status],
-                  status === "active" && "animate-pulse-soft"
-                )}
-              />
-            </div>
-          );
-        })}
-      </div>
-      {/* Bottom row: labels aligned under each dot */}
-      <div className="flex items-start">
-        {allStages.map((ps, i) => {
-          const status = getStatus(stageMap.get(ps.key));
-          const stageData = stageMap.get(ps.key);
-          return (
-            <div key={ps.key} className="flex items-start">
-              {i > 0 && <div className="w-14 shrink-0" />}
-              <div className="flex w-2 flex-col items-center">
-                <span
-                  className={cn(
-                    "whitespace-nowrap font-mono text-[9px] tracking-wide",
-                    LABEL_STYLES[status]
-                  )}
-                >
-                  {ps.label}
-                </span>
-                {stageData?.completedAt && stageData.startedAt && (
-                  <span className="whitespace-nowrap font-mono text-[8px] text-text-void">
-                    {formatDuration(stageData.startedAt, stageData.completedAt)}
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            >
+              {name.replace(/_/g, " ")}
+            </span>
+            {stage?.completedAt && stage.startedAt && (
+              <span className="whitespace-nowrap font-mono text-[8px] text-text-void">
+                {formatDuration(stage.startedAt, stage.completedAt)}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-function formatDuration(start: string, end: string): string {
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  if (ms < 1000) return `${ms}ms`;
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  const remainSecs = secs % 60;
-  return `${mins}m ${remainSecs}s`;
+// --- Helpers ---
+
+function displayStatus(stage: TaskStage | undefined): DisplayStatus {
+  if (!stage) return "pending";
+  if (stage.status === "running") return "active";
+  return stage.status;
 }
