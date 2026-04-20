@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import { createLogger } from "../../shared/logger.js";
 import { config, loadEnv } from "../../shared/config.js";
 import { emit } from "../../shared/events.js";
-import { spawnPiSession } from "../../core/pi-rpc.js";
+import { spawnPiSession } from "../../core/pi/session.js";
 import { makePrSessionEntry, appendPrSessionLog } from "../../core/logs.js";
 import { createPrWorktree } from "../../core/worktree.js";
 import { getRepo } from "../../shared/repos.js";
@@ -52,7 +52,7 @@ async function transferTaskGitOwnership(taskId: string, prSessionId: string): Pr
 }
 
 /**
- * Start a new PR session after the dev-task reviewer completes.
+ * Start a new PR session after the coding pipeline's reviewer completes.
  * Creates the PR and persists the session for future comment rounds.
  */
 export async function startPrSession(options: {

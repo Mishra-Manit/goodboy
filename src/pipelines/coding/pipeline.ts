@@ -5,7 +5,7 @@ import { config, loadEnv } from "../../shared/config.js";
 import { emit } from "../../shared/events.js";
 import { cleanupSeqCounters, resetSeq, makeEntry, appendLogEntry } from "../../core/logs.js";
 import { getRepo } from "../../shared/repos.js";
-import { spawnPiSession } from "../../core/pi-rpc.js";
+import { spawnPiSession } from "../../core/pi/session.js";
 import { createWorktree, generateBranchName, syncRepo } from "../../core/worktree.js";
 import * as queries from "../../db/queries.js";
 import type { Task } from "../../db/queries.js";
@@ -28,7 +28,7 @@ import {
 } from "./prompts.js";
 import { startPrSession } from "../pr-session/session.js";
 
-const log = createLogger("dev-task");
+const log = createLogger("coding");
 
 type CodingStageName = "planner" | "implementer" | "reviewer";
 

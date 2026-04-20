@@ -60,7 +60,7 @@ export const prSessions = pgTable("pr_sessions", {
   branch: text("branch"),
   worktreePath: text("worktree_path"),
   status: prSessionStatusEnum("status").notNull().default("active"),
-  /** The dev-task that originated this PR (null for external reviews) */
+  /** The coding task that originated this PR (null for external reviews) */
   originTaskId: uuid("origin_task_id").references(() => tasks.id),
   /** Telegram chat ID for notifications */
   telegramChatId: text("telegram_chat_id"),

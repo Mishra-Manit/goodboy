@@ -2,11 +2,11 @@ import { createLogger } from "../shared/logger.js";
 import { emit } from "../shared/events.js";
 import { config } from "../shared/config.js";
 import * as queries from "../db/queries.js";
-import { spawnPiSession, type PiSession } from "./pi-rpc.js";
+import { spawnPiSession, type PiSession } from "./pi/session.js";
 import { appendLogEntry, makeEntry, resetSeq } from "./logs.js";
 import type { StageName, LogEntryKind, PiOutputMarker } from "../shared/types.js";
 
-const log = createLogger("orchestrator");
+const log = createLogger("stage");
 
 // ---------------------------------------------------------------------------
 // Session management

@@ -1,4 +1,4 @@
-import type { LogEntryKind } from "../shared/types.js";
+import type { LogEntryKind } from "../../shared/types.js";
 
 /**
  * Per-toolCallId throttle for high-frequency tool_execution_update events.
