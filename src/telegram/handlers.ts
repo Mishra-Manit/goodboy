@@ -52,12 +52,7 @@ export async function handleIntent(intent: Intent, ctx: Ctx): Promise<void> {
     case "codebase_question":
       return createAndStart({ kind: "codebase_question", repo: intent.repo, description: intent.question }, ctx);
     case "pr_review":
-      return createAndStart({
-        kind: "pr_review",
-        repo: intent.repo,
-        description: `Review PR ${intent.prIdentifier}`,
-        prIdentifier: intent.prIdentifier,
-      }, ctx);
+      return ctx.reply("PR review is not implemented yet.");
     case "task_status": return handleTaskStatus(intent, ctx);
     case "task_cancel": return handleTaskCancel(intent, ctx);
     case "task_retry":  return handleTaskRetry(intent, ctx);

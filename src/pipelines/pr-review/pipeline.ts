@@ -1,67 +1,24 @@
 /**
- * PR review pipeline: parse the user's PR identifier, then hand off to
- * `startExternalReview` in `pr-session/session.ts`, which owns the worktree
- * checkout and the pi session.
+ * PR review pipeline -- stub.
+ *
+ * The external PR-review flow is not implemented yet. The Telegram dispatcher
+ * short-circuits `pr_review` intents before reaching this runner, so this
+ * exists only to satisfy the `PIPELINES` and retry-dispatch lookups.
  */
 
 import { createLogger } from "../../shared/logger.js";
-import { emit } from "../../shared/events.js";
+import { failTask, type SendTelegram } from "../../core/stage.js";
 import * as queries from "../../db/queries.js";
-import { parsePrIdentifier } from "../../core/github.js";
-import { startExternalReview } from "../pr-session/session.js";
-import {
-  failTask,
-  notifyTelegram,
-  type SendTelegram,
-} from "../../core/stage.js";
 
 const log = createLogger("pr-review");
 
-/** Run the PR review pipeline. Errors surface via `failTask`; never throws. */
+const NOT_IMPLEMENTED = "PR review is not implemented yet.";
+
 export async function runPrReview(
   taskId: string,
   sendTelegram: SendTelegram,
 ): Promise<void> {
+  log.warn(`runPrReview called for task ${taskId} but pipeline is stubbed`);
   const task = await queries.getTask(taskId);
-  if (!task || !task.prIdentifier) {
-    log.error(`Task ${taskId} not found or missing prIdentifier`);
-    return;
-  }
-
-  const prNumber = parsePrIdentifier(task.prIdentifier);
-  if (!prNumber) {
-    await failTask(
-      taskId,
-      `Could not parse PR number from: ${task.prIdentifier}`,
-      sendTelegram,
-      task.telegramChatId,
-    );
-    return;
-  }
-
-  await queries.updateTask(taskId, { status: "running" });
-  emit({ type: "task_update", taskId, status: "running" });
-
-  await notifyTelegram(
-    sendTelegram,
-    task.telegramChatId,
-    `Starting review of PR #${prNumber} on ${task.repo}...`,
-  );
-
-  try {
-    await startExternalReview({
-      repo: task.repo,
-      prNumber,
-      sendTelegram,
-      chatId: task.telegramChatId!,
-      taskId,
-    });
-
-    await queries.updateTask(taskId, { status: "complete", completedAt: new Date() });
-    emit({ type: "task_update", taskId, status: "complete" });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await failTask(taskId, message, sendTelegram, task.telegramChatId);
-  }
+  await failTask(taskId, NOT_IMPLEMENTED, sendTelegram, task?.telegramChatId ?? null);
 }
-
