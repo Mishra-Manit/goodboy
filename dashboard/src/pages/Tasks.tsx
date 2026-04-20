@@ -1,94 +1,58 @@
+/** Tasks home: live tasks up top, history grouped by date below. */
+
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  fetchTasks,
   fetchTask,
+  fetchTasks,
+  type LogEntry,
   type Task,
   type TaskWithStages,
-  type LogEntry,
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSE, useSSERefresh } from "@dashboard/hooks/use-sse";
+import { useLiveLogs } from "@dashboard/hooks/use-live-logs";
+import { useNow } from "@dashboard/hooks/use-now";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { PipelineProgress } from "@dashboard/components/PipelineProgress";
 import { Card } from "@dashboard/components/Card";
-import { LogViewer } from "@dashboard/components/LogViewer";
+import { LogViewer } from "@dashboard/components/log-viewer";
 import { EmptyState } from "@dashboard/components/EmptyState";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { TaskRow } from "@dashboard/components/TaskRow";
-import { shortId, timeAgo, cn } from "@dashboard/lib/utils";
-import { useNow } from "@dashboard/hooks/use-now";
+import { PageState } from "@dashboard/components/PageState";
+import { groupByDate } from "@dashboard/lib/task-grouping";
+import { cn, shortId } from "@dashboard/lib/utils";
+import { timeAgo } from "@dashboard/lib/format";
 
-const ACTIVE_STATUSES = new Set([
-  "queued",
-  "running",
-]);
-
+const ACTIVE_STATUSES = new Set(["queued", "running"]);
 const HISTORY_FILTERS = ["all", "complete", "failed", "cancelled"] as const;
+type HistoryFilter = (typeof HISTORY_FILTERS)[number];
 
 export function Tasks() {
   const navigate = useNavigate();
-  const { data: tasks, loading, error, refetch } = useQuery(() => fetchTasks());
-  const [expandedTask, setExpandedTask] = useState<string | null>(null);
-  const [taskDetails, setTaskDetails] = useState<Map<string, TaskWithStages>>(
-    new Map()
-  );
-  const [liveLogs, setLiveLogs] = useState<Map<string, LogEntry[]>>(
-    new Map()
-  );
-  const [historyFilter, setHistoryFilter] = useState<typeof HISTORY_FILTERS[number]>("all");
   const now = useNow();
 
-  useSSERefresh(refetch, (e) => e.type === "task_update");
+  const query = useQuery(() => fetchTasks());
+  const [expandedTask, setExpandedTask] = useState<string | null>(null);
+  const [taskDetails, setTaskDetails] = useState<Map<string, TaskWithStages>>(new Map());
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
 
+  useSSERefresh(query.refetch, (e) => e.type === "task_update");
+
+  const liveLogs = useLiveLogs({
+    match: (event) =>
+      event.type === "log" ? { key: event.taskId, entry: event.entry } : null,
+  });
+
+  // Keep the expanded task's detail fresh as stages progress.
   useSSE((event) => {
-    if (event.type === "log") {
-      const taskId = event.taskId as string;
-      const entry = event.entry as LogEntry;
-      if (entry) {
-        setLiveLogs((prev) => {
-          const next = new Map(prev);
-          const existing = next.get(taskId) ?? [];
-          next.set(taskId, [...existing, entry]);
-          return next;
-        });
-      }
-    }
-    if (event.type === "stage_update" || event.type === "task_update") {
-      const taskId = event.taskId as string;
-      if (taskId === expandedTask) {
-        fetchTask(taskId).then((detail) => {
-          setTaskDetails((prev) => {
-            const next = new Map(prev);
-            next.set(taskId, detail);
-            return next;
-          });
-        });
-      }
-    }
+    if (event.type !== "stage_update" && event.type !== "task_update") return;
+    if (event.taskId !== expandedTask) return;
+    fetchTask(event.taskId).then((detail) =>
+      setTaskDetails((prev) => new Map(prev).set(event.taskId, detail)),
+    );
   });
-
-  const activeTasks = (tasks ?? []).filter((t) =>
-    ACTIVE_STATUSES.has(t.status)
-  );
-
-  const completedTasks = (tasks ?? []).filter(
-    (t) => !ACTIVE_STATUSES.has(t.status)
-  );
-
-  const filteredHistory = completedTasks.filter((t) => {
-    if (historyFilter === "all") return true;
-    return t.status === historyFilter;
-  });
-
-  const grouped = groupByDate(filteredHistory);
-
-  const historyCounts = {
-    all: completedTasks.length,
-    complete: completedTasks.filter((t) => t.status === "complete").length,
-    failed: completedTasks.filter((t) => t.status === "failed").length,
-    cancelled: completedTasks.filter((t) => t.status === "cancelled").length,
-  };
 
   async function toggleExpand(taskId: string) {
     if (expandedTask === taskId) {
@@ -98,213 +62,176 @@ export function Tasks() {
     setExpandedTask(taskId);
     if (!taskDetails.has(taskId)) {
       const detail = await fetchTask(taskId);
-      setTaskDetails((prev) => {
-        const next = new Map(prev);
-        next.set(taskId, detail);
-        return next;
-      });
+      setTaskDetails((prev) => new Map(prev).set(taskId, detail));
     }
   }
 
   return (
     <div>
-      {/* Page header */}
       <header className="mb-10 text-center">
-        <h1 className="font-display text-2xl font-bold tracking-tight text-text">
-          goodboy
-        </h1>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-text">goodboy</h1>
         <p className="mt-1 font-mono text-[11px] text-text-ghost tracking-wide">
           background coding agent
         </p>
       </header>
 
-      {/* ── Live section ── */}
-      <SectionDivider
-        label="live"
-        detail={
-          activeTasks.length > 0
-            ? `${activeTasks.length} task${activeTasks.length === 1 ? "" : "s"}`
-            : undefined
-        }
-      />
+      <PageState data={query.data} loading={query.loading} error={query.error} onRetry={query.refetch}>
+        {(tasks) => {
+          const active = tasks.filter((t) => ACTIVE_STATUSES.has(t.status));
+          const completed = tasks.filter((t) => !ACTIVE_STATUSES.has(t.status));
+          const historyCounts = countByStatus(completed);
+          const filteredHistory = historyFilter === "all"
+            ? completed
+            : completed.filter((t) => t.status === historyFilter);
 
-      {loading && !tasks ? (
-        <div className="py-12 text-center">
-          <span className="font-mono text-xs text-text-ghost animate-pulse-soft">
-            connecting...
-          </span>
-        </div>
-      ) : error ? (
-        <div className="py-24 text-center">
-          <span className="font-mono text-xs text-fail">{error}</span>
-          <button
-            onClick={refetch}
-            className="mt-3 block mx-auto font-mono text-xs text-text-ghost hover:text-accent"
-          >
-            retry
-          </button>
-        </div>
-      ) : activeTasks.length === 0 ? (
-        <div className="py-8 text-center">
-          <span className="font-mono text-[11px] text-text-ghost">
-            No active tasks
-          </span>
-        </div>
-      ) : (
-        <div className="mt-4 space-y-3 stagger">
-          {activeTasks.map((task) => {
-            const detail = taskDetails.get(task.id);
-            const logs = liveLogs.get(task.id) ?? [];
-            const isExpanded = expandedTask === task.id;
+          return (
+            <>
+              <SectionDivider
+                label="live"
+                detail={active.length > 0 ? `${active.length} task${active.length === 1 ? "" : "s"}` : undefined}
+              />
 
-            return (
-              <div key={task.id} className="animate-fade-up">
-                <Card hoverable live onClick={() => toggleExpand(task.id)}>
-                  {/* Top row: ID, repo, status */}
-                  <div className="flex items-center gap-3 mb-2">
-                    <code className="font-mono text-[10px] text-text-ghost">
-                      {shortId(task.id)}
-                    </code>
-                    <span className="font-mono text-[11px] font-medium text-accent">
-                      {task.repo}
-                    </span>
-                    <StatusBadge status={task.status} />
-                    <span className="ml-auto font-mono text-[10px] text-text-void">
-                      {timeAgo(task.createdAt, now)}
-                    </span>
-                  </div>
+              {active.length === 0 ? (
+                <p className="py-8 text-center font-mono text-[11px] text-text-ghost">No active tasks</p>
+              ) : (
+                <div className="mt-4 space-y-3 stagger">
+                  {active.map((task) => (
+                    <LiveTaskCard
+                      key={task.id}
+                      task={task}
+                      detail={taskDetails.get(task.id)}
+                      logs={liveLogs.get(task.id) ?? []}
+                      expanded={expandedTask === task.id}
+                      now={now}
+                      onToggle={() => toggleExpand(task.id)}
+                      onViewDetail={() => navigate(`/tasks/${task.id}`)}
+                    />
+                  ))}
+                </div>
+              )}
 
-                  {/* Description */}
-                  <p className="text-[13px] text-text-secondary leading-relaxed line-clamp-2">
-                    {task.description}
-                  </p>
+              <SectionDivider label="history" className="mt-10" />
+              <HistoryFilterTabs value={historyFilter} onChange={setHistoryFilter} counts={historyCounts} />
 
-                  {/* Inline pipeline (only for multi-stage kinds) */}
-                  {detail && task.kind === "coding_task" && (
-                    <div className="mt-3 flex items-center justify-between">
-                      <PipelineProgress
-                        stages={detail.stages}
-                        kind={task.kind}
-                        className="hidden sm:flex"
-                      />
-                      <PipelineProgress
-                        stages={detail.stages}
-                        kind={task.kind}
-                        mini
-                        className="flex sm:hidden"
-                      />
+              {filteredHistory.length === 0 ? (
+                <EmptyState
+                  title="No tasks found"
+                  description={
+                    historyFilter === "all"
+                      ? "Tasks will appear here after they finish"
+                      : `No ${historyFilter} tasks`
+                  }
+                />
+              ) : (
+                <div className="space-y-6">
+                  {groupByDate(filteredHistory).map(({ label, tasks }) => (
+                    <div key={label}>
+                      <SectionDivider label={label} detail={`${tasks.length}`} />
+                      <div className="mt-2 space-y-0.5 stagger">
+                        {tasks.map((task) => (
+                          <TaskRow
+                            key={task.id}
+                            task={task}
+                            showDuration
+                            onClick={() => navigate(`/tasks/${task.id}`)}
+                          />
+                        ))}
+                      </div>
                     </div>
-                  )}
-                </Card>
-
-                {/* Expanded: live logs */}
-                {isExpanded && (
-                  <div className="mt-2 animate-fade-up">
-                    <LogViewer entries={logs} maxHeight="350px" autoScroll />
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/tasks/${task.id}`);
-                      }}
-                      className="mt-2 font-mono text-[10px] text-text-ghost hover:text-accent transition-colors"
-                    >
-                      view full detail &rarr;
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── History section ── */}
-      <SectionDivider label="history" className="mt-10" />
-
-      {/* Filter pills */}
-      <div className="mt-3 mb-4 flex gap-1">
-        {HISTORY_FILTERS.map((f) => (
-          <button
-            key={f}
-            onClick={() => setHistoryFilter(f)}
-            className={cn(
-              "rounded-full px-3 py-1 font-mono text-[10px] tracking-wide transition-all duration-200",
-              historyFilter === f
-                ? "bg-glass text-text"
-                : "text-text-ghost hover:text-text-dim"
-            )}
-          >
-            {f}
-            <span className="ml-1.5 text-text-void">
-              {historyCounts[f]}
-            </span>
-          </button>
-        ))}
-      </div>
-
-      {loading && !tasks ? (
-        <div className="py-8 text-center">
-          <span className="font-mono text-xs text-text-ghost animate-pulse-soft">
-            loading...
-          </span>
-        </div>
-      ) : filteredHistory.length === 0 ? (
-        <EmptyState
-          title="No tasks found"
-          description={
-            historyFilter === "all"
-              ? "Tasks will appear here after they finish"
-              : `No ${historyFilter} tasks`
-          }
-        />
-      ) : (
-        <div className="space-y-6">
-          {grouped.map(({ label, tasks: groupTasks }) => (
-            <div key={label}>
-              <SectionDivider label={label} detail={`${groupTasks.length}`} />
-              <div className="mt-2 space-y-0.5 stagger">
-                {groupTasks.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    showDuration
-                    onClick={() => navigate(`/tasks/${task.id}`)}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+                  ))}
+                </div>
+              )}
+            </>
+          );
+        }}
+      </PageState>
     </div>
   );
 }
 
-/* ── Helpers ── */
+// --- Helpers ---
 
-function groupByDate(tasks: Task[]): Array<{ label: string; tasks: Task[] }> {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today.getTime() - 86400000);
-  const weekAgo = new Date(today.getTime() - 7 * 86400000);
-
-  const groups: Record<string, Task[]> = {};
-
-  for (const task of tasks) {
-    const d = new Date(task.createdAt);
-    let label: string;
-    if (d >= today) label = "today";
-    else if (d >= yesterday) label = "yesterday";
-    else if (d >= weekAgo) label = "this week";
-    else label = "older";
-
-    if (!groups[label]) groups[label] = [];
-    groups[label].push(task);
+function countByStatus(tasks: Task[]): Record<HistoryFilter, number> {
+  const counts: Record<HistoryFilter, number> = { all: tasks.length, complete: 0, failed: 0, cancelled: 0 };
+  for (const t of tasks) {
+    if (t.status in counts) counts[t.status as HistoryFilter]++;
   }
+  return counts;
+}
 
-  const order = ["today", "yesterday", "this week", "older"];
-  return order
-    .filter((label) => groups[label]?.length)
-    .map((label) => ({ label, tasks: groups[label] }));
+interface HistoryFilterTabsProps {
+  value: HistoryFilter;
+  onChange: (v: HistoryFilter) => void;
+  counts: Record<HistoryFilter, number>;
+}
+
+function HistoryFilterTabs({ value, onChange, counts }: HistoryFilterTabsProps) {
+  return (
+    <div className="mt-3 mb-4 flex gap-1">
+      {HISTORY_FILTERS.map((f) => (
+        <button
+          key={f}
+          onClick={() => onChange(f)}
+          className={cn(
+            "rounded-full px-3 py-1 font-mono text-[10px] tracking-wide transition-all duration-200",
+            value === f ? "bg-glass text-text" : "text-text-ghost hover:text-text-dim",
+          )}
+        >
+          {f}
+          <span className="ml-1.5 text-text-void">{counts[f]}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+interface LiveTaskCardProps {
+  task: Task;
+  detail: TaskWithStages | undefined;
+  logs: LogEntry[];
+  expanded: boolean;
+  now: number;
+  onToggle: () => void;
+  onViewDetail: () => void;
+}
+
+function LiveTaskCard({ task, detail, logs, expanded, now, onToggle, onViewDetail }: LiveTaskCardProps) {
+  return (
+    <div className="animate-fade-up">
+      <Card hoverable live onClick={onToggle}>
+        <div className="flex items-center gap-3 mb-2">
+          <code className="font-mono text-[10px] text-text-ghost">{shortId(task.id)}</code>
+          <span className="font-mono text-[11px] font-medium text-accent">{task.repo}</span>
+          <StatusBadge status={task.status} />
+          <span className="ml-auto font-mono text-[10px] text-text-void">
+            {timeAgo(task.createdAt, now)}
+          </span>
+        </div>
+
+        <p className="text-[13px] text-text-secondary leading-relaxed line-clamp-2">{task.description}</p>
+
+        {detail && task.kind === "coding_task" && (
+          <div className="mt-3 flex items-center justify-between">
+            <PipelineProgress stages={detail.stages} kind={task.kind} className="hidden sm:flex" />
+            <PipelineProgress stages={detail.stages} kind={task.kind} mini className="flex sm:hidden" />
+          </div>
+        )}
+      </Card>
+
+      {expanded && (
+        <div className="mt-2 animate-fade-up">
+          <LogViewer entries={logs} maxHeight="350px" autoScroll />
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewDetail();
+            }}
+            className="mt-2 font-mono text-[10px] text-text-ghost hover:text-accent transition-colors"
+          >
+            view full detail &rarr;
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }

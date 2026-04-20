@@ -1,4 +1,6 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+/** Route table. All pages mount under a shared `<Layout>`. */
+
+import { Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "@dashboard/components/Layout";
 import { Tasks } from "@dashboard/pages/Tasks";
 import { TaskDetail } from "@dashboard/pages/TaskDetail";
