@@ -8,6 +8,7 @@ import path from "node:path";
 import { mkdir, stat, rm } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
 import { config, loadEnv } from "../../shared/config.js";
+import { subagentCapability } from "../../core/subagents/index.js";
 import { emit } from "../../shared/events.js";
 import { getRepo } from "../../shared/repos.js";
 import { createWorktree, generateBranchName, syncRepo } from "../../core/worktree.js";
@@ -153,12 +154,9 @@ async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<vo
   const absArtifacts = path.resolve(ctx.artifactsDir);
   const spec = STAGES[stage];
 
-  // Only the planner loads pi-subagents (for parallel exploration). Other
-  // stages stay on --no-extensions for reproducibility. The planner's
-  // subagents cannot themselves spawn more subagents.
-  const isPlanner = stage === "planner";
-  const extensions = isPlanner ? [config.subagentExtensionPath] : undefined;
-  const envOverrides: Record<string, string> = isPlanner ? { PI_SUBAGENT_MAX_DEPTH: "1" } : {};
+  // Only the planner delegates to subagents. Other stages stay on
+  // --no-extensions for reproducibility.
+  const cap = stage === "planner" ? subagentCapability() : null;
 
   await runStage({
     taskId: ctx.taskId,
@@ -170,8 +168,8 @@ async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<vo
     sendTelegram: ctx.sendTelegram,
     chatId: ctx.task.telegramChatId,
     stageLabel: spec.label,
-    extensions,
-    envOverrides,
+    extensions: cap?.extensions,
+    envOverrides: cap?.envOverrides ?? {},
   });
 }
 

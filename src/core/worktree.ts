@@ -1,18 +1,18 @@
 /**
  * Git worktree primitives: sync the main checkout, create task and PR-review
  * worktrees, remove them cleanly (with fallback for stale metadata), and
- * generate LLM-sluggified branch names. Every worktree also gets a fresh
- * copy of `pi-assets/` dropped into `.pi/` for project-scoped agents.
+ * generate LLM-sluggified branch names. Every new worktree also gets subagent
+ * assets staged into `.pi/` for project-scoped agents.
  */
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { cp, rm, stat } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 import { createLogger } from "../shared/logger.js";
-import { config } from "../shared/config.js";
 import { z } from "zod";
 import { LIGHT_MODEL, structuredOutput } from "../shared/llm.js";
+import { stageSubagentAssets } from "./subagents/index.js";
 
 const exec = promisify(execFile);
 const log = createLogger("worktree");
@@ -43,7 +43,7 @@ export async function createWorktree(repoPath: string, branch: string, taskId: s
 
   await exec("git", ["worktree", "add", "-b", branch, dir], { cwd: repoPath });
   log.info(`Created worktree at ${dir} on branch ${branch}`);
-  await copyPiAssets(dir);
+  await stageSubagentAssets(dir);
   return dir;
 }
 
@@ -58,7 +58,7 @@ export async function createPrWorktree(repoPath: string, prNumber: string, taskI
   await exec("git", ["fetch", "origin", `pull/${prNumber}/head:${localBranch}`], { cwd: repoPath });
   await exec("git", ["worktree", "add", dir, localBranch], { cwd: repoPath });
   log.info(`Created PR worktree at ${dir} for PR #${prNumber}`);
-  await copyPiAssets(dir);
+  await stageSubagentAssets(dir);
   return dir;
 }
 
@@ -128,23 +128,6 @@ async function forceDeleteBranch(repoPath: string, branch: string): Promise<void
 
 function isMissingWorktreeError(err: unknown): boolean {
   return err instanceof Error && err.message.includes("is not a working tree");
-}
-
-/**
- * Copy `pi-assets/` into `<worktreePath>/.pi/`, overwriting anything present.
- * Destination is `.pi/` (not `.pi/agent/`) because pi-subagents looks for
- * project-scoped agents at `<worktree>/.pi/agents/*.md`.
- */
-async function copyPiAssets(worktreePath: string): Promise<void> {
-  try {
-    await stat(config.piAssetsDir);
-  } catch {
-    log.warn(`pi-assets directory missing at ${config.piAssetsDir}; skipping copy`);
-    return;
-  }
-  const dest = path.join(worktreePath, ".pi");
-  await cp(config.piAssetsDir, dest, { recursive: true, force: true });
-  log.info(`Copied pi-assets into ${dest}`);
 }
 
 const SLUG_SYSTEM_PROMPT = `You generate git branch slugs.

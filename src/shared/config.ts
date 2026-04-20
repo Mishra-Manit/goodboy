@@ -7,25 +7,8 @@
 import { z } from "zod";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
-
-// --- Subagent extension resolution ---
-
-/** Resolve pi-subagents' entry at startup. Throws loudly so deploys can't silently lose it. */
-function resolveSubagentExtensionPath(): string {
-  try {
-    return require.resolve("pi-subagents/index.ts");
-  } catch (err) {
-    throw new Error(
-      `Failed to resolve pi-subagents extension. Install it with 'npm install'. Original: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-  }
-}
 
 // --- Zod schemas ---
 
@@ -91,7 +74,5 @@ export function loadEnv(): Env {
 export const config = {
   artifactsDir: path.resolve(__dirname, "../../artifacts"),
   prSessionsDir: path.resolve(__dirname, "../../data/pr-sessions"),
-  piAssetsDir: path.resolve(__dirname, "../../pi-assets"),
   piCommand: "pi",
-  subagentExtensionPath: resolveSubagentExtensionPath(),
 } as const;
