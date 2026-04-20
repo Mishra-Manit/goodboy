@@ -10,16 +10,20 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createLogger } from "../../shared/logger.js";
-import { config, loadEnv } from "../../shared/config.js";
+import { loadEnv } from "../../shared/config.js";
 import { emit } from "../../shared/events.js";
 import { spawnPiSession } from "../../core/pi/session.js";
-import { makePrSessionEntry, appendPrSessionLog } from "../../core/logs.js";
+import {
+  ensureSessionDir,
+  prSessionPath,
+  readSessionFile,
+} from "../../core/session-file.js";
+import { broadcastSessionFile } from "../../core/session-broadcast.js";
 import { createPrWorktree } from "../../core/worktree.js";
 import { getRepo } from "../../shared/repos.js";
 import * as queries from "../../db/queries.js";
 import { prSessionPrompt, formatCommentsPrompt } from "./prompts.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
-import type { LogEntryKind } from "../../shared/types.js";
 import type { Env } from "../../shared/config.js";
 import { parseNwo, parsePrNumberFromUrl, type PrComment } from "../../core/github.js";
 
@@ -54,7 +58,7 @@ export async function startPrSession(options: {
   log.info(`Starting PR session ${prSession.id} for task ${originTaskId}`);
 
   try {
-    const { fullOutput } = await runSessionTurn({
+    await runSessionTurn({
       prSessionId: prSession.id,
       labelSuffix: "create",
       cwd: worktreePath,
@@ -70,7 +74,7 @@ export async function startPrSession(options: {
       timeoutLabel: "PR session (create)",
     });
 
-    const prUrl = extractPrUrl(fullOutput);
+    const prUrl = await extractPrUrlFromSession(prSession.id);
     const prNumber = prUrl ? parsePrNumberFromUrl(prUrl) : null;
     await queries.updatePrSession(prSession.id, {
       ...(prNumber ? { prNumber } : {}),
@@ -207,28 +211,29 @@ interface SessionTurn {
 
 /**
  * Run one pi session turn: spawn, send prompt, wait (bounded), update run
- * status, and emit running on/off. Success returns the pi output; failure
- * marks the run failed and rethrows so the caller can do case-specific
- * notification.
+ * status, and emit running on/off. Failure marks the run failed and rethrows
+ * so the caller can do case-specific notification.
  */
-async function runSessionTurn(turn: SessionTurn): Promise<{ fullOutput: string }> {
+async function runSessionTurn(turn: SessionTurn): Promise<void> {
   const { prSessionId, labelSuffix, cwd, systemPrompt, model, prompt, run, timeoutLabel } = turn;
 
   emit({ type: "pr_session_update", prSessionId, running: true });
+  const filePath = prSessionPath(prSessionId);
+  await ensureSessionDir(filePath);
+  const stopBroadcast = broadcastSessionFile(filePath, { scope: "pr_session", prSessionId });
+
   const session = spawnPiSession({
     id: `pr-session-${prSessionId.slice(0, 8)}-${labelSuffix}`,
     cwd,
     systemPrompt,
     model,
-    sessionPath: sessionFilePath(prSessionId),
-    onLog: createSessionLogger(prSessionId, run.id),
+    sessionPath: filePath,
   });
   session.sendPrompt(prompt);
 
   try {
-    const result = await withTimeout(session.waitForCompletion(), SESSION_TIMEOUT_MS, timeoutLabel);
+    await withTimeout(session.waitForCompletion(), SESSION_TIMEOUT_MS, timeoutLabel);
     await queries.updatePrSessionRun(run.id, { status: "complete", completedAt: new Date() });
-    return { fullOutput: result.fullOutput };
   } catch (err) {
     await queries.updatePrSessionRun(run.id, {
       status: "failed",
@@ -239,15 +244,12 @@ async function runSessionTurn(turn: SessionTurn): Promise<{ fullOutput: string }
   } finally {
     session.kill();
     await session.waitForExit();
+    stopBroadcast();
     emit({ type: "pr_session_update", prSessionId, running: false });
   }
 }
 
 // --- Helpers ---
-
-function sessionFilePath(prSessionId: string): string {
-  return path.join(config.prSessionsDir, `${prSessionId}.jsonl`);
-}
 
 function modelFor(key: keyof Env): string {
   const env = loadEnv();
@@ -256,17 +258,6 @@ function modelFor(key: keyof Env): string {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/** Build an `onLog` callback that emits an SSE event and persists the entry to disk. */
-function createSessionLogger(prSessionId: string, runId: string) {
-  return (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => {
-    const entry = makePrSessionEntry(prSessionId, kind, text, meta, runId);
-    emit({ type: "pr_session_log", prSessionId, entry });
-    appendPrSessionLog(prSessionId, entry).catch((err) => {
-      log.warn(`Failed to persist PR session log: ${err}`);
-    });
-  };
 }
 
 /** Move worktree/branch ownership from the originating task row to the PR session row. */
@@ -299,10 +290,21 @@ async function currentBranch(worktreePath: string): Promise<string | null> {
 }
 
 /**
- * Return the last PR URL in `text`. The agent's output may cite other PRs for
- * context, so the last match is treated as the one just created.
+ * Scan the PR session's own pi session file for a GitHub PR URL and return
+ * the last one found. The agent may cite other PRs for context, so the last
+ * match is treated as the one just created.
  */
-function extractPrUrl(text: string): string | null {
-  const matches = text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g);
-  return matches?.[matches.length - 1] ?? null;
+async function extractPrUrlFromSession(prSessionId: string): Promise<string | null> {
+  const entries = await readSessionFile(prSessionPath(prSessionId));
+  const urls: string[] = [];
+  const pattern = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
+  for (const entry of entries) {
+    if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+    for (const block of entry.message.content) {
+      if (block.type !== "text") continue;
+      const matches = block.text.match(pattern);
+      if (matches) urls.push(...matches);
+    }
+  }
+  return urls[urls.length - 1] ?? null;
 }

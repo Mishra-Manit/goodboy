@@ -46,7 +46,7 @@ src/
   api/          Hono REST + SSE
   db/           Drizzle schema, queries, Neon singleton
   shared/       config, types, logger, events, repos, llm (zero side effects)
-  core/         infra primitives: stage.ts, worktree.ts, github.ts, logs.ts, prompts.ts, pi/
+  core/         infra primitives: stage.ts, worktree.ts, github.ts, session-file.ts, session-broadcast.ts, prompts.ts, pi/
   pipelines/    one folder per task kind: coding/, question/, pr-review/, pr-session/, cleanup.ts
 dashboard/src/  Vite React SPA
 ```
@@ -124,12 +124,12 @@ All queries go through `src/db/queries.ts`. All writes use `.returning()`. All r
 | Pattern | Lives in | Rule |
 |---|---|---|
 | Zod schema at every trust boundary | `shared/config.ts`, `bot/classifier.ts`, `shared/llm.ts#structuredOutput` | Every env var, LLM output, inbound API body, and SSE payload passes through Zod. No `JSON.parse(process.env.X)`, no `as SomeType`. |
-| Discriminated unions over booleans/strings | `Intent`, `SSEEvent`, `LogEntryKind` | Anything with >2 states uses `{ type: "foo"; ... } \| { type: "bar"; ... }`. No parallel booleans (`isLoading`/`isError`). |
+| Discriminated unions over booleans/strings | `Intent`, `SSEEvent`, `FileEntry` | Anything with >2 states uses `{ type: "foo"; ... } \| { type: "bar"; ... }`. No parallel booleans (`isLoading`/`isError`). |
 | `const X = [...] as const; type Y = (typeof X)[number]` | `shared/types.ts` | Single source of truth for enums. Same array drives the TS union, the Postgres `pgEnum`, and runtime `.includes()` checks. |
 | Lazy singleton with `_` prefix | `shared/config.ts#_env`, `db/index.ts#_db` | Expensive one-time init hides behind `loadX()` / `getX()`. Importing the module has no side effects. |
 | Section headers in multi-responsibility files | `db/queries.ts`, `api/index.ts`, `bot/index.ts`, `core/stage.ts` | Use `// --- Name ---` blocks once a file holds two clear jobs. |
 | `createLogger("module")` everywhere | all backend files | No `console.log` / `console.error`. |
-| **Pure parsers separated from IO** | `core/github.ts`, `core/pi/marker.ts`, `core/pi/tool-filters.ts`, `core/pi/subagents.ts` | **The key testability pattern. Extend everywhere.** Parsing / formatting / state-transition logic is exported as pure functions. IO (spawn, fetch, fs, exec, gh, db) wraps those pure functions. A file without a pure section that could have one is a smell. |
+| **Pure parsers separated from IO** | `core/github.ts`, `core/session-file.ts`, `dashboard/src/components/log-viewer/helpers.ts` | **The key testability pattern. Extend everywhere.** Parsing / formatting / state-transition logic is exported as pure functions. IO (spawn, fetch, fs, exec, gh, db) wraps those pure functions. A file without a pure section that could have one is a smell. |
 
 ### Error policy
 
@@ -204,7 +204,7 @@ function mergeProgress(...) { ... }
 
 ## Testing
 
-Vitest is the chosen framework (reuses the Vite toolchain). Not yet wired. First test targets when added: `core/github.ts`, `core/pi/marker.ts`, `core/pi/subagents.ts`, `core/pi/tool-filters.ts`, `core/pi/rpc-coalesce.ts`.
+Vitest is the chosen framework (reuses the Vite toolchain). Not yet wired. First test targets when added: `core/github.ts`, `core/session-file.ts` (pure `parseLines`/`parseLine`), `dashboard/src/components/log-viewer/helpers.ts`.
 
 Until then: verify via `npm run dev` + real Telegram / dashboard flows before committing.
 

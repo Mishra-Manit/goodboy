@@ -12,7 +12,25 @@ export type {
   TaskStatus,
   StageStatus,
   StageName,
-  LogEntry,
-  LogEntryKind,
   SSEEvent,
 } from "@shared/types.js";
+
+export type {
+  FileEntry,
+  SessionEntry,
+  SessionHeader,
+  SessionEntryBase,
+  SessionMessageEntry,
+  AgentMessage,
+  UserMessage,
+  AssistantMessage,
+  ToolResultMessage,
+  BashExecutionMessage,
+  CustomMessage,
+  TextContent,
+  ThinkingContent,
+  ImageContent,
+  ToolCall,
+  Usage,
+  StopReason,
+} from "@shared/session.js";

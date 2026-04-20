@@ -196,11 +196,18 @@ status lives on the `task_stages` row, not on the task.
 export type SSEEvent =
   | { type: "task_update"; taskId: string; status: TaskStatus }
   | { type: "stage_update"; taskId: string; stage: StageName; status: StageStatus }
-  | { type: "log"; taskId: string; stage: StageName; entry: LogEntry }
-  | { type: "pr_update"; taskId: string; prUrl: string };
+  | { type: "pr_update"; taskId: string; prUrl: string }
+  | { type: "pr_session_update"; prSessionId: string; running: boolean }
+  | {
+      type: "session_entry";
+      scope: "task" | "pr_session";
+      id: string;
+      stage?: StageName;
+      entry: FileEntry;
+    };
 ```
 
-This is a **discriminated union** -- the `type` field determines which shape the event has. TypeScript can narrow the type in `if`/`switch` branches based on `type`.
+This is a **discriminated union** -- the `type` field determines which shape the event has. `session_entry` carries a line freshly appended to a pi session file (see [Logging](#logging)); `scope` + `id` + optional `stage` route it to the right dashboard view.
 
 ---
 
@@ -579,9 +586,9 @@ has its own pipeline file.
 | `codebase_question` | `pipelines/question/pipeline.ts` | `answering` (read-only, no worktree) |
 | `pr_review` | `pipelines/pr-review/pipeline.ts` | `pr_reviewing` (delegates to `pr-session/session.ts#startExternalReview`) |
 
-All three use `core/stage.ts#runStage` to spawn a pi RPC subprocess, stream
-logs, and enforce a 30-minute timeout. `runStage` is where the real shared
-orchestration lives.
+All three use `core/stage.ts#runStage` to spawn a pi RPC subprocess, tail
+its native session file into SSE, and enforce a 30-minute timeout.
+`runStage` is where the real shared orchestration lives.
 
 ### Coding pipeline flow
 
@@ -631,9 +638,10 @@ ownership is handed to a `PrSession` row in the database. Three entry points:
   `core/github.ts`, filters out bots, and fires `resumePrSession` with the
   unseen comments.
 
-Session state lives on disk at `data/pr-sessions/<prSessionId>.jsonl` so the
-resumed pi process gets full conversation context. Logs are persisted
-alongside at `<prSessionId>.log.jsonl`.
+Session state lives on disk at `data/pr-sessions/<prSessionId>.jsonl`, which
+is pi's native session file. The resumed pi process gets full conversation
+context from it, and the dashboard reads/tails the same file for the
+transcript -- one source of truth.
 
 ### Artifact-based inter-stage communication
 
@@ -657,10 +665,11 @@ exists and isn't empty before proceeding to the next stage.
 
 Earlier designs had the planner ask clarifying questions via Telegram
 (`{status: "needs_input", questions: [...]}`) and block on a `waitForReply`
-promise. That loop has been removed. The only marker the pipeline recognises
-now is `{status: "complete"}` (see `core/pi/marker.ts` and the `PiOutputMarker`
-type in `shared/types.ts`). If you need a human-in-the-loop step again, add it
-inside `runStage` -- do not rebuild it per pipeline.
+promise. That loop has been removed. Stage completion is now detected via pi's
+`agent_end` RPC event -- not a text marker. Prompts still ask the model to
+emit `{"status": "complete"}` at the end for human readability, but nothing
+parses it. If you need a human-in-the-loop step again, add it inside
+`runStage` -- do not rebuild it per pipeline.
 
 ### Timeout pattern
 
@@ -684,20 +693,16 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 **Directory:** `src/core/pi/`
 
-pi RPC is split across six files in `core/pi/` so the pure parts can be
-tested without spawning a subprocess:
+pi RPC is a thin wrapper. Everything structured -- message history, tool
+calls, tool results, subagent details -- is written by pi into its own
+session JSONL file and consumed from there (see [Logging](#logging)). The
+RPC channel exists only to send the initial prompt, auto-confirm extension
+UI prompts, and detect `agent_end`.
 
 | File | Role |
 |---|---|
 | `session.ts` | Spawns the pi process, wires stdin/stdout/stderr, exposes `sendPrompt` / `waitForCompletion` / `waitForExit` / `kill`. |
 | `jsonl-reader.ts` | Chunked stdout -> complete lines (handles `\r\n`, partial chunks). |
-| `marker.ts` | Pure `extractMarker(text)` -- scans the transcript backwards for the `{status: "complete"}` JSON line. |
-| `tool-filters.ts` | Pure `isRawToolEvent`, `truncateArgs` -- used while routing events. |
-| `rpc-coalesce.ts` | Throttles `tool_execution_update` streams from the subagent tool to at most one emit per 250ms per `toolCallId`. |
-| `subagents.ts` | Pure parsers + emit helpers for the richer result shape of the `subagent` tool. |
-
-The content below focuses on `session.ts`, which is the one file that still
-does IO.
 
 This spawns `pi` (the coding agent) as a **child process** communicating over stdin/stdout with JSON lines (JSONL):
 
@@ -736,11 +741,11 @@ It buffers incoming data and splits on newlines, emitting complete lines only.
 ### Promise-Based Completion Model
 
 ```typescript
-let resolveCompletion: ((result: ...) => void) | null = null;
+let resolveCompletion: (() => void) | null = null;
 
 // In handleEvent:
 if (event.type === "agent_end") {
-  resolveCompletion?.({ marker: extractMarker(fullOutput), fullOutput });
+  resolveCompletion?.();
 }
 
 // Public API:
@@ -752,25 +757,7 @@ waitForCompletion() {
 }
 ```
 
-`resolveCompletion` is stored as module state. When the `agent_end` event arrives from the child process, it resolves the promise. This bridges the event-driven child process output to an await-friendly API that the pipeline can use with `await session.waitForCompletion()`.
-
-### Structured Logging
-
-Every tool invocation is tracked:
-
-```typescript
-if (event.type === "tool_execution_start") {
-  activeTools.set(toolCallId, Date.now());  // start timer
-  emitLog("tool_start", summary, { tool: toolName, args });
-}
-
-if (event.type === "tool_execution_end") {
-  const durationMs = Date.now() - startTime;
-  emitLog("tool_end", `${toolName} done`, { tool: toolName, ok: !isError, durationMs });
-}
-```
-
-This feeds into the dashboard's log viewer, showing exactly what the AI is doing in real-time.
+`resolveCompletion` is stored as module state. When the `agent_end` event arrives from the child process, it resolves the promise. This bridges the event-driven child process output to an await-friendly API that the pipeline can use with `await session.waitForCompletion()`. All structured output (messages, tool calls, results) is written to the session file by pi; `waitForCompletion` only needs to know the agent finished.
 
 ### Session Lifecycle
 
@@ -789,29 +776,61 @@ kill() {
 
 Belt and suspenders -- try the polite way first, then force-kill if it doesn't respond.
 
-### Marker Extraction
+---
 
-```typescript
-function extractMarker(text: string): PiOutputMarker | null {
-  const lines = text.trimEnd().split("\n");
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line.startsWith("{")) continue;
-    try {
-      const parsed = JSON.parse(line);
-      if (parsed && parsed.status === "complete") {
-        return parsed as PiOutputMarker;
-      }
-    } catch { /* not JSON */ }
-  }
-  return null;
-}
+## Logging
+
+**Files:** `src/core/session-file.ts`, `src/core/session-broadcast.ts`, `src/shared/session.ts`.
+
+Logs are pi's native session JSONL files. We don't translate, we don't
+re-shape, we don't store a parallel log format. Every stage tells pi to
+write its session to an absolute path:
+
+```
+artifacts/<taskId>/<stage>.session.jsonl   -- one file per stage
+data/pr-sessions/<prSessionId>.jsonl       -- one file per PR session
 ```
 
-Scans the AI's output **backwards** for the terminal `{"status": "complete"}`
-marker. That single marker is how the pipeline knows the stage is done. This
-function is exported as a **pure** helper from `core/pi/marker.ts` and is
-trivial to unit-test -- it's the archetype for the pure/IO split.
+Each line is a typed `FileEntry` from `@mariozechner/pi-coding-agent`:
+a `SessionHeader` header line, then `SessionEntry` lines that tree up into
+user messages, assistant messages (with text, thinking, and tool-call
+content blocks), tool results, bash executions, model changes, compactions,
+etc. The format is documented in
+[pi's `session.md`](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/session.md).
+
+### Persistence behaviour
+
+Pi buffers entries in memory until the **first assistant message** arrives;
+once that happens, it flushes everything and appends every subsequent entry
+synchronously. The practical impact:
+
+- Tools (read, edit, bash, write) appear in the file within milliseconds of completing.
+- Subagent calls only produce one `toolResult` entry when the whole fan-out finishes -- we sacrificed live per-worker progress when we dropped the RPC event translator. The final result still contains per-worker usage and output via `details.results[]`.
+- The file is silent for the first few seconds of a stage (dashboard shows `waiting for output...`).
+
+### Reading + tailing
+
+`core/session-file.ts` exposes:
+
+- `taskSessionPath(taskId, stage)` / `prSessionPath(prSessionId)` -- path helpers.
+- `readSessionFile(path)` -- one-shot parse; returns `[]` if the file is missing.
+- `watchSessionFile(path, onEntry)` -- poll + `fs.watch` hybrid that maintains a byte offset, parses newly appended lines, emits each as a typed entry. Returns a disposer.
+
+`core/session-broadcast.ts` wires `watchSessionFile` to the SSE bus: every
+appended entry fans out as a `session_entry` event. `runStage` starts one
+broadcast per stage; `runSessionTurn` starts one per PR-session turn. Both
+stop it in their `finally` block.
+
+### API + frontend
+
+- `GET /api/tasks/:id/session` -> `{ stages: [{ stage, entries }] }` -- reads every `<stage>.session.jsonl` for a task.
+- `GET /api/pr-sessions/:id/session` -> `{ entries }` -- reads the PR session file.
+- SSE `session_entry` events stream new lines as they're appended.
+
+The dashboard's `useLiveSession` hook buckets those SSE entries by a
+caller-supplied key. Pages merge the on-disk snapshot with the live bucket
+and dedupe by entry `id` (pi guarantees uniqueness) -- no seq counters, no
+sort-on-read, no write queues. See [Dashboard](#dashboard-architecture).
 
 ---
 
@@ -901,12 +920,13 @@ YOU MUST write the plan to this exact file path using the write tool:
 
 Absolute file paths for artifacts -- the AI knows exactly where to write, no ambiguity.
 
-### JSON markers as control protocol
+### Stage completion signal
 
-Stages emit a single terminal JSON line: `{"status": "complete"}`. The
-pipeline picks it up via `extractMarker()` in `core/pi/marker.ts`. That is the
-entire protocol today -- the earlier `needs_input` / `ready` markers were
-removed along with the planner conversation loop.
+Stages are considered complete when pi emits the `agent_end` RPC event.
+Prompts still ask the model to print `{"status": "complete"}` as a
+human-readable end marker, but nothing parses it -- the earlier
+`needs_input` / `ready` text-marker protocol was removed along with the
+planner conversation loop.
 
 ---
 
@@ -929,18 +949,16 @@ dashboard/src/
 
   lib/
     api/                request() client, per-resource endpoints, TASK_KIND_CONFIG.
-    log-grouping.ts     Pure: correlate tool_start..tool_end, sniff diffs.
-    logs.ts             Pure: stable keys + disk+live merge.
     task-grouping.ts    Pure: today / yesterday / this week buckets.
     format.ts           Pure: timeAgo, formatDuration, formatTokens, formatTime.
-    constants.ts        SSE_RETRY_MS, LOG_PREVIEW_LINES, ...
+    constants.ts        SSE_RETRY_MS, LOG_SCROLL_EPSILON_PX, ...
     utils.ts            cn, shortId.
 
   hooks/
-    use-query.ts        Minimal fetch state machine with stale-response guard.
-    use-sse.ts          Singleton EventSource; shared across all subscribers.
-    use-live-logs.ts    Buckets SSE `log` events by a caller-supplied key.
-    use-now.ts          Periodic `Date.now()` tick for live relative-time text.
+    use-query.ts         Minimal fetch state machine with stale-response guard.
+    use-sse.ts           Singleton EventSource; shared across all subscribers.
+    use-live-session.ts  Buckets SSE `session_entry` events by a caller-supplied key.
+    use-now.ts           Periodic `Date.now()` tick for live relative-time text.
 
   components/
     Layout.tsx          Floating nav + centered main column.
@@ -950,8 +968,10 @@ dashboard/src/
     PipelineProgress.tsx, Card.tsx, SectionDivider.tsx, EmptyState.tsx,
     Markdown.tsx, TaskRow.tsx
     rows/               PrSessionRow, PrRow, RepoRow, RunCard
-    log-viewer/         LogViewer + FilterBar + LogLine + ToolGroup +
-                        ToolOutput + SubagentCard (each <220 LOC)
+    log-viewer/         LogViewer, MessageEntry, UserBubble,
+                        AssistantTurn, ToolCallCard, SubagentCard,
+                        BashExecutionCard, OutcomePill, helpers.ts
+                        (renders pi's native session entries directly)
 
   pages/
     Tasks.tsx, TaskDetail.tsx, PullRequests.tsx, PrSessionDetail.tsx, Repos.tsx
@@ -961,16 +981,30 @@ Dependency direction: `pages/` -> `components/` + `hooks/` -> `lib/` -> `shared.
 
 ### Shared wire types
 
-`dashboard/src/shared.ts` is a narrow re-export of `src/shared/types.ts` (`TaskKind`, `TaskStatus`, `StageStatus`, `LogEntry`, `LogEntryKind`, `SSEEvent`, ...). The dashboard never redeclares these. When the backend adds a new `TaskKind`, TypeScript fails on the dashboard's `TASK_KIND_CONFIG` until every kind has a label, a stage list, and an artifact list.
+`dashboard/src/shared.ts` is a narrow re-export of `src/shared/types.ts` and `src/shared/session.ts` (`TaskKind`, `TaskStatus`, `StageStatus`, `StageName`, `SSEEvent`, `FileEntry`, `SessionEntry`, `SessionMessageEntry`, ...). The dashboard never redeclares these. When the backend adds a new `TaskKind`, TypeScript fails on the dashboard's `TASK_KIND_CONFIG` until every kind has a label, a stage list, and an artifact list.
 
-### Pure parsers separated from IO
+### Log viewer
 
-The log viewer follows the same pure/IO seam the backend uses in `core/pi/subagents.ts`:
+The viewer consumes pi's native `FileEntry[]` directly -- no re-grouping, no
+correlation step. Data flow:
 
-- **Pure** (`lib/log-grouping.ts`): `groupToolCalls`, `extractToolOutput`, `isRawToolJson`, `formatToolSummary`, `detectDiff`, `detectFileList`, `toolGroupKey`. No React, no IO. These are the first Vitest targets when tests land.
-- **UI** (`components/log-viewer/`): stateful components that own scroll + collapse + filter state and call into the pure module.
+```
+session file -> readSessionFile / SSE -> dedupeById by entry.id
+             -> visibleEntries (drop session/model_change/etc.)
+             -> buildToolResultIndex (toolCallId -> toolResult message)
+             -> render one <MessageEntry> per entry
+```
 
-Same pattern for `task-grouping.ts` and `format.ts` -- pages stay thin because all the shaping happens in pure helpers.
+`MessageEntry` routes on the entry type and (for `message` entries) on
+`message.role`. Tool calls are rendered inside `AssistantTurn` and pull their
+matching `ToolResultMessage` from the index, so a tool call + its result
+display together even though they live in separate session lines. The
+`subagent` tool has its own richer card that reads `details.results[]` off
+the `ToolResultMessage`.
+
+Tiny pure helpers (`helpers.ts`: `visibleEntries`, `dedupeById`,
+`buildToolResultIndex`, `joinText`) are the testable slice -- no React, no
+IO.
 
 ### Three-state guard
 
@@ -980,7 +1014,7 @@ Same pattern for `task-grouping.ts` and `format.ts` -- pages stay thin because a
 
 Minimal fetch state machine. A `callId` ref prevents stale responses from overwriting fresh ones when the user fires requests A then B and A returns after B.
 
-### useSSE + useSSERefresh + useLiveLogs
+### useSSE + useSSERefresh + useLiveSession
 
 `useSSE` manages a **singleton `EventSource`** shared across all subscribers; it auto-reconnects with `SSE_RETRY_MS` backoff and auto-closes when the last subscriber unmounts.
 
@@ -990,7 +1024,7 @@ useSSERefresh(refetch, (e) => e.type === "task_update");  // refetch on match
 
 Why refetch instead of mutating state from SSE? SSE is a "something changed" signal; the REST API is the single source of truth. Avoids two state machines for the same data.
 
-`useLiveLogs({ match })` buckets streamed `log` events by a caller-supplied key (stage name, task id, session id, ...). Pages merge the bucket with the on-disk snapshot via `mergeLogEntries` -- one hook replaces three copies of the same `Map<string, LogEntry[]>` + SSE push pattern.
+`useLiveSession({ match })` buckets streamed `session_entry` events by a caller-supplied key (stage name, task id, session id, ...). Pages merge the bucket with the on-disk snapshot and dedupe by `entry.id` -- one hook covers both task-detail and PR-session views.
 
 ### API client
 
@@ -1069,7 +1103,7 @@ The tradeoff: you lose some production-grade features (gzip, HTTP/2, request buf
 | JSONL over stdio for IPC | `core/pi/session.ts` + `core/pi/jsonl-reader.ts` | Language-agnostic, streamable, debuggable |
 | Artifact files for inter-process data | `pipelines/coding/pipeline.ts` | Inspectable, restartable, no shared memory needed |
 | `Promise.race` for timeouts | `core/stage.ts#withTimeout` | Standard async timeout pattern |
-| Pure parsers separated from IO | `core/github.ts`, `core/pi/marker.ts`, `core/pi/subagents.ts` | The key testability pattern -- extend to every new file |
+| Pure parsers separated from IO | `core/github.ts`, `core/session-file.ts`, `dashboard/.../helpers.ts` | The key testability pattern -- extend to every new file |
 | Path traversal prevention | `api/index.ts` | Defense in depth for file-serving endpoints |
 | Ref trick for stable callbacks | `useSSE`, `useQuery` | Avoid stale closures in React effects |
 | Discriminated unions | `types.ts`, bot prefix lookup | Force callers to handle all cases |

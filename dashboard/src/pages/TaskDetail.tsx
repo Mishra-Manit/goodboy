@@ -1,19 +1,19 @@
-/** Task detail: header, pipeline viz, per-stage logs, artifact viewer. */
+/** Task detail: header, pipeline viz, per-stage session transcript, artifacts. */
 
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import {
   cancelTask,
   fetchTask,
-  fetchTaskLogs,
+  fetchTaskSession,
   retryTask,
   TASK_KIND_CONFIG,
-  type LogEntry,
+  type FileEntry,
   type TaskWithStages,
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSERefresh } from "@dashboard/hooks/use-sse";
-import { useLiveLogs } from "@dashboard/hooks/use-live-logs";
+import { useLiveSession } from "@dashboard/hooks/use-live-session";
 import { useNow } from "@dashboard/hooks/use-now";
 import { BackLink } from "@dashboard/components/BackLink";
 import { PageState } from "@dashboard/components/PageState";
@@ -23,7 +23,7 @@ import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { LogViewer } from "@dashboard/components/log-viewer";
 import { PipelineProgress } from "@dashboard/components/PipelineProgress";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
-import { mergeLogEntries } from "@dashboard/lib/logs";
+import { dedupeById } from "@dashboard/components/log-viewer/helpers";
 import { cn } from "@dashboard/lib/utils";
 
 const TERMINAL = new Set(["complete", "failed", "cancelled"]);
@@ -37,19 +37,22 @@ export function TaskDetail() {
   const now = useNow();
 
   const { data: task, loading, error, refetch } = useQuery(() => fetchTask(taskId), [taskId]);
-  const { data: logsData, refetch: refetchLogs } = useQuery(() => fetchTaskLogs(taskId), [taskId]);
+  const { data: sessionData, refetch: refetchSession } = useQuery(
+    () => fetchTaskSession(taskId),
+    [taskId],
+  );
 
   useSSERefresh(
     () => {
       refetch();
-      refetchLogs();
+      refetchSession();
     },
     (e) => (e.type === "task_update" || e.type === "stage_update") && e.taskId === taskId,
   );
 
-  const liveLogs = useLiveLogs({
+  const liveEntries = useLiveSession({
     match: (event) =>
-      event.type === "log" && event.taskId === taskId
+      event.type === "session_entry" && event.scope === "task" && event.id === taskId && event.stage
         ? { key: event.stage, entry: event.entry }
         : null,
   });
@@ -61,8 +64,8 @@ export function TaskDetail() {
         {(task) => (
           <TaskView
             task={task}
-            diskLogs={logsData?.logs ?? []}
-            liveLogs={liveLogs}
+            diskEntries={sessionData?.stages ?? []}
+            liveEntries={liveEntries}
             now={now}
             refetch={refetch}
             taskId={taskId}
@@ -77,14 +80,14 @@ export function TaskDetail() {
 
 interface TaskViewProps {
   task: TaskWithStages;
-  diskLogs: { stage: string; entries: LogEntry[] }[];
-  liveLogs: Map<string, LogEntry[]>;
+  diskEntries: { stage: string; entries: FileEntry[] }[];
+  liveEntries: Map<string, FileEntry[]>;
   now: number;
   refetch: () => void;
   taskId: string;
 }
 
-function TaskView({ task, diskLogs, liveLogs, now, refetch, taskId }: TaskViewProps) {
+function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: TaskViewProps) {
   const kindConfig = TASK_KIND_CONFIG[task.kind] ?? TASK_KIND_CONFIG.coding_task;
   const isActive = !TERMINAL.has(task.status);
 
@@ -92,10 +95,10 @@ function TaskView({ task, diskLogs, liveLogs, now, refetch, taskId }: TaskViewPr
     () => [
       ...new Set([
         ...kindConfig.stages.filter((s) => task.stages.some((ts) => ts.stage === s)),
-        ...liveLogs.keys(),
+        ...liveEntries.keys(),
       ]),
     ],
-    [kindConfig.stages, task.stages, liveLogs],
+    [kindConfig.stages, task.stages, liveEntries],
   );
 
   const [activeStage, setActiveStage] = useState<string | null>(null);
@@ -105,11 +108,11 @@ function TaskView({ task, diskLogs, liveLogs, now, refetch, taskId }: TaskViewPr
     setActiveStage(running ?? stageNames[stageNames.length - 1] ?? null);
   }, [task.stages, stageNames, activeStage]);
 
-  const logsForStage = (stage: string): LogEntry[] =>
-    mergeLogEntries(
-      diskLogs.find((l) => l.stage === stage)?.entries ?? [],
-      liveLogs.get(stage) ?? [],
-    );
+  const entriesForStage = (stage: string): FileEntry[] =>
+    dedupeById([
+      ...(diskEntries.find((l) => l.stage === stage)?.entries ?? []),
+      ...(liveEntries.get(stage) ?? []),
+    ]);
 
   const handleRetry = async () => {
     try { await retryTask(task.id); refetch(); } catch { /* status will surface */ }
@@ -139,7 +142,7 @@ function TaskView({ task, diskLogs, liveLogs, now, refetch, taskId }: TaskViewPr
         <div className="mb-6 font-mono text-[11px] text-text-ghost">reviewing: {task.prIdentifier}</div>
       )}
 
-      <SectionDivider label="logs" />
+      <SectionDivider label="transcript" />
 
       {stageNames.length > 0 && (
         <div className="mt-3 mb-3 flex gap-1">
@@ -164,7 +167,7 @@ function TaskView({ task, diskLogs, liveLogs, now, refetch, taskId }: TaskViewPr
       )}
 
       {activeStage ? (
-        <LogViewer entries={logsForStage(activeStage)} maxHeight="500px" autoScroll={isActive} />
+        <LogViewer entries={entriesForStage(activeStage)} maxHeight="500px" autoScroll={isActive} />
       ) : (
         <p className="font-mono text-xs text-text-void py-4">no stages recorded yet</p>
       )}

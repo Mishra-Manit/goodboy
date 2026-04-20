@@ -4,7 +4,7 @@ import { cn } from "@dashboard/lib/utils";
 import { timeAgo, formatDuration } from "@dashboard/lib/format";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { LogViewer } from "@dashboard/components/log-viewer";
-import type { LogEntry, PrSessionRun } from "@dashboard/lib/api";
+import type { FileEntry, PrSessionRun } from "@dashboard/lib/api";
 
 const TRIGGER_LABELS: Record<string, string> = {
   pr_creation: "PR creation",
@@ -16,12 +16,12 @@ interface RunCardProps {
   run: PrSessionRun;
   expanded: boolean;
   onToggle: () => void;
-  logs: LogEntry[];
+  entries: FileEntry[];
   isLive: boolean;
   now: number;
 }
 
-export function RunCard({ run, expanded, onToggle, logs, isLive, now }: RunCardProps) {
+export function RunCard({ run, expanded, onToggle, entries, isLive, now }: RunCardProps) {
   const triggerLabel = TRIGGER_LABELS[run.trigger] ?? run.trigger;
   const duration =
     run.completedAt && run.startedAt ? formatDuration(run.startedAt, run.completedAt) : null;
@@ -75,7 +75,7 @@ export function RunCard({ run, expanded, onToggle, logs, isLive, now }: RunCardP
             </div>
           )}
 
-          <LogViewer entries={logs} maxHeight="400px" autoScroll={isLive} />
+          <LogViewer entries={entries} maxHeight="400px" autoScroll={isLive} />
         </div>
       )}
     </div>

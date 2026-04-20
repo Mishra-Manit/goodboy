@@ -1,7 +1,7 @@
 /** Task + artifact endpoints. */
 
 import { request, requestText } from "./client.js";
-import type { Task, TaskWithStages, StageLogs } from "./types.js";
+import type { Task, TaskWithStages, StageSession } from "./types.js";
 
 export async function fetchTasks(filters?: {
   status?: string;
@@ -20,8 +20,8 @@ export async function fetchTask(id: string): Promise<TaskWithStages> {
   return request(`/api/tasks/${id}`);
 }
 
-export async function fetchTaskLogs(id: string): Promise<{ logs: StageLogs[] }> {
-  return request(`/api/tasks/${id}/logs`);
+export async function fetchTaskSession(id: string): Promise<{ stages: StageSession[] }> {
+  return request(`/api/tasks/${id}/session`);
 }
 
 export async function fetchArtifact(taskId: string, name: string): Promise<string> {

@@ -9,7 +9,6 @@ import { mkdir, stat, rm } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
 import { config, loadEnv } from "../../shared/config.js";
 import { emit } from "../../shared/events.js";
-import { cleanupSeqCounters } from "../../core/logs.js";
 import { getRepo } from "../../shared/repos.js";
 import { createWorktree, generateBranchName, syncRepo } from "../../core/worktree.js";
 import * as queries from "../../db/queries.js";
@@ -136,7 +135,6 @@ export async function runPipeline(taskId: string, sendTelegram: SendTelegram): P
     await failTask(taskId, err instanceof Error ? err.message : String(err), sendTelegram, chatId);
   } finally {
     clearActiveSession(taskId);
-    cleanupSeqCounters(taskId);
   }
 }
 

@@ -17,7 +17,12 @@ import { config } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
 import { TASK_STATUSES, TASK_KINDS } from "../shared/types.js";
 import type { TaskStatus, TaskKind } from "../shared/types.js";
-import { readTaskLogs, readPrSessionLog } from "../core/logs.js";
+import {
+  readSessionFile,
+  taskSessionPath,
+  prSessionPath,
+} from "../core/session-file.js";
+import { STAGE_NAMES } from "../shared/types.js";
 import { cancelTask as cancelRunningTask, type SendTelegram } from "../core/stage.js";
 import { runPipeline } from "../pipelines/coding/pipeline.js";
 import { runQuestion } from "../pipelines/question/pipeline.js";
@@ -64,9 +69,16 @@ export function createApi(): Hono {
     return c.json({ ...task, stages });
   });
 
-  app.get("/api/tasks/:id/logs", async (c) => {
-    const logs = await readTaskLogs(c.req.param("id"));
-    return c.json({ logs });
+  app.get("/api/tasks/:id/session", async (c) => {
+    const id = c.req.param("id");
+    if (!UUID_PATTERN.test(id)) return notFound(c);
+    const stages = await Promise.all(
+      STAGE_NAMES.map(async (stage) => ({
+        stage,
+        entries: await readSessionFile(taskSessionPath(id, stage)),
+      })),
+    );
+    return c.json({ stages: stages.filter((s) => s.entries.length > 0) });
   });
 
   app.get("/api/tasks/:id/artifacts/:name", async (c) => {
@@ -146,10 +158,10 @@ export function createApi(): Hono {
     return c.json({ ...session, prUrl: buildPrUrl(session.repo, session.prNumber), runs });
   });
 
-  app.get("/api/pr-sessions/:id/logs", async (c) => {
+  app.get("/api/pr-sessions/:id/session", async (c) => {
     const id = c.req.param("id");
     if (!UUID_PATTERN.test(id)) return notFound(c);
-    const entries = await readPrSessionLog(id);
+    const entries = await readSessionFile(prSessionPath(id));
     return c.json({ entries });
   });
 

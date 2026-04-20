@@ -1,16 +1,20 @@
 /**
  * Stage orchestration primitives shared by every pipeline: the active-session
- * registry (for cancellation), Telegram notification wrapper, task failure
- * helper, timeout combinator, and `runStage` — the generic pi-RPC subprocess
- * runner that powers every stage across every task kind.
+ * registry (for cancellation), Telegram notification wrapper, task-failure
+ * helper, timeout combinator, and `runStage` -- the generic pi-RPC subprocess
+ * runner that every task kind uses.
+ *
+ * Pi writes its own session JSONL to `sessionPath`; we tail it for SSE
+ * broadcast, so this module doesn't touch logs directly.
  */
 
 import { createLogger } from "../shared/logger.js";
 import { emit } from "../shared/events.js";
 import * as queries from "../db/queries.js";
 import { spawnPiSession, type PiSession } from "./pi/session.js";
-import { appendLogEntry, makeEntry, resetSeq } from "./logs.js";
-import type { StageName, LogEntryKind, PiOutputMarker } from "../shared/types.js";
+import { ensureSessionDir, taskSessionPath } from "./session-file.js";
+import { broadcastSessionFile } from "./session-broadcast.js";
+import type { StageName } from "../shared/types.js";
 
 const log = createLogger("stage");
 
@@ -101,23 +105,21 @@ interface RunStageOptions {
   extensions?: string[];
   /** Extra env vars merged on top of `process.env` for the pi subprocess. */
   envOverrides?: Record<string, string>;
-  /** Resume/create a persistent session file for this stage. */
-  sessionPath?: string;
   /** Override the default 30-minute stage timeout. */
   timeoutMs?: number;
 }
 
 /**
  * Run one pi-RPC stage end-to-end: mark task running, create the stage row,
- * spawn the pi subprocess, stream logs, wait (bounded), then update the stage
- * row on success/failure. The session is always killed in `finally`, so
- * callers don't need to manage lifecycle.
+ * spawn the pi subprocess with a persistent session file, tail that file to
+ * SSE, then update the stage row on success/failure. The session is always
+ * killed and the watcher always stopped in `finally`.
  */
-export async function runStage(options: RunStageOptions): Promise<{ marker: PiOutputMarker | null; fullOutput: string }> {
+export async function runStage(options: RunStageOptions): Promise<void> {
   const {
     taskId, stage, cwd, systemPrompt, initialPrompt,
     model, sendTelegram, chatId, stageLabel,
-    extensions, envOverrides, sessionPath, timeoutMs,
+    extensions, envOverrides, timeoutMs,
   } = options;
 
   await queries.updateTask(taskId, { status: "running" });
@@ -128,31 +130,28 @@ export async function runStage(options: RunStageOptions): Promise<{ marker: PiOu
   log.info(`Starting stage ${stage} for task ${taskId}`);
   await notifyTelegram(sendTelegram, chatId, `Stage started: ${stageLabel}.`);
 
-  resetSeq(taskId, stage);
+  const sessionPath = taskSessionPath(taskId, stage);
+  await ensureSessionDir(sessionPath);
+  const stopBroadcast = broadcastSessionFile(sessionPath, { scope: "task", taskId, stage });
+
   const session = spawnPiSession({
     id: `${taskId}-${stage}`,
     cwd,
     systemPrompt,
     model,
+    sessionPath,
     extensions,
     envOverrides,
-    sessionPath,
-    onLog: makeStageLogSink(taskId, stage),
   });
   setActiveSession(taskId, session);
   session.sendPrompt(initialPrompt);
 
   try {
-    const result = await withTimeout(
-      session.waitForCompletion(),
-      timeoutMs ?? STAGE_TIMEOUT_MS,
-      `Stage ${stage}`,
-    );
+    await withTimeout(session.waitForCompletion(), timeoutMs ?? STAGE_TIMEOUT_MS, `Stage ${stage}`);
     await queries.updateTaskStage(stageRecord.id, { status: "complete", completedAt: new Date() });
     emit({ type: "stage_update", taskId, stage, status: "complete" });
     await notifyTelegram(sendTelegram, chatId, `Stage complete: ${stageLabel}.`);
     log.info(`Stage ${stage} complete for task ${taskId}`);
-    return result;
   } catch (err) {
     await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
     emit({ type: "stage_update", taskId, stage, status: "failed" });
@@ -161,18 +160,6 @@ export async function runStage(options: RunStageOptions): Promise<{ marker: PiOu
     session.kill();
     await session.waitForExit();
     clearActiveSession(taskId);
+    stopBroadcast();
   }
-}
-
-// --- Helpers ---
-
-/** Build the `onLog` sink that emits SSE events and persists entries to the stage JSONL file. */
-function makeStageLogSink(taskId: string, stage: StageName) {
-  return (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => {
-    const entry = makeEntry(taskId, stage, kind, text, meta);
-    emit({ type: "log", taskId, stage, entry });
-    appendLogEntry(taskId, stage, entry).catch((err) => {
-      log.warn(`Failed to persist log entry: ${err}`);
-    });
-  };
 }

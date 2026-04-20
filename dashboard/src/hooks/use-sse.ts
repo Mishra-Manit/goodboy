@@ -16,10 +16,9 @@ const listeners = new Set<Listener>();
 const EVENT_TYPES: SSEEvent["type"][] = [
   "task_update",
   "stage_update",
-  "log",
   "pr_update",
   "pr_session_update",
-  "pr_session_log",
+  "session_entry",
 ];
 
 let es: EventSource | null = null;

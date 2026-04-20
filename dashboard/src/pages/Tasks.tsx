@@ -5,13 +5,13 @@ import { useNavigate } from "react-router-dom";
 import {
   fetchTask,
   fetchTasks,
-  type LogEntry,
+  type FileEntry,
   type Task,
   type TaskWithStages,
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSE, useSSERefresh } from "@dashboard/hooks/use-sse";
-import { useLiveLogs } from "@dashboard/hooks/use-live-logs";
+import { useLiveSession } from "@dashboard/hooks/use-live-session";
 import { useNow } from "@dashboard/hooks/use-now";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { PipelineProgress } from "@dashboard/components/PipelineProgress";
@@ -40,9 +40,11 @@ export function Tasks() {
 
   useSSERefresh(query.refetch, (e) => e.type === "task_update");
 
-  const liveLogs = useLiveLogs({
+  const liveEntries = useLiveSession({
     match: (event) =>
-      event.type === "log" ? { key: event.taskId, entry: event.entry } : null,
+      event.type === "session_entry" && event.scope === "task"
+        ? { key: event.id, entry: event.entry }
+        : null,
   });
 
   // Keep the expanded task's detail fresh as stages progress.
@@ -100,7 +102,7 @@ export function Tasks() {
                       key={task.id}
                       task={task}
                       detail={taskDetails.get(task.id)}
-                      logs={liveLogs.get(task.id) ?? []}
+                      entries={liveEntries.get(task.id) ?? []}
                       expanded={expandedTask === task.id}
                       now={now}
                       onToggle={() => toggleExpand(task.id)}
@@ -188,14 +190,14 @@ function HistoryFilterTabs({ value, onChange, counts }: HistoryFilterTabsProps) 
 interface LiveTaskCardProps {
   task: Task;
   detail: TaskWithStages | undefined;
-  logs: LogEntry[];
+  entries: FileEntry[];
   expanded: boolean;
   now: number;
   onToggle: () => void;
   onViewDetail: () => void;
 }
 
-function LiveTaskCard({ task, detail, logs, expanded, now, onToggle, onViewDetail }: LiveTaskCardProps) {
+function LiveTaskCard({ task, detail, entries, expanded, now, onToggle, onViewDetail }: LiveTaskCardProps) {
   return (
     <div className="animate-fade-up">
       <Card hoverable live onClick={onToggle}>
@@ -220,7 +222,7 @@ function LiveTaskCard({ task, detail, logs, expanded, now, onToggle, onViewDetai
 
       {expanded && (
         <div className="mt-2 animate-fade-up">
-          <LogViewer entries={logs} maxHeight="350px" autoScroll />
+          <LogViewer entries={entries} maxHeight="350px" autoScroll />
           <button
             onClick={(e) => {
               e.stopPropagation();

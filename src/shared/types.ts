@@ -44,46 +44,26 @@ export const STAGE_STATUSES = ["running", "complete", "failed"] as const;
 
 export type StageStatus = (typeof STAGE_STATUSES)[number];
 
-// --- Pi output + log entries ---
-
-/** Structured marker emitted by pi at the end of output. */
-export type PiOutputMarker = { status: "complete" };
-
-/** Structured log entry emitted by pi-rpc and persisted as JSONL. */
-export interface LogEntry {
-  /** Monotonic index within the stage. */
-  seq: number;
-  /** ISO timestamp. */
-  ts: string;
-  /** Semantic category. */
-  kind: LogEntryKind;
-  /** Human-readable text. */
-  text: string;
-  /** Optional metadata (tool name, args, duration, etc.). */
-  meta?: Record<string, unknown>;
-}
-
-export type LogEntryKind =
-  | "text"         // Agent prose / reasoning output
-  | "tool_start"   // Tool invocation started
-  | "tool_update"  // Streaming progress from a long-running tool (e.g. subagent)
-  | "tool_end"     // Tool invocation finished
-  | "tool_output"  // Truncated tool result
-  | "stage_info"   // Stage lifecycle message
-  | "rpc"          // RPC protocol message
-  | "error"        // Error / warning
-  | "stderr";      // Raw stderr
-
-// Tool lifecycle convention: every tool_* entry carries `tool` (name) and
-// `toolCallId` in `meta`, so the dashboard can correlate start/update/end.
-
 // --- SSE events ---
 
-/** Wire format for every server-sent event the dashboard consumes. */
+import type { FileEntry } from "./session.js";
+
+/**
+ * Wire format for every server-sent event the dashboard consumes.
+ *
+ * `session_entry` carries a line freshly appended to a pi session file.
+ * `scope` + `id` (+ optional `stage`) identify which file the line belongs
+ * to so the dashboard can route it to the right view.
+ */
 export type SSEEvent =
   | { type: "task_update"; taskId: string; status: TaskStatus; kind?: TaskKind }
   | { type: "stage_update"; taskId: string; stage: StageName; status: StageStatus }
-  | { type: "log"; taskId: string; stage: StageName; entry: LogEntry }
   | { type: "pr_update"; taskId: string; prUrl: string }
   | { type: "pr_session_update"; prSessionId: string; running: boolean }
-  | { type: "pr_session_log"; prSessionId: string; entry: LogEntry };
+  | {
+      type: "session_entry";
+      scope: "task" | "pr_session";
+      id: string;
+      stage?: StageName;
+      entry: FileEntry;
+    };

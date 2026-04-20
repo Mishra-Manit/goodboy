@@ -1,8 +1,27 @@
 /** Dashboard-side wire types. Enum sources of truth live in `@dashboard/shared`. */
 
-import type { LogEntry, TaskKind, TaskStatus, StageStatus } from "@dashboard/shared";
+import type { FileEntry, TaskKind, TaskStatus, StageStatus, StageName } from "@dashboard/shared";
 
-export type { LogEntry, LogEntryKind, SSEEvent, TaskKind, TaskStatus, StageStatus } from "@dashboard/shared";
+export type {
+  FileEntry,
+  SessionEntry,
+  SessionHeader,
+  SessionMessageEntry,
+  AgentMessage,
+  UserMessage,
+  AssistantMessage,
+  ToolResultMessage,
+  BashExecutionMessage,
+  TextContent,
+  ThinkingContent,
+  ImageContent,
+  ToolCall,
+  SSEEvent,
+  TaskKind,
+  TaskStatus,
+  StageStatus,
+  StageName,
+} from "@dashboard/shared";
 
 // --- Task resources ---
 
@@ -81,7 +100,7 @@ export interface PrSessionWithRuns extends PrSession {
   runs: PrSessionRun[];
 }
 
-// --- Repos + logs ---
+// --- Repos + session transcripts ---
 
 export interface Repo {
   name: string;
@@ -89,9 +108,10 @@ export interface Repo {
   githubUrl?: string;
 }
 
-export interface StageLogs {
-  stage: string;
-  entries: LogEntry[];
+/** One stage's share of a task's pi session transcript. */
+export interface StageSession {
+  stage: StageName;
+  entries: FileEntry[];
 }
 
 // --- Per-kind UI config ---

@@ -1,18 +1,27 @@
-/** PR-session detail: header + one expandable run card per run. */
+/**
+ * PR-session detail: header + one expandable run card per run. Runs are
+ * delimited within the pi session transcript by `startedAt`/`completedAt`
+ * timestamps, not by a per-entry tag.
+ */
 
 import { useMemo, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { fetchPrSessionDetail, fetchPrSessionLogs, type LogEntry } from "@dashboard/lib/api";
+import {
+  fetchPrSessionDetail,
+  fetchPrSessionTranscript,
+  type FileEntry,
+  type PrSessionRun,
+} from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSERefresh } from "@dashboard/hooks/use-sse";
-import { useLiveLogs } from "@dashboard/hooks/use-live-logs";
+import { useLiveSession } from "@dashboard/hooks/use-live-session";
 import { useNow } from "@dashboard/hooks/use-now";
 import { BackLink } from "@dashboard/components/BackLink";
 import { PageState } from "@dashboard/components/PageState";
 import { SessionHeader } from "@dashboard/components/SessionHeader";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { RunCard } from "@dashboard/components/rows/RunCard";
-import { mergeLogEntries } from "@dashboard/lib/logs";
+import { dedupeById } from "@dashboard/components/log-viewer/helpers";
 
 export function PrSessionDetail() {
   const { id } = useParams<{ id: string }>();
@@ -27,22 +36,24 @@ export function PrSessionDetail() {
     () => fetchPrSessionDetail(sessionId),
     [sessionId],
   );
-  const { data: logsData } = useQuery(() => fetchPrSessionLogs(sessionId), [sessionId]);
+  const { data: transcript } = useQuery(() => fetchPrSessionTranscript(sessionId), [sessionId]);
 
   useSSERefresh(refetch, (e) => e.type === "pr_session_update" && e.prSessionId === sessionId);
 
-  const liveLogs = useLiveLogs({
+  const liveEntries = useLiveSession({
     match: (event) =>
-      event.type === "pr_session_log" && event.prSessionId === sessionId
+      event.type === "session_entry" && event.scope === "pr_session" && event.id === sessionId
         ? { key: sessionId, entry: event.entry }
         : null,
   });
 
-  const allLogs = useMemo(
-    () => mergeLogEntries(logsData?.entries ?? [], liveLogs.get(sessionId) ?? []),
-    [logsData, liveLogs, sessionId],
+  const allEntries = useMemo(
+    () => dedupeById([...(transcript?.entries ?? []), ...(liveEntries.get(sessionId) ?? [])]),
+    [transcript, liveEntries, sessionId],
   );
-  const logsForRun = (runId: string): LogEntry[] => allLogs.filter((e) => e.meta?.runId === runId);
+
+  const entriesForRun = (run: PrSessionRun): FileEntry[] =>
+    allEntries.filter((e) => isEntryInRun(e, run));
 
   return (
     <div className="animate-fade-in">
@@ -70,7 +81,7 @@ export function PrSessionDetail() {
                     run={run}
                     expanded={expandedRun === run.id}
                     onToggle={() => setExpandedRun(expandedRun === run.id ? null : run.id)}
-                    logs={logsForRun(run.id)}
+                    entries={entriesForRun(run)}
                     isLive={run.status === "running"}
                     now={now}
                   />
@@ -82,4 +93,19 @@ export function PrSessionDetail() {
       </PageState>
     </div>
   );
+}
+
+// --- Helpers ---
+
+/**
+ * A session entry belongs to a run if its timestamp falls inside the run's
+ * time window. Entries with no timestamp (the session header) are excluded.
+ */
+function isEntryInRun(entry: FileEntry, run: PrSessionRun): boolean {
+  const ts = "timestamp" in entry && typeof entry.timestamp === "string" ? entry.timestamp : null;
+  if (!ts) return false;
+  const t = new Date(ts).getTime();
+  const startedAt = new Date(run.startedAt).getTime();
+  const endedAt = run.completedAt ? new Date(run.completedAt).getTime() : Number.POSITIVE_INFINITY;
+  return t >= startedAt && t <= endedAt;
 }
