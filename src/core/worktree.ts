@@ -11,12 +11,17 @@ import { cp, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { createLogger } from "../shared/logger.js";
 import { config } from "../shared/config.js";
-import { complete } from "../shared/llm.js";
+import { z } from "zod";
+import { LIGHT_MODEL, structuredOutput } from "../shared/llm.js";
 
 const exec = promisify(execFile);
 const log = createLogger("worktree");
 
 const BRANCH_SLUG_MAX_LEN = 50;
+const BRANCH_SLUG_RETRIES = 3;
+const slugSchema = z.object({
+  slug: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+){1,5}$/, "must be 2-6 lowercase kebab-case words"),
+});
 
 // --- Public API ---
 
@@ -86,14 +91,23 @@ export async function removeWorktree(repoPath: string, worktreePath: string): Pr
   }
 }
 
-/** Produce a `goodboy/<slug>-<taskId[:8]>` branch name, using the LLM for the slug. */
+/** Produce a `goodboy/<slug>-<taskId[:8]>` branch name. Retries the LLM up to 3 times on degenerate output. */
 export async function generateBranchName(taskId: string, description: string): Promise<string> {
-  const result = await complete(description, {
-    system: "Output a short professional git branch slug (lowercase, hyphens, 3-5 words). Nothing else. Example: fix-auth-token-refresh",
-    maxTokens: 30,
-  });
-  const slug = toSlug(result ?? "") || toSlug(description);
-  return `goodboy/${slug}-${taskId.slice(0, 8)}`;
+  for (let attempt = 1; attempt <= BRANCH_SLUG_RETRIES; attempt++) {
+    try {
+      const { slug } = await structuredOutput({
+        system: SLUG_SYSTEM_PROMPT,
+        prompt: `Task: ${description.trim()}`,
+        schema: slugSchema,
+        model: LIGHT_MODEL,
+        temperature: attempt === 1 ? 0 : 0.5,
+      });
+      return `goodboy/${slug.slice(0, BRANCH_SLUG_MAX_LEN)}-${taskId.slice(0, 8)}`;
+    } catch (err) {
+      log.warn(`Branch slug attempt ${attempt} failed`, err);
+    }
+  }
+  throw new Error(`Failed to generate a valid branch slug after ${BRANCH_SLUG_RETRIES} attempts`);
 }
 
 // --- Helpers ---
@@ -133,10 +147,18 @@ async function copyPiAssets(worktreePath: string): Promise<void> {
   log.info(`Copied pi-assets into ${dest}`);
 }
 
-function toSlug(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, BRANCH_SLUG_MAX_LEN) || "task";
-}
+const SLUG_SYSTEM_PROMPT = `You generate git branch slugs.
+
+Rules: 2-5 words, lowercase kebab-case, start with a verb, describe the concrete change (not the request). No prefixes, quotes, or explanation.
+
+Respond with a single JSON object: {"slug": "<kebab-case-slug>"}
+
+Examples:
+Task: fix the retry button on the dashboard, it flashes twice when clicked
+{"slug": "fix-dashboard-retry-double-click"}
+
+Task: make the chart export graph smoother by averaging datapoints, also remove legacy run_cycles table
+{"slug": "smooth-chart-export-graph"}
+
+Task: add a /standup telegram command that lists today's completed tasks
+{"slug": "add-standup-telegram-command"}`;

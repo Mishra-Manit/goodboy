@@ -5,13 +5,13 @@
  */
 
 import { z } from "zod";
-import { structuredOutput } from "../shared/llm.js";
+import { LIGHT_MODEL, structuredOutput } from "../shared/llm.js";
 import { createLogger } from "../shared/logger.js";
 import { buildClassifierSystemPrompt } from "./prompts.js";
 
 const log = createLogger("intent-classifier");
 
-const LOG_PREVIEW_LEN = 80;
+const LOG_PREVIEW_LEN = 500;
 
 // --- Schemas ---
 
@@ -36,6 +36,7 @@ export async function classifyMessage(text: string, repoNames: readonly string[]
       system: buildClassifierSystemPrompt(repoNames),
       prompt: text,
       schema: intentSchema,
+      model: LIGHT_MODEL,
       temperature: 0,
     });
     log.info(`Classified message as "${intent.type}"`, {
