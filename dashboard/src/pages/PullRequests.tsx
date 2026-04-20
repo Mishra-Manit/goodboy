@@ -9,6 +9,7 @@ import {
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSE, useSSERefresh } from "@dashboard/hooks/use-sse";
+import { useNow } from "@dashboard/hooks/use-now";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { shortId, timeAgo, cn } from "@dashboard/lib/utils";
@@ -161,6 +162,7 @@ interface PrSessionRowProps {
 }
 
 function PrSessionRow({ session, running, onClick, onTaskClick }: PrSessionRowProps) {
+  const now = useNow();
   const isExternal = !session.originTaskId;
 
   return (
@@ -223,13 +225,13 @@ function PrSessionRow({ session, running, onClick, onTaskClick }: PrSessionRowPr
       {/* Last polled */}
       {session.lastPolledAt && !running && (
         <span className="font-mono text-[9px] text-text-void" title="Last polled">
-          polled {timeAgo(session.lastPolledAt)}
+          polled {timeAgo(session.lastPolledAt, now)}
         </span>
       )}
 
       {/* Created */}
       <span className="font-mono text-[10px] text-text-void">
-        {timeAgo(session.createdAt)}
+        {timeAgo(session.createdAt, now)}
       </span>
     </button>
   );

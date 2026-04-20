@@ -14,9 +14,14 @@ export function formatDate(dateStr: string): string {
   });
 }
 
-export function timeAgo(dateStr: string): string {
+/**
+ * Pure relative-time formatter. Accepts an explicit `nowMs` so callers can
+ * drive live updates via the `useNow` hook; defaults to `Date.now()` for
+ * one-off formatting (logs, non-React code).
+ */
+export function timeAgo(dateStr: string, nowMs: number = Date.now()): string {
   const seconds = Math.floor(
-    (Date.now() - new Date(dateStr).getTime()) / 1000
+    (nowMs - new Date(dateStr).getTime()) / 1000
   );
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);

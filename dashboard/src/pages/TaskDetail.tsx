@@ -12,6 +12,7 @@ import {
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSE, useSSERefresh } from "@dashboard/hooks/use-sse";
+import { useNow } from "@dashboard/hooks/use-now";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { LogViewer } from "@dashboard/components/LogViewer";
 import { PipelineProgress } from "@dashboard/components/PipelineProgress";
@@ -37,6 +38,7 @@ export function TaskDetail() {
   const [liveLogs, setLiveLogs] = useState<Map<string, LogEntry[]>>(
     new Map()
   );
+  const now = useNow();
 
   const {
     data: task,
@@ -207,7 +209,7 @@ export function TaskDetail() {
         {/* Meta row */}
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 font-mono text-[10px] text-text-void">
           <span>created {formatDate(task.createdAt)}</span>
-          {task.completedAt && <span>completed {timeAgo(task.completedAt)}</span>}
+          {task.completedAt && <span>completed {timeAgo(task.completedAt, now)}</span>}
           {task.branch && <span>branch: {task.branch}</span>}
         </div>
 

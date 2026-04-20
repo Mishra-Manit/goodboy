@@ -10,6 +10,7 @@ import {
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSE, useSSERefresh } from "@dashboard/hooks/use-sse";
+import { useNow } from "@dashboard/hooks/use-now";
 import { LogViewer } from "@dashboard/components/LogViewer";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { mergeLogEntries } from "@dashboard/lib/logs";
@@ -29,6 +30,7 @@ export function PrSessionDetail() {
   const navigate = useNavigate();
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
   const [liveLogs, setLiveLogs] = useState<LogEntry[]>([]);
+  const now = useNow();
 
   const {
     data: session,
@@ -144,7 +146,7 @@ export function PrSessionDetail() {
             </button>
           )}
           {session.lastPolledAt && (
-            <span>last polled {timeAgo(session.lastPolledAt)}</span>
+            <span>last polled {timeAgo(session.lastPolledAt, now)}</span>
           )}
         </div>
 
@@ -186,6 +188,7 @@ export function PrSessionDetail() {
               onToggle={() => setExpandedRun(expandedRun === run.id ? null : run.id)}
               logs={getLogsForRun(run.id)}
               isLive={run.status === "running"}
+              now={now}
             />
           ))}
         </div>
@@ -204,9 +207,10 @@ interface RunCardProps {
   onToggle: () => void;
   logs: LogEntry[];
   isLive: boolean;
+  now: number;
 }
 
-function RunCard({ run, expanded, onToggle, logs, isLive }: RunCardProps) {
+function RunCard({ run, expanded, onToggle, logs, isLive, now }: RunCardProps) {
   const triggerLabel = TRIGGER_LABELS[run.trigger] ?? run.trigger;
   const duration = run.completedAt && run.startedAt
     ? formatDuration(run.startedAt, run.completedAt)
@@ -239,7 +243,7 @@ function RunCard({ run, expanded, onToggle, logs, isLive }: RunCardProps) {
         <span className="flex-1" />
 
         <span className="font-mono text-[10px] text-text-void">
-          {timeAgo(run.startedAt)}
+          {timeAgo(run.startedAt, now)}
         </span>
       </button>
 

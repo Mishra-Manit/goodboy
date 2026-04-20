@@ -17,6 +17,7 @@ import { EmptyState } from "@dashboard/components/EmptyState";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { TaskRow } from "@dashboard/components/TaskRow";
 import { shortId, timeAgo, cn } from "@dashboard/lib/utils";
+import { useNow } from "@dashboard/hooks/use-now";
 
 const ACTIVE_STATUSES = new Set([
   "queued",
@@ -36,6 +37,7 @@ export function Tasks() {
     new Map()
   );
   const [historyFilter, setHistoryFilter] = useState<typeof HISTORY_FILTERS[number]>("all");
+  const now = useNow();
 
   useSSERefresh(refetch, (e) => e.type === "task_update");
 
@@ -168,7 +170,7 @@ export function Tasks() {
                     </span>
                     <StatusBadge status={task.status} />
                     <span className="ml-auto font-mono text-[10px] text-text-void">
-                      {timeAgo(task.createdAt)}
+                      {timeAgo(task.createdAt, now)}
                     </span>
                   </div>
 

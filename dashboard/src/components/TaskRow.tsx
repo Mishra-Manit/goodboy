@@ -1,5 +1,6 @@
 import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { shortId, timeAgo } from "@dashboard/lib/utils";
+import { useNow } from "@dashboard/hooks/use-now";
 import { TASK_KIND_CONFIG, type Task } from "@dashboard/lib/api";
 
 interface TaskRowProps {
@@ -9,6 +10,7 @@ interface TaskRowProps {
 }
 
 export function TaskRow({ task, onClick, showDuration = false }: TaskRowProps) {
+  const now = useNow();
   const duration =
     showDuration && task.completedAt && task.createdAt
       ? formatDurationBetween(task.createdAt, task.completedAt)
@@ -38,7 +40,7 @@ export function TaskRow({ task, onClick, showDuration = false }: TaskRowProps) {
       )}
       <StatusBadge status={task.status} />
       <span className="shrink-0 font-mono text-[10px] text-text-void">
-        {timeAgo(task.createdAt)}
+        {timeAgo(task.createdAt, now)}
       </span>
       {task.error && (
         <span className="shrink-0 font-mono text-[9px] text-fail/50 max-w-[120px] truncate">
