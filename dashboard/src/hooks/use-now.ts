@@ -4,11 +4,10 @@
  */
 
 import { useEffect, useState } from "react";
+import { NOW_TICK_MS } from "@dashboard/lib/constants";
 
-const DEFAULT_INTERVAL_MS = 15_000;
-
-/** Returns a periodically-updated Date.now() snapshot. */
-export function useNow(intervalMs: number = DEFAULT_INTERVAL_MS): number {
+/** Periodically-updated `Date.now()` snapshot. */
+export function useNow(intervalMs: number = NOW_TICK_MS): number {
   const [now, setNow] = useState<number>(() => Date.now());
 
   useEffect(() => {

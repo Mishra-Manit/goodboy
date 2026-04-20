@@ -1,20 +1,29 @@
-import { useEffect, useRef } from "react";
+/**
+ * Single shared EventSource for the whole app. Components subscribe via
+ * `useSSE`; the connection auto-opens on first subscriber and auto-closes when
+ * the last one unmounts. Reconnects on error with a fixed backoff.
+ */
 
-export interface SSEEvent {
-  type: string;
-  [key: string]: unknown;
-}
+import { useEffect, useRef } from "react";
+import type { SSEEvent } from "@dashboard/shared";
+import { SSE_RETRY_MS } from "@dashboard/lib/constants";
+
+export type { SSEEvent };
 
 type Listener = (event: SSEEvent) => void;
 
 const listeners = new Set<Listener>();
+const EVENT_TYPES: SSEEvent["type"][] = [
+  "task_update",
+  "stage_update",
+  "log",
+  "pr_update",
+  "pr_session_update",
+  "pr_session_log",
+];
+
 let es: EventSource | null = null;
 let retryTimeout: ReturnType<typeof setTimeout>;
-
-const EVENT_TYPES = [
-  "task_update", "stage_update", "log", "pr_update",
-  "pr_session_update", "pr_session_log",
-];
 
 function ensureConnected(): void {
   if (es) return;
@@ -29,25 +38,25 @@ function ensureConnected(): void {
     }
   };
 
-  for (const type of EVENT_TYPES) {
-    es.addEventListener(type, dispatch);
-  }
+  for (const type of EVENT_TYPES) es.addEventListener(type, dispatch);
 
   es.onerror = () => {
     es?.close();
     es = null;
-    retryTimeout = setTimeout(ensureConnected, 3000);
+    retryTimeout = setTimeout(ensureConnected, SSE_RETRY_MS);
   };
 }
 
-function disconnect(): void {
+function disconnectIfIdle(): void {
   if (listeners.size > 0) return;
   es?.close();
   es = null;
   clearTimeout(retryTimeout);
 }
 
-export function useSSE(onEvent: (event: SSEEvent) => void): void {
+// --- Public API ---
+
+export function useSSE(onEvent: Listener): void {
   const ref = useRef(onEvent);
   ref.current = onEvent;
 
@@ -57,14 +66,15 @@ export function useSSE(onEvent: (event: SSEEvent) => void): void {
     ensureConnected();
     return () => {
       listeners.delete(handler);
-      disconnect();
+      disconnectIfIdle();
     };
   }, []);
 }
 
+/** Refetch every time an event passes `filter` (defaults to "every event"). */
 export function useSSERefresh(
   refetch: () => void,
-  filter?: (event: SSEEvent) => boolean
+  filter?: (event: SSEEvent) => boolean,
 ): void {
   const refetchRef = useRef(refetch);
   refetchRef.current = refetch;
@@ -72,8 +82,6 @@ export function useSSERefresh(
   filterRef.current = filter;
 
   useSSE((event) => {
-    if (!filterRef.current || filterRef.current(event)) {
-      refetchRef.current();
-    }
+    if (!filterRef.current || filterRef.current(event)) refetchRef.current();
   });
 }

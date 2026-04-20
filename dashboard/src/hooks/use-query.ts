@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+/** Minimal data-fetching hook: state machine around a single async thunk, with manual refetch. */
+
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface QueryResult<T> {
   data: T | null;
@@ -7,10 +9,7 @@ interface QueryResult<T> {
   refetch: () => void;
 }
 
-export function useQuery<T>(
-  fn: () => Promise<T>,
-  deps: unknown[] = []
-): QueryResult<T> {
+export function useQuery<T>(fn: () => Promise<T>, deps: unknown[] = []): QueryResult<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
