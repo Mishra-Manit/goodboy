@@ -11,7 +11,7 @@ import { createLogger } from "./logger.js";
 const log = createLogger("llm");
 
 const FIREWORKS_URL = "https://api.fireworks.ai/inference/v1/chat/completions";
-const DEFAULT_MODEL = "accounts/fireworks/models/llama-v3p3-70b-instruct";
+const DEFAULT_MODEL = "accounts/fireworks/models/kimi-k2p5";
 
 interface ChatMessage {
   readonly role: "system" | "user" | "assistant";
