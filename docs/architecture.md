@@ -914,104 +914,91 @@ removed along with the planner conversation loop.
 
 **Files:** `dashboard/src/`
 
-The dashboard is a **static SPA** (Single Page Application) served by the backend. No SSR, no server components -- just client-side React.
+The dashboard is a **static SPA** served by the backend. No SSR, no server components -- just client-side React.
 
-**Stack:** Vite 8 + React 19 + Tailwind v4 + React Router
+**Stack:** Vite 8 + React 19 + Tailwind v4 + React Router.
 
-### useQuery Hook
+### File layout
 
-**File:** `dashboard/src/hooks/use-query.ts`
+```
+dashboard/src/
+  main.tsx              Bootstraps <BrowserRouter> + <ErrorBoundary> + <App>.
+  App.tsx               Route table.
+  shared.ts             Re-exports backend enums / wire types (never duplicate).
+  index.css             Tailwind theme tokens + global animations.
 
-A minimal data fetching hook:
+  lib/
+    api/                request() client, per-resource endpoints, TASK_KIND_CONFIG.
+    log-grouping.ts     Pure: correlate tool_start..tool_end, sniff diffs.
+    logs.ts             Pure: stable keys + disk+live merge.
+    task-grouping.ts    Pure: today / yesterday / this week buckets.
+    format.ts           Pure: timeAgo, formatDuration, formatTokens, formatTime.
+    constants.ts        SSE_RETRY_MS, LOG_PREVIEW_LINES, ...
+    utils.ts            cn, shortId.
 
-```typescript
-const callId = useRef(0);
+  hooks/
+    use-query.ts        Minimal fetch state machine with stale-response guard.
+    use-sse.ts          Singleton EventSource; shared across all subscribers.
+    use-live-logs.ts    Buckets SSE `log` events by a caller-supplied key.
+    use-now.ts          Periodic `Date.now()` tick for live relative-time text.
 
-const execute = useCallback(async () => {
-  const id = ++callId.current;
-  setLoading(true);
-  try {
-    const result = await fn();
-    if (id === callId.current) setData(result);  // only update if still current
-  } catch (err) {
-    if (id === callId.current) setError(...);
-  } finally {
-    if (id === callId.current) setLoading(false);
-  }
-}, deps);
+  components/
+    Layout.tsx          Floating nav + centered main column.
+    PageState.tsx       Three-state guard (loading / error / empty / ready).
+    ErrorBoundary.tsx   Top-level uncaught-error screen.
+    StatusBadge.tsx     One pill for task / session / run statuses.
+    PipelineProgress.tsx, Card.tsx, SectionDivider.tsx, EmptyState.tsx,
+    Markdown.tsx, TaskRow.tsx
+    rows/               PrSessionRow, PrRow, RepoRow, RunCard
+    log-viewer/         LogViewer + FilterBar + LogLine + ToolGroup +
+                        ToolOutput + SubagentCard (each <220 LOC)
+
+  pages/
+    Tasks.tsx, TaskDetail.tsx, PullRequests.tsx, PrSessionDetail.tsx, Repos.tsx
 ```
 
-The `callId` ref prevents stale responses. If you fire request A then request B, and A returns after B, the check `id === callId.current` prevents A's stale data from overwriting B's fresh data.
+Dependency direction: `pages/` -> `components/` + `hooks/` -> `lib/` -> `shared.ts` -> backend `src/shared/types.ts`. The path alias `@shared/*` wires that last hop; types are re-exported through `dashboard/src/shared.ts` so pages and components never import from outside `dashboard/src` directly.
 
-### useSSE Hook
+### Shared wire types
 
-**File:** `dashboard/src/hooks/use-sse.ts`
+`dashboard/src/shared.ts` is a narrow re-export of `src/shared/types.ts` (`TaskKind`, `TaskStatus`, `StageStatus`, `LogEntry`, `LogEntryKind`, `SSEEvent`, ...). The dashboard never redeclares these. When the backend adds a new `TaskKind`, TypeScript fails on the dashboard's `TASK_KIND_CONFIG` until every kind has a label, a stage list, and an artifact list.
 
-Manages a **singleton EventSource** connection:
+### Pure parsers separated from IO
 
-```typescript
-const listeners = new Set<Listener>();
-let es: EventSource | null = null;
+The log viewer follows the same pure/IO seam the backend uses in `core/pi/subagents.ts`:
 
-function ensureConnected(): void {
-  if (es) return;
-  es = new EventSource("/api/events");
-  // ...
-  es.onerror = () => {
-    es?.close();
-    es = null;
-    retryTimeout = setTimeout(ensureConnected, 3000);  // auto-reconnect
-  };
-}
+- **Pure** (`lib/log-grouping.ts`): `groupToolCalls`, `extractToolOutput`, `isRawToolJson`, `formatToolSummary`, `detectDiff`, `detectFileList`, `toolGroupKey`. No React, no IO. These are the first Vitest targets when tests land.
+- **UI** (`components/log-viewer/`): stateful components that own scroll + collapse + filter state and call into the pure module.
+
+Same pattern for `task-grouping.ts` and `format.ts` -- pages stay thin because all the shaping happens in pure helpers.
+
+### Three-state guard
+
+`<PageState data loading error onRetry isEmpty empty>` wraps every data-backed page. It renders a spinner while `loading && !data`, an error message with a retry button while `error && !data`, an `<EmptyState>` when `isEmpty(data)` is true, and otherwise calls `children(data)`. This is the AGENTS rule made into a single component.
+
+### useQuery
+
+Minimal fetch state machine. A `callId` ref prevents stale responses from overwriting fresh ones when the user fires requests A then B and A returns after B.
+
+### useSSE + useSSERefresh + useLiveLogs
+
+`useSSE` manages a **singleton `EventSource`** shared across all subscribers; it auto-reconnects with `SSE_RETRY_MS` backoff and auto-closes when the last subscriber unmounts.
+
+```ts
+useSSERefresh(refetch, (e) => e.type === "task_update");  // refetch on match
 ```
 
-Key design:
-- **One SSE connection** shared across all components (not one per hook call)
-- **Auto-reconnects** on error with 3-second backoff
-- **Auto-disconnects** when no listeners remain (cleanup)
+Why refetch instead of mutating state from SSE? SSE is a "something changed" signal; the REST API is the single source of truth. Avoids two state machines for the same data.
 
-The ref pattern solves a React closure problem:
+`useLiveLogs({ match })` buckets streamed `log` events by a caller-supplied key (stage name, task id, session id, ...). Pages merge the bucket with the on-disk snapshot via `mergeLogEntries` -- one hook replaces three copies of the same `Map<string, LogEntry[]>` + SSE push pattern.
 
-```typescript
-const ref = useRef(onEvent);
-ref.current = onEvent;
+### API client
 
-useEffect(() => {
-  const handler: Listener = (e) => ref.current(e);
-  listeners.add(handler);
-  // ...
-}, []);
-```
+`lib/api/` is split by resource (`tasks.ts`, `prs.ts`, `pr-sessions.ts`, `repos.ts`) around a shared `request<T>()` wrapper in `client.ts`. Types live in `types.ts`. A barrel re-exports everything so callers still import from `@dashboard/lib/api`.
 
-Without the ref, the `onEvent` callback captured by the effect closure would be stale (frozen at the value from the first render). The ref always points to the latest callback.
-
-### useSSERefresh
-
-```typescript
-useSSERefresh(refetch, (e) => e.type === "task_update");
-```
-
-Says: "whenever a `task_update` SSE event arrives, call `refetch()` to re-query the API." The component re-renders with fresh data.
-
-**Why refetch instead of updating state directly from SSE?** The SSE events are lightweight signals (just "something changed"). The full data comes from the REST API. This avoids having two sources of truth -- the API response is always authoritative, SSE just tells you _when_ to check again.
-
-### API Client
-
-**File:** `dashboard/src/lib/api.ts`
-
-A thin HTTP client that mirrors backend types manually:
-
-```typescript
-export async function fetchTasks(...): Promise<Task[]> {
-  return request(`/api/tasks${qs ? `?${qs}` : ""}`);
-}
-```
-
-URLs are **relative** (`/api/tasks`, not `http://localhost:3333/api/tasks`). This works because:
-- **Production:** the React app is served from the same Hono server, so relative URLs go to the same host
-- **Development:** Vite's `proxy` config in `vite.config.ts` forwards `/api` requests to `http://localhost:3333`
-
-Types are duplicated between backend and frontend. There's no code generation. This is a tradeoff: simpler tooling vs. risk of type drift. For a solo project at this scale, it's the right call.
+URLs are **relative** (`/api/tasks`, not `http://localhost:3333/api/tasks`):
+- **Production:** Hono serves the built SPA from the same host, so relative paths resolve locally.
+- **Development:** Vite's `proxy` config forwards `/api` to `http://localhost:3333`.
 
 ---
 
