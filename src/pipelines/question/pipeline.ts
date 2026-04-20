@@ -3,9 +3,9 @@ import { mkdir, rm, readFile } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
 import { config, loadEnv } from "../../shared/config.js";
 import { emit } from "../../shared/events.js";
-import { cleanupSeqCounters } from "../logs.js";
+import { cleanupSeqCounters } from "../../core/logs.js";
 import { getRepo } from "../../shared/repos.js";
-import { syncRepo } from "../worktree.js";
+import { syncRepo } from "../../core/worktree.js";
 import * as queries from "../../db/queries.js";
 import {
   failTask,
@@ -13,7 +13,7 @@ import {
   runStage,
   clearActiveSession,
   type SendTelegram,
-} from "../shared.js";
+} from "../../core/stage.js";
 import { questionSystemPrompt, questionInitialPrompt } from "./prompts.js";
 
 const log = createLogger("question");

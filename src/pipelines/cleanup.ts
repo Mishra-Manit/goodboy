@@ -5,7 +5,7 @@ import path from "node:path";
 import { createLogger } from "../shared/logger.js";
 import { config } from "../shared/config.js";
 import { getRepo } from "../shared/repos.js";
-import { removeWorktree } from "./worktree.js";
+import { removeWorktree } from "../core/worktree.js";
 import * as queries from "../db/queries.js";
 import { emit } from "../shared/events.js";
 

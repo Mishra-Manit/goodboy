@@ -1,12 +1,12 @@
 import { createLogger } from "../../shared/logger.js";
 import { emit } from "../../shared/events.js";
 import * as queries from "../../db/queries.js";
-import { startExternalReview } from "../pr-session/index.js";
+import { startExternalReview } from "../pr-session/session.js";
 import {
   failTask,
   notifyTelegram,
   type SendTelegram,
-} from "../shared.js";
+} from "../../core/stage.js";
 
 const log = createLogger("pr-review");
 

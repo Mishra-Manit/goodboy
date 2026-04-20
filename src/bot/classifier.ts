@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { structuredOutput } from "./llm.js";
-import { createLogger } from "./logger.js";
+import { structuredOutput } from "../shared/llm.js";
+import { createLogger } from "../shared/logger.js";
 
 const log = createLogger("classifier");
 

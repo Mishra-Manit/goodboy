@@ -1,4 +1,4 @@
-import { SHARED_RULES } from "../prompts.js";
+import { SHARED_RULES } from "../../core/prompts.js";
 
 export function questionSystemPrompt(question: string, artifactsDir: string): string {
   return `You are answering a question about a codebase. You have READ-ONLY access.

@@ -3,10 +3,10 @@ import { mkdir, stat, rm } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
 import { config, loadEnv } from "../../shared/config.js";
 import { emit } from "../../shared/events.js";
-import { cleanupSeqCounters, resetSeq, makeEntry, appendLogEntry } from "../logs.js";
+import { cleanupSeqCounters, resetSeq, makeEntry, appendLogEntry } from "../../core/logs.js";
 import { getRepo } from "../../shared/repos.js";
-import { spawnPiSession } from "../pi-rpc.js";
-import { createWorktree, generateBranchName, syncRepo } from "../worktree.js";
+import { spawnPiSession } from "../../core/pi-rpc.js";
+import { createWorktree, generateBranchName, syncRepo } from "../../core/worktree.js";
 import * as queries from "../../db/queries.js";
 import type { Task } from "../../db/queries.js";
 import type { LogEntryKind } from "../../shared/types.js";
@@ -19,14 +19,14 @@ import {
   withTimeout,
   STAGE_TIMEOUT_MS,
   type SendTelegram,
-} from "../shared.js";
+} from "../../core/stage.js";
 import {
   plannerPrompt,
   implementerPrompt,
   reviewerPrompt,
   type WorktreeEnv,
 } from "./prompts.js";
-import { startPrSession } from "../pr-session/index.js";
+import { startPrSession } from "../pr-session/session.js";
 
 const log = createLogger("dev-task");
 

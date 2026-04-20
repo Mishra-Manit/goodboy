@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { createLogger } from "../../shared/logger.js";
+import { createLogger } from "../shared/logger.js";
 
 const exec = promisify(execFile);
 const log = createLogger("pr-session-gh");

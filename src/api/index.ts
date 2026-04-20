@@ -10,8 +10,12 @@ import { config } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
 import { TASK_STATUSES, TASK_KINDS } from "../shared/types.js";
 import type { TaskStatus, TaskKind } from "../shared/types.js";
-import { readTaskLogs, readPrSessionLog } from "../orchestrator/logs.js";
-import { runPipeline, runQuestion, runPrReview, cancelTask as cancelRunningTask, dismissTask } from "../orchestrator/index.js";
+import { readTaskLogs, readPrSessionLog } from "../core/logs.js";
+import { cancelTask as cancelRunningTask } from "../core/stage.js";
+import { runPipeline } from "../pipelines/coding/pipeline.js";
+import { runQuestion } from "../pipelines/question/pipeline.js";
+import { runPrReview } from "../pipelines/pr-review/pipeline.js";
+import { dismissTask } from "../pipelines/cleanup.js";
 
 const log = createLogger("api");
 

@@ -5,8 +5,8 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { readFile } from "node:fs/promises";
 import { createBot } from "./bot/index.js";
 import { createApi } from "./api/index.js";
-import { startPrPoller, stopPrPoller } from "./orchestrator/index.js";
-import type { SendTelegram } from "./orchestrator/index.js";
+import { startPrPoller, stopPrPoller } from "./pipelines/pr-session/poller.js";
+import type { SendTelegram } from "./core/stage.js";
 import { loadEnv } from "./shared/config.js";
 import { createLogger } from "./shared/logger.js";
 

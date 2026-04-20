@@ -1,12 +1,14 @@
 import { Bot } from "grammy";
 import { loadEnv } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
-import { classifyMessage } from "../shared/classifier.js";
+import { classifyMessage } from "./classifier.js";
 import { listRepos, getRepo } from "../shared/repos.js";
 import * as queries from "../db/queries.js";
-import { runPipeline, runQuestion, runPrReview, cancelTask } from "../orchestrator/index.js";
-import type { SendTelegram } from "../orchestrator/index.js";
-import type { Intent } from "../shared/classifier.js";
+import { runPipeline } from "../pipelines/coding/pipeline.js";
+import { runQuestion } from "../pipelines/question/pipeline.js";
+import { runPrReview } from "../pipelines/pr-review/pipeline.js";
+import { cancelTask, type SendTelegram } from "../core/stage.js";
+import type { Intent } from "./classifier.js";
 import type { Task } from "../db/queries.js";
 
 const log = createLogger("bot");

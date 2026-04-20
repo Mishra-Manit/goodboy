@@ -1,15 +1,15 @@
-import { createLogger } from "../shared/logger.js";
-import { getRepo } from "../shared/repos.js";
-import * as queries from "../db/queries.js";
+import { createLogger } from "../../shared/logger.js";
+import { getRepo } from "../../shared/repos.js";
+import * as queries from "../../db/queries.js";
 import {
   getPrComments,
   getPrReviewComments,
   isPrClosed,
-  resumePrSession,
-} from "./pr-session/index.js";
-import { cleanupPrSession } from "./cleanup.js";
-import type { PrComment } from "./pr-session/index.js";
-import type { SendTelegram } from "./shared.js";
+} from "../../core/github.js";
+import { resumePrSession } from "./session.js";
+import { cleanupPrSession } from "../cleanup.js";
+import type { PrComment } from "../../core/github.js";
+import type { SendTelegram } from "../../core/stage.js";
 
 const log = createLogger("pr-poller");
 

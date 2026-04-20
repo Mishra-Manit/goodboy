@@ -1,4 +1,4 @@
-import { SHARED_RULES, worktreeBlock, type WorktreeEnv } from "../prompts.js";
+import { SHARED_RULES, worktreeBlock, type WorktreeEnv } from "../../core/prompts.js";
 
 export type { WorktreeEnv };
 
