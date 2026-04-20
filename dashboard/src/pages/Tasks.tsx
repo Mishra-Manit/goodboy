@@ -1,22 +1,19 @@
 /** Tasks home: live tasks up top, history grouped by date below. */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   fetchTask,
   fetchTasks,
-  type FileEntry,
   type Task,
   type TaskWithStages,
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSE, useSSERefresh } from "@dashboard/hooks/use-sse";
-import { useLiveSession } from "@dashboard/hooks/use-live-session";
 import { useNow } from "@dashboard/hooks/use-now";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { PipelineProgress } from "@dashboard/components/PipelineProgress";
 import { Card } from "@dashboard/components/Card";
-import { LogViewer } from "@dashboard/components/log-viewer";
 import { EmptyState } from "@dashboard/components/EmptyState";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { TaskRow } from "@dashboard/components/TaskRow";
@@ -34,39 +31,32 @@ export function Tasks() {
   const now = useNow();
 
   const query = useQuery(() => fetchTasks());
-  const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const [taskDetails, setTaskDetails] = useState<Map<string, TaskWithStages>>(new Map());
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
 
   useSSERefresh(query.refetch, (e) => e.type === "task_update");
 
-  const liveEntries = useLiveSession({
-    match: (event) =>
-      event.type === "session_entry" && event.scope === "task"
-        ? { key: event.id, entry: event.entry }
-        : null,
-  });
+  // Prefetch stage details for every active task so the pipeline progress renders.
+  const activeIds = (query.data ?? []).filter((t) => ACTIVE_STATUSES.has(t.status)).map((t) => t.id).join(",");
+  useEffect(() => {
+    if (!activeIds) return;
+    const ids = activeIds.split(",");
+    for (const id of ids) {
+      if (!taskDetails.has(id)) {
+        fetchTask(id).then((detail) =>
+          setTaskDetails((prev) => new Map(prev).set(id, detail)),
+        );
+      }
+    }
+  }, [activeIds]);
 
-  // Keep the expanded task's detail fresh as stages progress.
+  // Keep stage details fresh as pipelines progress.
   useSSE((event) => {
     if (event.type !== "stage_update" && event.type !== "task_update") return;
-    if (event.taskId !== expandedTask) return;
     fetchTask(event.taskId).then((detail) =>
       setTaskDetails((prev) => new Map(prev).set(event.taskId, detail)),
     );
   });
-
-  async function toggleExpand(taskId: string) {
-    if (expandedTask === taskId) {
-      setExpandedTask(null);
-      return;
-    }
-    setExpandedTask(taskId);
-    if (!taskDetails.has(taskId)) {
-      const detail = await fetchTask(taskId);
-      setTaskDetails((prev) => new Map(prev).set(taskId, detail));
-    }
-  }
 
   return (
     <div>
@@ -102,11 +92,8 @@ export function Tasks() {
                       key={task.id}
                       task={task}
                       detail={taskDetails.get(task.id)}
-                      entries={liveEntries.get(task.id) ?? []}
-                      expanded={expandedTask === task.id}
                       now={now}
-                      onToggle={() => toggleExpand(task.id)}
-                      onViewDetail={() => navigate(`/tasks/${task.id}`)}
+                      onClick={() => navigate(`/tasks/${task.id}`)}
                     />
                   ))}
                 </div>
@@ -190,17 +177,14 @@ function HistoryFilterTabs({ value, onChange, counts }: HistoryFilterTabsProps) 
 interface LiveTaskCardProps {
   task: Task;
   detail: TaskWithStages | undefined;
-  entries: FileEntry[];
-  expanded: boolean;
   now: number;
-  onToggle: () => void;
-  onViewDetail: () => void;
+  onClick: () => void;
 }
 
-function LiveTaskCard({ task, detail, entries, expanded, now, onToggle, onViewDetail }: LiveTaskCardProps) {
+function LiveTaskCard({ task, detail, now, onClick }: LiveTaskCardProps) {
   return (
     <div className="animate-fade-up">
-      <Card hoverable live onClick={onToggle}>
+      <Card hoverable live onClick={onClick}>
         <div className="flex items-center gap-3 mb-2">
           <code className="font-mono text-[10px] text-text-ghost">{shortId(task.id)}</code>
           <span className="font-mono text-[11px] font-medium text-accent">{task.repo}</span>
@@ -219,21 +203,6 @@ function LiveTaskCard({ task, detail, entries, expanded, now, onToggle, onViewDe
           </div>
         )}
       </Card>
-
-      {expanded && (
-        <div className="mt-2 animate-fade-up">
-          <LogViewer entries={entries} maxHeight="350px" autoScroll />
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onViewDetail();
-            }}
-            className="mt-2 font-mono text-[10px] text-text-ghost hover:text-accent transition-colors"
-          >
-            view full detail &rarr;
-          </button>
-        </div>
-      )}
     </div>
   );
 }
