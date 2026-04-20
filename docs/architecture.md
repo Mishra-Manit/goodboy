@@ -2,6 +2,10 @@
 
 A comprehensive walkthrough of the Goodboy codebase -- architecture, engineering decisions, patterns, and how everything connects.
 
+> **Pattern rules live in `AGENTS.md` -> Code Patterns.** This doc explains
+> *how* the system works; `AGENTS.md` is the contract every new file must
+> follow. When the two disagree, `AGENTS.md` wins.
+
 ---
 
 ## Table of Contents
@@ -169,30 +173,22 @@ This takes a JSON string from the environment, parses it, then validates the sha
 **File:** `src/shared/types.ts`
 
 ```typescript
-export const TASK_STATUSES = ["queued", "planning", ...] as const;
+export const TASK_STATUSES = ["queued", "running", "complete", "failed", "cancelled"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 ```
 
 This is a TypeScript pattern called **const assertion + indexed access type**:
 
-1. `as const` makes the array readonly and preserves literal types (not just `string[]` but `readonly ["queued", "planning", ...]`)
-2. `(typeof TASK_STATUSES)[number]` extracts a union type: `"queued" | "planning" | ...`
+1. `as const` makes the array readonly and preserves literal types (not just `string[]` but `readonly ["queued", "running", ...]`)
+2. `(typeof TASK_STATUSES)[number]` extracts a union type: `"queued" | "running" | ...`
 
 **Why not just a union type?** Because the array is also used at runtime -- the database schema uses it to create Postgres enums, the API uses it for validation. One source of truth for both types and runtime values.
 
-### Stage-to-Status Mapping
-
-```typescript
-export const STAGE_TO_STATUS: Record<StageName, TaskStatus> = {
-  planner: "planning",
-  implementer: "implementing",
-  reviewer: "reviewing",
-  pr_creator: "creating_pr",
-  revision: "revision",
-};
-```
-
-This connects pipeline stages to task statuses -- when the implementer starts, the task status becomes `"implementing"`. Using a typed `Record` ensures every stage has a mapping and every value is a valid status.
+`STAGE_NAMES` follows the same pattern and covers every stage across every
+task kind: `planner`, `implementer`, `reviewer`, `pr_creator`, `revision`,
+`answering`, `pr_reviewing`. Task-level status is a simple generic lifecycle
+(`queued | running | complete | failed | cancelled`); granular per-stage
+status lives on the `task_stages` row, not on the task.
 
 ### SSE Event Types
 
@@ -537,7 +533,7 @@ SSE is plain text over HTTP:
 
 ```
 event: task_update
-data: {"type":"task_update","taskId":"abc","status":"implementing"}
+data: {"type":"task_update","taskId":"abc","status":"running"}
 
 event: ping
 data:
@@ -569,78 +565,84 @@ For one-way push (which is all the dashboard needs), SSE is simpler:
 
 ---
 
-## The Pipeline -- Core Orchestration
+## The Pipelines -- Core Orchestration
 
-**File:** `src/orchestrator/pipeline.ts`
+**Directory:** `src/pipelines/`
 
-This is the brain of the system.
+There is no single pipeline anymore. Every inbound Telegram message is
+classified (`src/bot/classifier.ts`) into one of three task kinds; each kind
+has its own pipeline file.
 
-### Pipeline Flow
+| Kind | File | Stages |
+|---|---|---|
+| `coding_task` | `pipelines/coding/pipeline.ts` | `planner` -> `implementer` -> `reviewer`, then hands off to a PR session |
+| `codebase_question` | `pipelines/question/pipeline.ts` | `answering` (read-only, no worktree) |
+| `pr_review` | `pipelines/pr-review/pipeline.ts` | `pr_reviewing` (delegates to `pr-session/session.ts#startExternalReview`) |
+
+All three use `core/stage.ts#runStage` to spawn a pi RPC subprocess, stream
+logs, and enforce a 30-minute timeout. `runStage` is where the real shared
+orchestration lives.
+
+### Coding pipeline flow
 
 ```
 runPipeline(taskId)
     |
-    acquireSlot() ── blocks if 2 tasks already running
-    |
-    createWorktree() ── fresh git checkout
+    syncRepo()         fetch origin, reset main to origin/main
+    createWorktree()   fresh worktree on goodboy/<slug>-<taskId[:8]>
     |
     +---------------------------------------------+
     |  Stage 1: Planner                           |
-    |    Spawns pi RPC subprocess                 |
-    |    Explores codebase, writes plan.md        |
-    |    May ask questions via Telegram            |
-    |    Waits for /go confirmation                |
+    |    runStage() spawns pi RPC subprocess      |
+    |    Loads pi-subagents extension (only here) |
+    |    Writes plan.md                           |
     +---------------------------------------------+
     |  Stage 2: Implementer                       |
     |    Reads plan.md, writes code, git commits  |
     |    Writes implementation-summary.md         |
     +---------------------------------------------+
     |  Stage 3: Reviewer                          |
-    |    Reads plan + summary, reviews code       |
+    |    Reads plan + summary, runs git diff main |
     |    Fixes issues, writes review.md           |
     +---------------------------------------------+
-    |  Stage 4: PR Creator                        |
-    |    Pushes branch, creates GitHub PR         |
-    +---------------------------------------------+
     |
-    releaseSlot()
+    task marked complete, ownership of the        
+    worktree transferred to a new PR session      
+    (pipelines/pr-session/session.ts)             
 ```
 
-### Concurrency Control -- Manual Semaphore
+There is no task-level concurrency control at the moment -- tasks start as
+soon as they are created. If you re-introduce a concurrency limit, it belongs
+next to `runStage` in `core/stage.ts`, not inside an individual pipeline.
 
-```typescript
-const waitingForSlot: Array<() => void> = [];
-let runningCount = 0;
+### PR sessions
 
-async function acquireSlot(): Promise<void> {
-  if (runningCount < config.maxParallelTasks) {
-    runningCount++;
-    return;
-  }
-  await new Promise<void>((resolve) => {
-    waitingForSlot.push(resolve);
-  });
-  runningCount++;
-}
+**Files:** `pipelines/pr-session/session.ts` and `pipelines/pr-session/poller.ts`
 
-function releaseSlot(): void {
-  runningCount--;
-  const next = waitingForSlot.shift();
-  if (next) next();
-}
-```
+Once the coding pipeline finishes, the worktree is not torn down. Instead,
+ownership is handed to a `PrSession` row in the database. Three entry points:
 
-This is a **semaphore implemented with promises**. When all slots are full, `acquireSlot()` creates a promise and stores its resolver in the queue. When a slot opens, `releaseSlot()` calls the next waiting resolver, which unblocks the waiting pipeline. Max 2 parallel tasks prevents overloading the machine.
+- `startPrSession` -- pushes the branch, opens the PR, records `prNumber`.
+- `startExternalReview` -- used by `pr_review` tasks; checks out the PR head
+  via `createPrWorktree` and posts a review.
+- `resumePrSession` -- re-opens the same pi session (via `--session <path>`)
+  when the poller detects new human comments. The poller (`poller.ts`) runs
+  every 3 minutes, calls `getPrComments` + `getPrReviewComments` in
+  `core/github.ts`, filters out bots, and fires `resumePrSession` with the
+  unseen comments.
 
-This is a fundamental concurrency primitive -- worth studying and understanding deeply.
+Session state lives on disk at `data/pr-sessions/<prSessionId>.jsonl` so the
+resumed pi process gets full conversation context. Logs are persisted
+alongside at `<prSessionId>.log.jsonl`.
 
-### Artifact-Based Inter-Stage Communication
+### Artifact-based inter-stage communication
 
-Stages don't communicate through function returns or shared memory. They write files to `artifacts/<taskId>/`:
+Stages don't communicate through function returns or shared memory. They
+write files to `artifacts/<taskId>/`:
 
 - `plan.md` -- planner writes, all others read
-- `implementation-summary.md` -- implementer writes, reviewer + pr_creator read
-- `review.md` -- reviewer writes, pr_creator reads
+- `implementation-summary.md` -- implementer writes, reviewer reads
+- `review.md` -- reviewer writes, PR session reads for the PR description
 
 **Why files instead of passing data in memory?**
 - Each stage is an independent subprocess (different pi RPC process) -- no shared memory
@@ -648,41 +650,19 @@ Stages don't communicate through function returns or shared memory. They write f
 - If a stage fails, you can examine the artifacts it left behind
 - Makes retry logic simpler -- just re-run the stage, it reads fresh artifacts
 
-`requireArtifact()` validates the file exists and isn't empty before proceeding to the next stage.
+`requireArtifact()` in `pipelines/coding/pipeline.ts` validates the file
+exists and isn't empty before proceeding to the next stage.
 
-### The Planner Conversation Loop
+### No planner conversation loop
 
-```typescript
-while (marker?.status === "needs_input") {
-  await sendTelegram(chatId, questions);
-  const reply = await waitForReply(taskId);
-  session.sendPrompt(reply);
-  result = await withTimeout(session.waitForCompletion(), ...);
-  marker = result.marker;
-}
-```
+Earlier designs had the planner ask clarifying questions via Telegram
+(`{status: "needs_input", questions: [...]}`) and block on a `waitForReply`
+promise. That loop has been removed. The only marker the pipeline recognises
+now is `{status: "complete"}` (see `core/pi/marker.ts` and the `PiOutputMarker`
+type in `shared/types.ts`). If you need a human-in-the-loop step again, add it
+inside `runStage` -- do not rebuild it per pipeline.
 
-This is a **human-in-the-loop pattern**. The AI can ask clarifying questions, the pipeline pauses, the user responds via Telegram, the answer is fed back. The loop continues until the planner is satisfied.
-
-`waitForReply()` returns a promise that resolves when `deliverReply()` is called from the bot handler -- bridging async Telegram messages to the pipeline's control flow:
-
-```typescript
-function waitForReply(taskId: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      pendingReplies.delete(taskId);
-      reject(new Error("Timed out waiting for user reply (1h)"));
-    }, REPLY_TIMEOUT_MS);
-
-    pendingReplies.set(taskId, {
-      resolve: (reply) => { clearTimeout(timer); resolve(reply); },
-      reject: (err) => { clearTimeout(timer); reject(err); },
-    });
-  });
-}
-```
-
-### Timeout Pattern
+### Timeout pattern
 
 ```typescript
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -702,7 +682,22 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 ## Pi RPC -- Process Management
 
-**File:** `src/orchestrator/pi-rpc.ts`
+**Directory:** `src/core/pi/`
+
+pi RPC is split across six files in `core/pi/` so the pure parts can be
+tested without spawning a subprocess:
+
+| File | Role |
+|---|---|
+| `session.ts` | Spawns the pi process, wires stdin/stdout/stderr, exposes `sendPrompt` / `waitForCompletion` / `waitForExit` / `kill`. |
+| `jsonl-reader.ts` | Chunked stdout -> complete lines (handles `\r\n`, partial chunks). |
+| `marker.ts` | Pure `extractMarker(text)` -- scans the transcript backwards for the `{status: "complete"}` JSON line. |
+| `tool-filters.ts` | Pure `isRawToolEvent`, `truncateArgs` -- used while routing events. |
+| `rpc-coalesce.ts` | Throttles `tool_execution_update` streams from the subagent tool to at most one emit per 250ms per `toolCallId`. |
+| `subagents.ts` | Pure parsers + emit helpers for the richer result shape of the `subagent` tool. |
+
+The content below focuses on `session.ts`, which is the one file that still
+does IO.
 
 This spawns `pi` (the coding agent) as a **child process** communicating over stdin/stdout with JSON lines (JSONL):
 
@@ -804,7 +799,7 @@ function extractMarker(text: string): PiOutputMarker | null {
     if (!line.startsWith("{")) continue;
     try {
       const parsed = JSON.parse(line);
-      if (["needs_input", "complete", "ready"].includes(parsed.status)) {
+      if (parsed && parsed.status === "complete") {
         return parsed as PiOutputMarker;
       }
     } catch { /* not JSON */ }
@@ -813,13 +808,16 @@ function extractMarker(text: string): PiOutputMarker | null {
 }
 ```
 
-Scans the AI's output **backwards** for a JSON status marker. This is how the pipeline knows if the planner wants user input, is ready for confirmation, or is done.
+Scans the AI's output **backwards** for the terminal `{"status": "complete"}`
+marker. That single marker is how the pipeline knows the stage is done. This
+function is exported as a **pure** helper from `core/pi/marker.ts` and is
+trivial to unit-test -- it's the archetype for the pure/IO split.
 
 ---
 
 ## Git Worktrees
 
-**File:** `src/orchestrator/worktree.ts`
+**File:** `src/core/worktree.ts`
 
 ### Why Worktrees Instead of `git clone`?
 
@@ -860,9 +858,13 @@ Produces branches like `goodboy/add-dark-mode-toggle-a1b2c3d4`. The `goodboy/` p
 
 ## Prompt Engineering
 
-**File:** `src/orchestrator/prompts.ts`
+**Files:** `src/core/prompts.ts` (shared fragments) and
+`src/pipelines/<kind>/prompts.ts` (per-kind stage prompts).
 
-Each pipeline stage gets a **system prompt** (defines behavior) and an **initial prompt** (kicks off the work).
+Each pipeline stage gets a **system prompt** (defines behavior) and an
+**initial prompt** (kicks off the work). The `SHARED_RULES` and
+`WORKTREE_CONTEXT` fragments live in `core/prompts.ts` and are composed into
+every per-kind prompt file.
 
 ### Shared Rules
 
@@ -899,15 +901,12 @@ YOU MUST write the plan to this exact file path using the write tool:
 
 Absolute file paths for artifacts -- the AI knows exactly where to write, no ambiguity.
 
-### JSON Markers as Control Protocol
+### JSON markers as control protocol
 
-```typescript
-If the task is unclear, output: {"status": "needs_input", "questions": [...]}
-For complex tasks needing confirmation: {"status": "ready", "summary": "..."}
-Otherwise, after writing plan.md: {"status": "complete"}
-```
-
-The AI outputs structured JSON that the pipeline parser picks up via `extractMarker()`. This is the communication protocol between the AI agent and the orchestrator.
+Stages emit a single terminal JSON line: `{"status": "complete"}`. The
+pipeline picks it up via `extractMarker()` in `core/pi/marker.ts`. That is the
+entire protocol today -- the earlier `needs_input` / `ready` markers were
+removed along with the planner conversation loop.
 
 ---
 
@@ -1079,11 +1078,11 @@ The tradeoff: you lose some production-grade features (gzip, HTTP/2, request buf
 | Zod validation at boundaries | `config.ts`, API params | Crash early with clear errors |
 | Const arrays as type source of truth | `types.ts` | One definition for types AND runtime values |
 | Pub/sub with cleanup returns | `events.ts`, `useSSE` | Memory-leak-proof subscriptions |
-| Promise-based semaphore | `pipeline.ts` | Simple concurrency control without external libraries |
 | Fire-and-forget with `.catch()` | `bot/index.ts` | Don't block the handler, but don't lose errors |
-| JSONL over stdio for IPC | `pi-rpc.ts` | Language-agnostic, streamable, debuggable |
-| Artifact files for inter-process data | `pipeline.ts` | Inspectable, restartable, no shared memory needed |
-| `Promise.race` for timeouts | `pipeline.ts` | Standard async timeout pattern |
+| JSONL over stdio for IPC | `core/pi/session.ts` + `core/pi/jsonl-reader.ts` | Language-agnostic, streamable, debuggable |
+| Artifact files for inter-process data | `pipelines/coding/pipeline.ts` | Inspectable, restartable, no shared memory needed |
+| `Promise.race` for timeouts | `core/stage.ts#withTimeout` | Standard async timeout pattern |
+| Pure parsers separated from IO | `core/github.ts`, `core/pi/marker.ts`, `core/pi/subagents.ts` | The key testability pattern -- extend to every new file |
 | Path traversal prevention | `api/index.ts` | Defense in depth for file-serving endpoints |
 | Ref trick for stable callbacks | `useSSE`, `useQuery` | Avoid stale closures in React effects |
 | Discriminated unions | `types.ts`, bot prefix lookup | Force callers to handle all cases |
