@@ -13,8 +13,9 @@
     "isolatedModules": true,
     "noEmit": true,
     "paths": {
-      "@dashboard/*": ["./src/*"]
+      "@dashboard/*": ["./src/*"],
+      "@shared/*": ["../src/shared/*"]
     }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "../src/shared/**/*"]
 }

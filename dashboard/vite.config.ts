@@ -13,6 +13,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@dashboard": path.resolve(__dirname, "src"),
+      "@shared": path.resolve(__dirname, "../src/shared"),
     },
   },
   server: {
