@@ -1,9 +1,6 @@
 import type { PiOutputMarker } from "../../shared/types.js";
 
-/**
- * Extract the structured JSON marker from the end of pi output.
- * Uses line-based parsing to avoid regex false-positives.
- */
+/** Extract the trailing JSON completion marker from pi output. Line-based to avoid regex false-positives. */
 export function extractMarker(text: string): PiOutputMarker | null {
   const lines = text.trimEnd().split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {

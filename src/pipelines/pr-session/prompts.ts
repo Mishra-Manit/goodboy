@@ -1,3 +1,8 @@
+/**
+ * System prompts for the PR session. Supports two modes: `own` (we authored
+ * the PR; address feedback on it) and `review` (external PR we are reviewing).
+ */
+
 import { SHARED_RULES } from "../../core/prompts.js";
 
 export function prSessionPrompt(options: {

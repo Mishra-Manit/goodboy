@@ -1,9 +1,16 @@
+/**
+ * Structured JSONL log persistence for stages and PR sessions. Keeps a
+ * per-stream sequence counter for stable ordering and serializes writes
+ * per file so concurrent callers don't interleave lines.
+ */
+
 import { mkdir, appendFile, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { config } from "../shared/config.js";
 import type { LogEntry, LogEntryKind } from "../shared/types.js";
 
-/** Per-stage sequence counters (taskId:stage -> next seq) */
+// --- Sequence counters ---
+
 const seqCounters = new Map<string, number>();
 const writeQueues = new Map<string, Promise<void>>();
 
@@ -14,19 +21,21 @@ function nextSeq(taskId: string, stage: string): number {
   return seq;
 }
 
-/** Reset counter when a stage starts fresh (e.g. retry) */
+/** Reset counter when a stage starts fresh (e.g. on retry). */
 export function resetSeq(taskId: string, stage: string): void {
   seqCounters.delete(`${taskId}:${stage}`);
 }
 
-/** Clean up all seq counters for a task (call in pipeline finally block) */
+/** Drop all seq counters for a task. Call in the pipeline `finally` block. */
 export function cleanupSeqCounters(taskId: string): void {
   for (const key of seqCounters.keys()) {
     if (key.startsWith(`${taskId}:`)) seqCounters.delete(key);
   }
 }
 
-/** Build a LogEntry with auto-incrementing seq */
+// --- Stage logs ---
+
+/** Build a `LogEntry` with an auto-incrementing `seq` for `(taskId, stage)`. */
 export function makeEntry(
   taskId: string,
   stage: string,
@@ -62,10 +71,7 @@ function enqueueWrite(queueKey: string, write: () => Promise<void>): Promise<voi
   });
 }
 
-/**
- * Append a structured log entry to the stage JSONL file on disk.
- * Logs are stored at: artifacts/<taskId>/<stage>.jsonl
- */
+/** Append an entry to `artifacts/<taskId>/<stage>.jsonl`. Writes are serialized per file. */
 export async function appendLogEntry(
   taskId: string,
   stage: string,
@@ -80,9 +86,7 @@ export async function appendLogEntry(
   });
 }
 
-/**
- * Read all structured log entries for a specific task stage.
- */
+/** Read and sort all entries for one stage. Returns `[]` if the file is missing. */
 export async function readStageEntries(
   taskId: string,
   stage: string
@@ -99,10 +103,9 @@ export async function readStageEntries(
   }
 }
 
-// ---------------------------------------------------------------------------
-// PR Session logs (stored at data/pr-sessions/<id>.log.jsonl)
-// ---------------------------------------------------------------------------
+// --- PR Session logs (data/pr-sessions/<id>.log.jsonl) ---
 
+/** Build a PR-session log entry. Optional `runId` is folded into `meta`. */
 export function makePrSessionEntry(
   prSessionId: string,
   kind: LogEntryKind,
@@ -146,13 +149,9 @@ export async function readPrSessionLog(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Task logs
-// ---------------------------------------------------------------------------
+// --- Task logs (aggregate across stages) ---
 
-/**
- * Read all logs for a task across all stages.
- */
+/** Read every stage's log file for a task and return them grouped by stage. */
 export async function readTaskLogs(
   taskId: string
 ): Promise<Array<{ stage: string; entries: LogEntry[] }>> {

@@ -1,3 +1,9 @@
+/**
+ * Static metadata for each task kind: display label, ordered stages, and the
+ * artifact files it produces. Consumed by the dashboard and any code that
+ * needs to reason about "what does a <kind> task look like?".
+ */
+
 import type { StageName, TaskKind } from "./types.js";
 
 export interface TaskKindConfig {

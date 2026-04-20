@@ -1,4 +1,11 @@
-import { Hono } from "hono";
+/**
+ * Hono REST + SSE routes that back the dashboard. All routes are read-only
+ * or management actions (cancel, retry, dismiss); the real work runs in the
+ * pipelines. The `/api/events` route fans out SSE messages from
+ * `shared/events.ts`.
+ */
+
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { readFile } from "node:fs/promises";
@@ -11,7 +18,7 @@ import { createLogger } from "../shared/logger.js";
 import { TASK_STATUSES, TASK_KINDS } from "../shared/types.js";
 import type { TaskStatus, TaskKind } from "../shared/types.js";
 import { readTaskLogs, readPrSessionLog } from "../core/logs.js";
-import { cancelTask as cancelRunningTask } from "../core/stage.js";
+import { cancelTask as cancelRunningTask, type SendTelegram } from "../core/stage.js";
 import { runPipeline } from "../pipelines/coding/pipeline.js";
 import { runQuestion } from "../pipelines/question/pipeline.js";
 import { runPrReview } from "../pipelines/pr-review/pipeline.js";
@@ -19,31 +26,40 @@ import { dismissTask } from "../pipelines/cleanup.js";
 
 const log = createLogger("api");
 
+const SSE_PING_INTERVAL_MS = 30_000;
+const UUID_PATTERN = /^[0-9a-f-]{36}$/;
+const ARTIFACT_NAME_PATTERN = /^[\w.-]+$/;
+
+// Dashboard-triggered retries don't have bot access; skip Telegram.
+const noopSend: SendTelegram = async () => {};
+
+const PIPELINES: Record<TaskKind, (taskId: string, send: SendTelegram) => Promise<void>> = {
+  coding_task: runPipeline,
+  codebase_question: runQuestion,
+  pr_review: runPrReview,
+};
+
+// --- Public API ---
+
+/** Build the Hono app. Returned once and mounted by `src/index.ts`. */
 export function createApi(): Hono {
   const app = new Hono();
-
   app.use("*", cors());
 
   // --- Tasks ---
 
   app.get("/api/tasks", async (c) => {
-    const rawStatus = c.req.query("status");
-    const status = rawStatus && TASK_STATUSES.includes(rawStatus as TaskStatus)
-      ? (rawStatus as TaskStatus)
-      : undefined;
-    const repo = c.req.query("repo");
-    const rawKind = c.req.query("kind");
-    const kind = rawKind && TASK_KINDS.includes(rawKind as TaskKind)
-      ? (rawKind as TaskKind)
-      : undefined;
-    const tasks = await queries.listTasks({ status, repo, kind });
+    const tasks = await queries.listTasks({
+      status: oneOf(c.req.query("status"), TASK_STATUSES),
+      repo: c.req.query("repo"),
+      kind: oneOf(c.req.query("kind"), TASK_KINDS),
+    });
     return c.json(tasks);
   });
 
   app.get("/api/tasks/:id", async (c) => {
     const task = await queries.getTask(c.req.param("id"));
-    if (!task) return c.json({ error: "Not found" }, 404);
-
+    if (!task) return notFound(c);
     const stages = await queries.getStagesForTask(task.id);
     return c.json({ ...task, stages });
   });
@@ -55,19 +71,10 @@ export function createApi(): Hono {
 
   app.get("/api/tasks/:id/artifacts/:name", async (c) => {
     const { id, name } = c.req.param();
-
-    // Validate inputs to prevent path traversal
-    if (!/^[0-9a-f-]{36}$/.test(id)) return c.json({ error: "Not found" }, 404);
-    if (!/^[\w.-]+$/.test(name) || name.startsWith(".")) return c.json({ error: "Not found" }, 404);
-
-    // Verify path stays within artifacts/
-    const base = path.resolve(config.artifactsDir);
-    const filePath = path.resolve(path.join(base, id, name));
-    if (!filePath.startsWith(base + path.sep)) return c.json({ error: "Not found" }, 404);
-
+    const filePath = safeArtifactPath(id, name);
+    if (!filePath) return notFound(c);
     try {
-      const content = await readFile(filePath, "utf-8");
-      return c.text(content);
+      return c.text(await readFile(filePath, "utf-8"));
     } catch {
       return c.json({ error: "Artifact not found" }, 404);
     }
@@ -75,31 +82,17 @@ export function createApi(): Hono {
 
   app.post("/api/tasks/:id/retry", async (c) => {
     const task = await queries.getTask(c.req.param("id"));
-    if (!task) return c.json({ error: "Not found" }, 404);
+    if (!task) return notFound(c);
     if (task.status !== "failed") return c.json({ error: "Task is not in failed state" }, 409);
 
     await queries.updateTask(task.id, { status: "queued", error: null });
-    // Dashboard-triggered retries don't have access to the bot instance,
-    // so Telegram notifications are skipped. The user is watching the dashboard.
-    const noopSend = async (_chatId: string, _text: string): Promise<void> => {};
-
-    switch (task.kind) {
-      case "coding_task":
-        runPipeline(task.id, noopSend).catch((err) => log.error(`Retry error ${task.id}`, err));
-        break;
-      case "codebase_question":
-        runQuestion(task.id, noopSend).catch((err) => log.error(`Retry error ${task.id}`, err));
-        break;
-      case "pr_review":
-        runPrReview(task.id, noopSend).catch((err) => log.error(`Retry error ${task.id}`, err));
-        break;
-    }
+    PIPELINES[task.kind](task.id, noopSend).catch((err) => log.error(`Retry error ${task.id}`, err));
     return c.json({ ok: true });
   });
 
   app.post("/api/tasks/:id/cancel", async (c) => {
     const task = await queries.getTask(c.req.param("id"));
-    if (!task) return c.json({ error: "Not found" }, 404);
+    if (!task) return notFound(c);
     cancelRunningTask(task.id);
     await queries.updateTask(task.id, { status: "cancelled" });
     return c.json({ ok: true });
@@ -120,9 +113,7 @@ export function createApi(): Hono {
 
   // --- Repos ---
 
-  app.get("/api/repos", (c) => {
-    return c.json(listRepos());
-  });
+  app.get("/api/repos", (c) => c.json(listRepos()));
 
   // --- PRs ---
 
@@ -150,43 +141,59 @@ export function createApi(): Hono {
   app.get("/api/pr-sessions/:id", async (c) => {
     const id = c.req.param("id");
     const session = await queries.getPrSession(id);
-    if (!session) return c.json({ error: "Not found" }, 404);
+    if (!session) return notFound(c);
     const runs = await queries.getRunsForPrSession(id);
     return c.json({ ...session, prUrl: buildPrUrl(session.repo, session.prNumber), runs });
   });
 
   app.get("/api/pr-sessions/:id/logs", async (c) => {
     const id = c.req.param("id");
-    if (!/^[0-9a-f-]{36}$/.test(id)) return c.json({ error: "Not found" }, 404);
+    if (!UUID_PATTERN.test(id)) return notFound(c);
     const entries = await readPrSessionLog(id);
     return c.json({ entries });
   });
 
   // --- SSE ---
 
-  app.get("/api/events", (c) => {
-    return streamSSE(c, async (stream) => {
-      const unsubscribe = subscribe((event) => {
-        stream.writeSSE({
-          data: JSON.stringify(event),
-          event: event.type,
-        }).catch(() => {});
-      });
-
-      // Keep alive
-      const keepAlive = setInterval(() => {
-        stream.writeSSE({ data: "", event: "ping" }).catch(() => {});
-      }, 30_000);
-
-      stream.onAbort(() => {
-        unsubscribe();
-        clearInterval(keepAlive);
-      });
-
-      // Block until client disconnects
-      await new Promise(() => {});
+  app.get("/api/events", (c) => streamSSE(c, async (stream) => {
+    const unsubscribe = subscribe((event) => {
+      stream.writeSSE({ data: JSON.stringify(event), event: event.type }).catch(() => {});
     });
-  });
+    const keepAlive = setInterval(() => {
+      stream.writeSSE({ data: "", event: "ping" }).catch(() => {});
+    }, SSE_PING_INTERVAL_MS);
+
+    stream.onAbort(() => {
+      unsubscribe();
+      clearInterval(keepAlive);
+    });
+    // Hold the stream open until the client disconnects.
+    await new Promise(() => {});
+  }));
 
   return app;
+}
+
+// --- Helpers ---
+
+function notFound(c: Context) {
+  return c.json({ error: "Not found" }, 404);
+}
+
+/** Return `value` if it's one of the allowed literals, else `undefined`. */
+function oneOf<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {
+  return value && (allowed as readonly string[]).includes(value) ? (value as T) : undefined;
+}
+
+/**
+ * Build a path under `artifactsDir/<id>/<name>` after validating both segments.
+ * Returns `null` if the id or name is malformed, or the resolved path escapes
+ * the artifacts directory.
+ */
+function safeArtifactPath(id: string, name: string): string | null {
+  if (!UUID_PATTERN.test(id)) return null;
+  if (!ARTIFACT_NAME_PATTERN.test(name) || name.startsWith(".")) return null;
+  const base = path.resolve(config.artifactsDir);
+  const full = path.resolve(path.join(base, id, name));
+  return full.startsWith(base + path.sep) ? full : null;
 }

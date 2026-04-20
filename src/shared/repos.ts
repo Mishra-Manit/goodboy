@@ -1,4 +1,11 @@
+/**
+ * Registered repo accessors. The repo registry is defined by the
+ * `REGISTERED_REPOS` env var (Zod-validated in `config.ts`) and exposed here
+ * as ergonomic read-only lookups.
+ */
+
 import { loadEnv } from "./config.js";
+import { parseNwo } from "../core/github.js";
 
 export interface Repo {
   name: string;
@@ -7,35 +14,31 @@ export interface Repo {
   envNotes?: string;
 }
 
+/** All registered repos. */
 export function listRepos(): readonly Repo[] {
-  return Object.entries(loadEnv().REGISTERED_REPOS).map(([name, entry]) => ({
-    name,
-    ...entry,
-  }));
+  return Object.entries(loadEnv().REGISTERED_REPOS).map(([name, entry]) => ({ name, ...entry }));
 }
 
+/** Just the names, in registry order. Used for prompt context and validation. */
 export function listRepoNames(): readonly string[] {
   return listRepos().map((r) => r.name);
 }
 
+/** Look up a repo by name. Returns `null` if not registered. */
 export function getRepo(name: string): Repo | null {
   const entry = loadEnv().REGISTERED_REPOS[name];
-  if (!entry) return null;
-  return { name, ...entry };
+  return entry ? { name, ...entry } : null;
 }
 
-/** Extract "owner/repo" from a registered repo's githubUrl. */
+/** "owner/repo" for a registered repo, or `null` if the repo has no GitHub URL. */
 export function getRepoNwo(name: string): string | null {
   const repo = getRepo(name);
-  if (!repo?.githubUrl) return null;
-  const match = repo.githubUrl.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/);
-  return match ? match[1] : null;
+  return repo?.githubUrl ? parseNwo(repo.githubUrl) : null;
 }
 
-/** Build a GitHub PR URL for a registered repo + PR number, or null if unavailable. */
+/** Build a GitHub PR URL for a registered repo + PR number, or `null` if unavailable. */
 export function buildPrUrl(repoName: string, prNumber: number | null): string | null {
   if (!prNumber) return null;
   const nwo = getRepoNwo(repoName);
-  if (!nwo) return null;
-  return `https://github.com/${nwo}/pull/${prNumber}`;
+  return nwo ? `https://github.com/${nwo}/pull/${prNumber}` : null;
 }

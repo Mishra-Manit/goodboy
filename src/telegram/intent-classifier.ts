@@ -1,3 +1,9 @@
+/**
+ * LLM-backed intent classifier for inbound Telegram messages. Emits a
+ * discriminated `Intent` union validated by Zod; any failure (LLM error,
+ * schema mismatch) falls back to `{ type: "unknown", rawText }`.
+ */
+
 import { z } from "zod";
 import { structuredOutput } from "../shared/llm.js";
 import { createLogger } from "../shared/logger.js";
@@ -5,60 +11,26 @@ import { buildClassifierSystemPrompt } from "./prompts.js";
 
 const log = createLogger("intent-classifier");
 
-const codingTaskIntent = z.object({
-  type: z.literal("coding_task"),
-  repo: z.string(),
-  description: z.string(),
-});
+const LOG_PREVIEW_LEN = 80;
 
-const prReviewIntent = z.object({
-  type: z.literal("pr_review"),
-  repo: z.string(),
-  prIdentifier: z.string(),
-});
-
-const codebaseQuestionIntent = z.object({
-  type: z.literal("codebase_question"),
-  repo: z.string(),
-  question: z.string(),
-});
-
-const taskStatusIntent = z.object({
-  type: z.literal("task_status"),
-  taskPrefix: z.string().optional(),
-});
-
-const taskCancelIntent = z.object({
-  type: z.literal("task_cancel"),
-  taskPrefix: z.string(),
-});
-
-const taskRetryIntent = z.object({
-  type: z.literal("task_retry"),
-  taskPrefix: z.string(),
-});
-
-const unknownIntent = z.object({
-  type: z.literal("unknown"),
-  rawText: z.string(),
-});
+// --- Schemas ---
 
 const intentSchema = z.discriminatedUnion("type", [
-  codingTaskIntent,
-  prReviewIntent,
-  codebaseQuestionIntent,
-  taskStatusIntent,
-  taskCancelIntent,
-  taskRetryIntent,
-  unknownIntent,
+  z.object({ type: z.literal("coding_task"),       repo: z.string(), description: z.string() }),
+  z.object({ type: z.literal("pr_review"),         repo: z.string(), prIdentifier: z.string() }),
+  z.object({ type: z.literal("codebase_question"), repo: z.string(), question: z.string() }),
+  z.object({ type: z.literal("task_status"),       taskPrefix: z.string().optional() }),
+  z.object({ type: z.literal("task_cancel"),       taskPrefix: z.string() }),
+  z.object({ type: z.literal("task_retry"),        taskPrefix: z.string() }),
+  z.object({ type: z.literal("unknown"),           rawText: z.string() }),
 ]);
 
 export type Intent = z.infer<typeof intentSchema>;
 
-export async function classifyMessage(
-  text: string,
-  repoNames: readonly string[],
-): Promise<Intent> {
+// --- Public API ---
+
+/** Classify a user message into an `Intent`. Never throws; falls back to `unknown` on failure. */
+export async function classifyMessage(text: string, repoNames: readonly string[]): Promise<Intent> {
   try {
     const intent = await structuredOutput({
       system: buildClassifierSystemPrompt(repoNames),
@@ -66,12 +38,10 @@ export async function classifyMessage(
       schema: intentSchema,
       temperature: 0,
     });
-
     log.info(`Classified message as "${intent.type}"`, {
       type: intent.type,
-      preview: text.slice(0, 80),
+      preview: text.slice(0, LOG_PREVIEW_LEN),
     });
-
     return intent;
   } catch (err) {
     log.error("Classification failed, returning unknown", err);

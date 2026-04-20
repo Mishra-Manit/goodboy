@@ -143,6 +143,39 @@ All queries go through `src/db/queries.ts`. All writes use `.returning()`. All r
 - PR/GitHub URL parsing → import `parseNwo` / `parsePrNumberFromUrl` / `parsePrIdentifier` from `core/github.ts`. Never re-implement the regex.
 - DB reads → go through `db/queries.ts`, never touch `schema` from other modules.
 
+### Docstrings and file shape
+
+Every file follows the same rhythm so a skimmer can read the first 10 lines and know what it does.
+
+- **File header.** Any file with ≥2 exports or a non-obvious role opens with a single `/** ... */` block (1-3 lines). It describes the module's *role*, not a list of exports. Trivial files (single export, self-evident from filename) skip it.
+- **Section dividers.** `// --- Title ---` — short dashes, Title Case. Required once a file holds two distinct responsibilities. Never use long-bar separators (`// ----------------------`) or ASCII banners.
+- **Exported functions and types.** Single-line `/** ... */` preferred, documenting the *why* — contract, invariant, surprise. Multi-line only when behavior is genuinely non-obvious. Never restate the signature.
+- **Non-exported helpers.** Docstring only when behavior is non-obvious. Trust good names.
+- **Never use** `@param`, `@returns`, `@throws`, `@example`. TypeScript types carry that; JSDoc tags duplicate them and rot.
+- **Inline `//` comments** only for surprising logic. Prefer a named constant (`const POLL_INTERVAL_MS = 3 * 60 * 1000`) over `// 3 minutes`.
+
+Target shape:
+
+```ts
+/**
+ * Per-toolCallId throttle for high-frequency tool_execution_update events.
+ * Keeps the dashboard and disk from getting swamped by parallel subagents.
+ */
+
+import { ... } from "...";
+
+const THROTTLE_MS = 250;
+
+// --- Public API ---
+
+/** Create a coalescer scoped to one pi session. */
+export function createSubagentCoalescer(...): Coalescer { ... }
+
+// --- Helpers ---
+
+function mergeProgress(...) { ... }
+```
+
 ---
 
 ## Escalation Rules

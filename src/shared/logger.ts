@@ -1,3 +1,8 @@
+/**
+ * Colored, timestamped console logger keyed by module context. Every backend
+ * file uses `createLogger("<module>")` instead of `console.*`.
+ */
+
 const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 type LogLevel = (typeof LOG_LEVELS)[number];
 
@@ -29,6 +34,7 @@ function emit(level: LogLevel, context: string, message: string, data?: unknown)
   }
 }
 
+/** Build a logger bound to a module name. The name is printed as `[context]` on every line. */
 export function createLogger(context: string): Logger {
   return {
     debug: (msg, data) => emit("debug", context, msg, data),

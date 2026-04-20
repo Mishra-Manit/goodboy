@@ -1,20 +1,20 @@
-import type { LogEntryKind } from "../../shared/types.js";
-
 /**
- * Subagent-specific emit helpers.
- *
- * The `subagent` tool has a richer result shape than ordinary tools --
- * it can run parallel workers, each with its own finalOutput, usage, and
- * progress. Keeping this logic out of the generic event router keeps the
- * router simple and makes these parsers testable in isolation.
+ * Subagent emit helpers. The `subagent` tool runs parallel workers, each with
+ * its own finalOutput, usage, and progress; the shape is richer than ordinary
+ * tools so the parsing logic lives here and stays pure + testable, while the
+ * generic event router in `session.ts` stays simple.
  */
+
+import type { LogEntryKind } from "../../shared/types.js";
 
 type EmitLog = (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => void;
 
-/** Max bytes of a single worker's finalOutput we persist; plenty for our rigid
- *  Finding/Evidence/Caveats format which is typically <2KB. */
+/** Cap per-worker finalOutput; our Finding/Evidence/Caveats format is typically <2KB. */
 const SUBAGENT_OUTPUT_CAP = 8192;
 
+// --- Emit helpers ---
+
+/** Emit a `tool_start` log for a subagent call, with parsed mode + task list in meta. */
 export function emitSubagentStart(
   toolCallId: string,
   args: Record<string, unknown> | undefined,
@@ -43,6 +43,7 @@ export function emitSubagentStart(
   });
 }
 
+/** Emit one `tool_output` per worker plus a `tool_end` aggregate with usage totals. */
 export function emitSubagentEnd(
   toolCallId: string,
   rawResult: unknown,
@@ -111,9 +112,7 @@ export function emitSubagentEnd(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Parsers (pure)
-// ---------------------------------------------------------------------------
+// --- Pure parsers ---
 
 interface SubagentTaskSummary {
   agent: string;
@@ -154,10 +153,9 @@ interface SubagentWorkerResult {
 }
 
 /**
- * Tool results from pi-agent-core are AgentToolResult objects: `{ content,
- * details, isError? }`. pi-subagents puts its parallel/chain results under
- * `details.results`. We also handle the top-level shape and stringified JSON
- * as defensive fallbacks for forward-compat with future pi versions.
+ * Unwrap the worker list from a subagent tool result. pi-agent-core wraps it
+ * as `AgentToolResult.details.results`; we also accept a top-level `.results`
+ * and a JSON-stringified payload as forward-compat fallbacks.
  */
 function parseSubagentDetails(result: unknown): { results: SubagentWorkerResult[] } | null {
   if (!result) return null;

@@ -1,3 +1,5 @@
+/** System prompts for each stage of the coding pipeline (planner, implementer, reviewer). */
+
 import { SHARED_RULES, worktreeBlock, type WorktreeEnv } from "../../core/prompts.js";
 
 export type { WorktreeEnv };

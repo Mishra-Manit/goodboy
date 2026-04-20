@@ -1,3 +1,10 @@
+/**
+ * Git worktree primitives: sync the main checkout, create task and PR-review
+ * worktrees, remove them cleanly (with fallback for stale metadata), and
+ * generate LLM-sluggified branch names. Every worktree also gets a fresh
+ * copy of `pi-assets/` dropped into `.pi/` for project-scoped agents.
+ */
+
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { cp, rm, stat } from "node:fs/promises";
@@ -9,18 +16,110 @@ import { complete } from "../shared/llm.js";
 const exec = promisify(execFile);
 const log = createLogger("worktree");
 
+const BRANCH_SLUG_MAX_LEN = 50;
+
+// --- Public API ---
+
+/** Fetch origin and hard-reset main so new worktrees branch from up-to-date code. */
+export async function syncRepo(repoPath: string): Promise<void> {
+  log.info(`Syncing repo at ${repoPath}`);
+  await exec("git", ["fetch", "origin"], { cwd: repoPath });
+  await exec("git", ["checkout", "main"], { cwd: repoPath });
+  await exec("git", ["reset", "--hard", "origin/main"], { cwd: repoPath });
+}
+
+/** Create a fresh worktree on a new branch for a coding task. Wipes any existing worktree/branch first. */
+export async function createWorktree(repoPath: string, branch: string, taskId: string): Promise<string> {
+  const dir = path.join(repoPath, "..", `goodboy-worktree-${taskId.slice(0, 8)}`);
+
+  // Start clean so retries can't inherit partial commits from a failed run.
+  await forceRemoveWorktree(repoPath, dir);
+  await forceDeleteBranch(repoPath, branch);
+
+  await exec("git", ["worktree", "add", "-b", branch, dir], { cwd: repoPath });
+  log.info(`Created worktree at ${dir} on branch ${branch}`);
+  await copyPiAssets(dir);
+  return dir;
+}
+
+/** Create a worktree checked out to a PR's head ref. */
+export async function createPrWorktree(repoPath: string, prNumber: string, taskId: string): Promise<string> {
+  const dir = path.join(repoPath, "..", `goodboy-pr-${taskId.slice(0, 8)}`);
+  const localBranch = `pr-review-${prNumber}-${taskId.slice(0, 8)}`;
+
+  await forceRemoveWorktree(repoPath, dir);
+  await forceDeleteBranch(repoPath, localBranch);
+
+  await exec("git", ["fetch", "origin", `pull/${prNumber}/head:${localBranch}`], { cwd: repoPath });
+  await exec("git", ["worktree", "add", dir, localBranch], { cwd: repoPath });
+  log.info(`Created PR worktree at ${dir} for PR #${prNumber}`);
+  await copyPiAssets(dir);
+  return dir;
+}
+
+/** Remove a worktree. Falls back to `rm -rf` + `git worktree prune` if git no longer tracks it. */
+export async function removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
+  try {
+    await exec("git", ["worktree", "remove", worktreePath, "--force"], { cwd: repoPath });
+    log.info(`Removed worktree at ${worktreePath}`);
+    return;
+  } catch (err) {
+    if (isMissingWorktreeError(err)) {
+      log.info(`Worktree ${worktreePath} already detached from git; removing directory directly`);
+    } else {
+      log.warn(`git worktree remove failed for ${worktreePath}, falling back to manual cleanup`, err);
+    }
+  }
+
+  // Fallback: directory exists on disk but git no longer tracks it. Drop it
+  // and prune stale worktree metadata so future operations don't trip on it.
+  try {
+    await rm(worktreePath, { recursive: true, force: true });
+    log.info(`Removed worktree directory at ${worktreePath}`);
+  } catch (err) {
+    log.warn(`Failed to rm worktree directory at ${worktreePath}`, err);
+  }
+  try {
+    await exec("git", ["worktree", "prune"], { cwd: repoPath });
+  } catch (err) {
+    log.warn(`git worktree prune failed in ${repoPath}`, err);
+  }
+}
+
+/** Produce a `goodboy/<slug>-<taskId[:8]>` branch name, using the LLM for the slug. */
+export async function generateBranchName(taskId: string, description: string): Promise<string> {
+  const result = await complete(description, {
+    system: "Output a short professional git branch slug (lowercase, hyphens, 3-5 words). Nothing else. Example: fix-auth-token-refresh",
+    maxTokens: 30,
+  });
+  const slug = toSlug(result ?? "") || toSlug(description);
+  return `goodboy/${slug}-${taskId.slice(0, 8)}`;
+}
+
+// --- Helpers ---
+
+async function forceRemoveWorktree(repoPath: string, dir: string): Promise<void> {
+  try {
+    await exec("git", ["worktree", "remove", dir, "--force"], { cwd: repoPath });
+    log.info(`Removed existing worktree at ${dir}`);
+  } catch { /* may not exist */ }
+}
+
+async function forceDeleteBranch(repoPath: string, branch: string): Promise<void> {
+  try {
+    await exec("git", ["branch", "-D", branch], { cwd: repoPath });
+    log.info(`Deleted existing branch ${branch}`);
+  } catch { /* may not exist */ }
+}
+
 function isMissingWorktreeError(err: unknown): boolean {
   return err instanceof Error && err.message.includes("is not a working tree");
 }
 
 /**
- * Copy pi-assets/* into <worktreePath>/.pi/*, silently overwriting any
- * pre-existing .pi/ directory from the target repo. Worktree destruction
- * cleans this up naturally; no manual teardown needed.
- *
- * Destination is `<worktree>/.pi/` (not `.pi/agent/`) so that pi-subagents
- * discovers project-scoped agents at `<worktree>/.pi/agents/*.md`, which is
- * where its findNearestProjectAgentsDir helper looks.
+ * Copy `pi-assets/` into `<worktreePath>/.pi/`, overwriting anything present.
+ * Destination is `.pi/` (not `.pi/agent/`) because pi-subagents looks for
+ * project-scoped agents at `<worktree>/.pi/agents/*.md`.
  */
 async function copyPiAssets(worktreePath: string): Promise<void> {
   try {
@@ -34,113 +133,10 @@ async function copyPiAssets(worktreePath: string): Promise<void> {
   log.info(`Copied pi-assets into ${dest}`);
 }
 
-/** Fetch latest origin/main and hard-reset so worktrees branch from up-to-date code. */
-export async function syncRepo(repoPath: string): Promise<void> {
-  log.info(`Syncing repo at ${repoPath}`);
-  await exec("git", ["fetch", "origin"], { cwd: repoPath });
-  await exec("git", ["checkout", "main"], { cwd: repoPath });
-  await exec("git", ["reset", "--hard", "origin/main"], { cwd: repoPath });
-}
-
-export async function createWorktree(
-  repoPath: string,
-  branch: string,
-  taskId: string
-): Promise<string> {
-  const worktreeDir = path.join(repoPath, "..", `goodboy-worktree-${taskId.slice(0, 8)}`);
-
-  // Always start clean -- remove existing worktree and branch so retries
-  // never inherit partial commits from a previous failed run.
-  try {
-    await exec("git", ["worktree", "remove", worktreeDir, "--force"], { cwd: repoPath });
-    log.info(`Removed existing worktree at ${worktreeDir}`);
-  } catch {
-    // Ignore -- may not exist
-  }
-
-  try {
-    await exec("git", ["branch", "-D", branch], { cwd: repoPath });
-    log.info(`Deleted existing branch ${branch}`);
-  } catch {
-    // Ignore -- branch may not exist
-  }
-
-  // Create a new branch and worktree
-  await exec("git", ["worktree", "add", "-b", branch, worktreeDir], { cwd: repoPath });
-
-  log.info(`Created worktree at ${worktreeDir} on branch ${branch}`);
-  await copyPiAssets(worktreeDir);
-  return worktreeDir;
-}
-
-/** Create a worktree checked out to a PR's head ref. */
-export async function createPrWorktree(
-  repoPath: string,
-  prNumber: string,
-  taskId: string,
-): Promise<string> {
-  const dir = path.join(repoPath, "..", `goodboy-pr-${taskId.slice(0, 8)}`);
-
-  // Clean up any existing worktree
-  try {
-    await exec("git", ["worktree", "remove", dir, "--force"], { cwd: repoPath });
-  } catch { /* may not exist */ }
-
-  const localBranch = `pr-review-${prNumber}-${taskId.slice(0, 8)}`;
-  try {
-    await exec("git", ["branch", "-D", localBranch], { cwd: repoPath });
-  } catch { /* may not exist */ }
-
-  await exec("git", ["fetch", "origin", `pull/${prNumber}/head:${localBranch}`], { cwd: repoPath });
-  await exec("git", ["worktree", "add", dir, localBranch], { cwd: repoPath });
-
-  log.info(`Created PR worktree at ${dir} for PR #${prNumber}`);
-  await copyPiAssets(dir);
-  return dir;
-}
-
-export async function removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
-  // Try the clean path first: let git remove the worktree and its metadata.
-  try {
-    await exec("git", ["worktree", "remove", worktreePath, "--force"], { cwd: repoPath });
-    log.info(`Removed worktree at ${worktreePath}`);
-    return;
-  } catch (err) {
-    if (isMissingWorktreeError(err)) {
-      log.info(`Worktree ${worktreePath} is already detached from git, removing directory directly`);
-    } else {
-      log.warn(`git worktree remove failed for ${worktreePath}, falling back to manual cleanup`, err);
-    }
-  }
-
-  // Fallback: directory exists on disk but git no longer considers it a
-  // registered worktree (e.g. metadata was pruned, repo was re-cloned, or a
-  // previous cleanup partially succeeded). Remove the directory ourselves
-  // and prune stale worktree metadata so future operations don't trip on it.
-  try {
-    await rm(worktreePath, { recursive: true, force: true });
-    log.info(`Removed worktree directory at ${worktreePath}`);
-  } catch (err) {
-    log.warn(`Failed to rm worktree directory at ${worktreePath}`, err);
-  }
-
-  try {
-    await exec("git", ["worktree", "prune"], { cwd: repoPath });
-  } catch (err) {
-    log.warn(`git worktree prune failed in ${repoPath}`, err);
-  }
-}
-
-export async function generateBranchName(taskId: string, description: string): Promise<string> {
-  const result = await complete(description, {
-    system: "Output a short professional git branch slug (lowercase, hyphens, 3-5 words). Nothing else. Example: fix-auth-token-refresh",
-    maxTokens: 30,
-  });
-
-  const slug = toSlug(result ?? "") || toSlug(description);
-  return `goodboy/${slug}-${taskId.slice(0, 8)}`;
-}
-
 function toSlug(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "task";
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, BRANCH_SLUG_MAX_LEN) || "task";
 }

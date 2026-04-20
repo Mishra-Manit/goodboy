@@ -1,3 +1,4 @@
+/** System prompt for the Telegram intent classifier. Injected with the registered repo list. */
 export function buildClassifierSystemPrompt(repoNames: readonly string[]): string {
   const repoList = repoNames.length > 0
     ? repoNames.map((r) => `  - ${r}`).join("\n")

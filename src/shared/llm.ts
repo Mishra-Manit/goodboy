@@ -1,3 +1,9 @@
+/**
+ * Fireworks LLM client used for non-pi work (intent classification, branch
+ * name slugging). Exposes `complete` (raw text) and `structuredOutput`
+ * (JSON validated through a Zod schema at the trust boundary).
+ */
+
 import type { ZodType } from "zod";
 import { loadEnv } from "./config.js";
 import { createLogger } from "./logger.js";
@@ -28,7 +34,9 @@ interface StructuredOutputOptions<T> {
   readonly temperature?: number;
 }
 
-/** Raw text completion. Returns null on failure. */
+// --- Public API ---
+
+/** Raw text completion. Returns `null` on any failure (network, non-2xx, empty body). */
 export async function complete(
   prompt: string,
   options: CompleteOptions = {},
@@ -44,7 +52,7 @@ export async function complete(
   return raw;
 }
 
-/** JSON completion parsed through a Zod schema. Throws on failure. */
+/** JSON completion validated through a Zod schema. Throws on network, parse, or schema failure. */
 export async function structuredOutput<T>(options: StructuredOutputOptions<T>): Promise<T> {
   const {
     system,
@@ -92,9 +100,7 @@ export async function structuredOutput<T>(options: StructuredOutputOptions<T>): 
   return result.data;
 }
 
-// ---------------------------------------------------------------------------
-// Internal
-// ---------------------------------------------------------------------------
+// --- Internal ---
 
 interface RequestOptions {
   readonly model: string;

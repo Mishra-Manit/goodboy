@@ -1,6 +1,6 @@
 /**
- * Proper JSONL reader -- splits only on \n, not Unicode line separators.
- * Handles chunk boundaries, \r\n line endings, and flushes any trailing
+ * Attach a JSONL line reader to a stream. Splits only on `\n` (not Unicode
+ * separators), handles chunk boundaries and `\r\n`, and flushes any trailing
  * partial line when the stream ends.
  */
 export function attachJsonlReader(

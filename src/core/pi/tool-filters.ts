@@ -1,4 +1,10 @@
-/** Detect raw tool event JSON that leaks into the text stream (duplicates structured entries) */
+/**
+ * Pure filters for tool events: detect raw tool JSON leaking into the text
+ * stream (duplicates the structured event) and truncate long string args
+ * for display. Imported by `session.ts` to keep the event router clean.
+ */
+
+/** True if `text` is a JSON-encoded tool event that duplicates a structured log entry. */
 export function isRawToolEvent(text: string): boolean {
   if (!text.startsWith("{")) return false;
   try {
@@ -16,7 +22,7 @@ export function isRawToolEvent(text: string): boolean {
   }
 }
 
-/** Truncate long string argument values for display */
+/** Cap long string argument values at 300 chars so the dashboard stays responsive. */
 export function truncateArgs(args: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {

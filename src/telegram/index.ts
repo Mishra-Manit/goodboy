@@ -1,3 +1,9 @@
+/**
+ * Telegram bot wiring: Grammy bot with single-user auth, classify-every-message
+ * routing to `handleIntent`, and a bot-level error handler. The bot is owned
+ * by `src/index.ts`, which starts/stops it alongside the HTTP server.
+ */
+
 import { Bot } from "grammy";
 import { loadEnv } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
@@ -8,6 +14,7 @@ import type { SendTelegram } from "../core/stage.js";
 
 const log = createLogger("telegram");
 
+/** Build the Grammy bot. The caller is responsible for `bot.start()` and shutdown. */
 export function createTelegramBot(): Bot {
   const env = loadEnv();
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);

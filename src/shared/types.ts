@@ -1,3 +1,10 @@
+/**
+ * Shared runtime enums and wire types. Each const array is the single source
+ * of truth for its TS union, the matching Postgres `pgEnum` in `db/schema.ts`,
+ * and any runtime `.includes()` check. Do not declare these as hand-written
+ * string unions elsewhere.
+ */
+
 // --- Task kinds ---
 
 export const TASK_KINDS = ["coding_task", "codebase_question", "pr_review"] as const;
@@ -37,20 +44,22 @@ export const STAGE_STATUSES = ["running", "complete", "failed"] as const;
 
 export type StageStatus = (typeof STAGE_STATUSES)[number];
 
-/** Structured marker emitted by pi instances at end of output */
+// --- Pi output + log entries ---
+
+/** Structured marker emitted by pi at the end of output. */
 export type PiOutputMarker = { status: "complete" };
 
-/** Structured log entry emitted by pi-rpc and stored on disk */
+/** Structured log entry emitted by pi-rpc and persisted as JSONL. */
 export interface LogEntry {
-  /** Monotonic index within the stage */
+  /** Monotonic index within the stage. */
   seq: number;
-  /** ISO timestamp */
+  /** ISO timestamp. */
   ts: string;
-  /** Semantic category */
+  /** Semantic category. */
   kind: LogEntryKind;
-  /** Human-readable text */
+  /** Human-readable text. */
   text: string;
-  /** Optional metadata (tool name, args, duration, etc.) */
+  /** Optional metadata (tool name, args, duration, etc.). */
   meta?: Record<string, unknown>;
 }
 
@@ -65,13 +74,12 @@ export type LogEntryKind =
   | "error"        // Error / warning
   | "stderr";      // Raw stderr
 
-/**
- * Meta conventions for tool lifecycle entries. All tool_* entries include
- * `tool` (toolName) and `toolCallId` so the dashboard can correlate updates,
- * outputs, and the terminal tool_end to the originating start event.
- */
+// Tool lifecycle convention: every tool_* entry carries `tool` (name) and
+// `toolCallId` in `meta`, so the dashboard can correlate start/update/end.
 
-/** SSE event types */
+// --- SSE events ---
+
+/** Wire format for every server-sent event the dashboard consumes. */
 export type SSEEvent =
   | { type: "task_update"; taskId: string; status: TaskStatus; kind?: TaskKind }
   | { type: "stage_update"; taskId: string; stage: StageName; status: StageStatus }

@@ -1,4 +1,7 @@
-/** Shared prompt fragments used across all task kinds. */
+/**
+ * Prompt fragments shared across every task kind. Pipelines compose these
+ * into their stage-specific prompts rather than duplicating the rules.
+ */
 
 export const SHARED_RULES = `
 CRITICAL RULES:
@@ -25,6 +28,7 @@ export interface WorktreeEnv {
   envNotes?: string;
 }
 
+/** Render the worktree context block, appending repo-specific env notes when present. */
 export function worktreeBlock(env?: WorktreeEnv): string {
   let block = WORKTREE_CONTEXT;
   if (env?.envNotes) {

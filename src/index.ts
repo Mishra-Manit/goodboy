@@ -1,3 +1,9 @@
+/**
+ * Process entry point. Boots the Hono server (API + dashboard static files),
+ * the Grammy Telegram bot, and the PR poller, then wires SIGINT/SIGTERM to
+ * a single shutdown path.
+ */
+
 import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";

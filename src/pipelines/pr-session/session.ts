@@ -1,3 +1,11 @@
+/**
+ * Long-lived PR session: owns a pull request from creation through every
+ * comment-driven revision. `startPrSession` is invoked after the coding
+ * reviewer stage; `resumePrSession` is driven by the poller; and
+ * `startExternalReview` handles drive-by reviews of PRs we did not author.
+ * All three share the same pi-session + persistent sessionfile machinery.
+ */
+
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -12,49 +20,17 @@ import * as queries from "../../db/queries.js";
 import { prSessionPrompt, formatCommentsPrompt } from "./prompts.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import type { LogEntryKind } from "../../shared/types.js";
+import type { Env } from "../../shared/config.js";
 import { parseNwo, parsePrNumberFromUrl, type PrComment } from "../../core/github.js";
 
 const exec = promisify(execFile);
 const log = createLogger("pr-session");
 
-const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
-/** Derive the session file path from a PR session ID. */
-function sessionFilePath(prSessionId: string): string {
-  return path.join(config.prSessionsDir, `${prSessionId}.jsonl`);
-}
+// --- Lifecycle entry points ---
 
-/** Build an onLog callback that emits SSE events and persists to disk. */
-function createSessionLogger(prSessionId: string, runId: string) {
-  return (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => {
-    const entry = makePrSessionEntry(prSessionId, kind, text, meta, runId);
-    emit({ type: "pr_session_log", prSessionId, entry });
-    appendPrSessionLog(prSessionId, entry).catch((err) => {
-      log.warn(`Failed to persist PR session log: ${err}`);
-    });
-  };
-}
-
-async function transferTaskGitOwnership(taskId: string, prSessionId: string): Promise<void> {
-  try {
-    await queries.updateTask(taskId, {
-      worktreePath: null,
-      branch: null,
-    });
-  } catch (err) {
-    await queries.updatePrSession(prSessionId, {
-      status: "closed",
-      worktreePath: null,
-      branch: null,
-    });
-    throw err;
-  }
-}
-
-/**
- * Start a new PR session after the coding pipeline's reviewer completes.
- * Creates the PR and persists the session for future comment rounds.
- */
+/** Called right after the reviewer stage. Creates the PR and persists the session for future rounds. */
 export async function startPrSession(options: {
   originTaskId: string;
   repo: string;
@@ -64,108 +40,56 @@ export async function startPrSession(options: {
   sendTelegram: SendTelegram;
   chatId: string;
 }): Promise<void> {
-  const {
-    originTaskId, repo, branch, worktreePath,
-    artifactsDir, sendTelegram, chatId,
-  } = options;
+  const { originTaskId, repo, branch, worktreePath, artifactsDir, sendTelegram, chatId } = options;
 
   const prSession = await queries.createPrSession({
-    repo,
-    branch,
-    worktreePath,
-    originTaskId,
-    telegramChatId: chatId,
+    repo, branch, worktreePath, originTaskId, telegramChatId: chatId,
   });
-
   await transferTaskGitOwnership(originTaskId, prSession.id);
-
-  const sessionPath = sessionFilePath(prSession.id);
-  const planPath = path.join(artifactsDir, "plan.md");
-  const summaryPath = path.join(artifactsDir, "implementation-summary.md");
-  const reviewPath = path.join(artifactsDir, "review.md");
-
-  const systemPrompt = prSessionPrompt({
-    mode: "own",
-    repo,
-    branch,
-    planPath,
-    summaryPath,
-    reviewPath,
-  });
-
-  const model = loadEnv().PI_MODEL_PR_CREATOR ?? loadEnv().PI_MODEL;
 
   const run = await queries.createPrSessionRun({
     prSessionId: prSession.id,
     trigger: "pr_creation",
   });
-
   log.info(`Starting PR session ${prSession.id} for task ${originTaskId}`);
-  emit({ type: "pr_session_update", prSessionId: prSession.id, running: true });
-
-  const session = spawnPiSession({
-    id: `pr-session-${prSession.id.slice(0, 8)}`,
-    cwd: worktreePath,
-    systemPrompt,
-    model,
-    sessionPath,
-    onLog: createSessionLogger(prSession.id, run.id),
-  });
-
-  session.sendPrompt(
-    `Push the branch and create a PR. Read the artifact files for context on the PR description.`,
-  );
 
   try {
-    const result = await withTimeout(
-      session.waitForCompletion(),
-      SESSION_TIMEOUT_MS,
-      "PR session (create)",
-    );
+    const { fullOutput } = await runSessionTurn({
+      prSessionId: prSession.id,
+      labelSuffix: "create",
+      cwd: worktreePath,
+      systemPrompt: prSessionPrompt({
+        mode: "own", repo, branch,
+        planPath: path.join(artifactsDir, "plan.md"),
+        summaryPath: path.join(artifactsDir, "implementation-summary.md"),
+        reviewPath: path.join(artifactsDir, "review.md"),
+      }),
+      model: modelFor("PI_MODEL_PR_CREATOR"),
+      prompt: "Push the branch and create a PR. Read the artifact files for context on the PR description.",
+      run,
+      timeoutLabel: "PR session (create)",
+    });
 
-    const prUrl = extractPrUrl(result.fullOutput);
+    const prUrl = extractPrUrl(fullOutput);
     const prNumber = prUrl ? parsePrNumberFromUrl(prUrl) : null;
+    await queries.updatePrSession(prSession.id, {
+      ...(prNumber ? { prNumber } : {}),
+      lastPolledAt: new Date(),
+    });
 
-    if (prNumber) {
-      await queries.updatePrSession(prSession.id, { prNumber, lastPolledAt: new Date() });
+    if (prNumber && prUrl) {
       await queries.updateTask(originTaskId, { prUrl, prNumber });
-      await notifyTelegram(
-        sendTelegram,
-        chatId,
-        `PR is up: ${prUrl}\nI will watch for comments.`,
-      );
+      await notifyTelegram(sendTelegram, chatId, `PR is up: ${prUrl}\nI will watch for comments.`);
     } else {
-      await queries.updatePrSession(prSession.id, { lastPolledAt: new Date() });
-      await notifyTelegram(
-        sendTelegram,
-        chatId,
-        "PR session finished, but I could not detect the PR URL from output. Check GitHub.",
-      );
+      await notifyTelegram(sendTelegram, chatId, "PR session finished, but I could not detect the PR URL from output. Check GitHub.");
     }
-
-    await queries.updatePrSessionRun(run.id, { status: "complete", completedAt: new Date() });
   } catch (err) {
     log.error(`PR session create failed for task ${originTaskId}`, err);
-    await queries.updatePrSessionRun(run.id, {
-      status: "failed",
-      error: err instanceof Error ? err.message : String(err),
-      completedAt: new Date(),
-    });
-    await notifyTelegram(
-      sendTelegram,
-      chatId,
-      `PR session failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  } finally {
-    session.kill();
-    await session.waitForExit();
-    emit({ type: "pr_session_update", prSessionId: prSession.id, running: false });
+    await notifyTelegram(sendTelegram, chatId, `PR session failed: ${errorMessage(err)}`);
   }
 }
 
-/**
- * Resume a PR session when new comments are detected by the poller.
- */
+/** Resume a PR session to address new comments detected by the poller. */
 export async function resumePrSession(options: {
   prSessionId: string;
   comments: PrComment[];
@@ -174,103 +98,55 @@ export async function resumePrSession(options: {
   const { prSessionId, comments, sendTelegram } = options;
 
   const prSession = await queries.getPrSession(prSessionId);
-  if (!prSession || !prSession.worktreePath) {
+  if (!prSession?.worktreePath) {
     log.error(`Cannot resume PR session ${prSessionId}: missing record or worktree`);
     return;
   }
 
-  const chatId = prSession.telegramChatId;
+  const { worktreePath, repo, branch, prNumber, originTaskId, telegramChatId: chatId } = prSession;
+  await pullLatest(worktreePath, prSessionId);
 
-  // Pull latest changes in case of manual pushes
-  try {
-    await exec("git", ["pull", "--rebase"], { cwd: prSession.worktreePath });
-  } catch (err) {
-    log.warn(`Git pull failed in worktree for PR session ${prSessionId}`, err);
-  }
-
-  const sessionPath = sessionFilePath(prSessionId);
-
-  // Reconstruct system prompt -- derive mode from originTaskId
-  const mode = prSession.originTaskId ? "own" : "review";
-  const systemPrompt = prSessionPrompt({
-    mode,
-    repo: prSession.repo,
-    branch: prSession.branch ?? "",
-    prNumber: prSession.prNumber ?? undefined,
-  });
-
-  const model = loadEnv().PI_MODEL_REVISION ?? loadEnv().PI_MODEL;
-
-  const run = await queries.createPrSessionRun({
-    prSessionId,
-    trigger: "comments",
-    comments,
-  });
-
+  const run = await queries.createPrSessionRun({ prSessionId, trigger: "comments", comments });
   log.info(`Resuming PR session ${prSessionId} with ${comments.length} new comments`);
 
+  const pluralS = comments.length === 1 ? "" : "s";
   if (chatId) {
-    await notifyTelegram(
-      sendTelegram,
-      chatId,
-      `Found ${comments.length} new comment${comments.length === 1 ? "" : "s"} on PR #${prSession.prNumber}. Addressing now...`,
-    );
+    await notifyTelegram(sendTelegram, chatId,
+      `Found ${comments.length} new comment${pluralS} on PR #${prNumber}. Addressing now...`);
   }
 
-  emit({ type: "pr_session_update", prSessionId, running: true });
-
-  const session = spawnPiSession({
-    id: `pr-session-${prSessionId.slice(0, 8)}-resume`,
-    cwd: prSession.worktreePath,
-    systemPrompt,
-    model,
-    sessionPath,
-    onLog: createSessionLogger(prSessionId, run.id),
-  });
-
-  session.sendPrompt(formatCommentsPrompt(comments));
-
   try {
-    await withTimeout(
-      session.waitForCompletion(),
-      SESSION_TIMEOUT_MS,
-      "PR session (resume)",
-    );
+    await runSessionTurn({
+      prSessionId,
+      labelSuffix: "resume",
+      cwd: worktreePath,
+      systemPrompt: prSessionPrompt({
+        mode: originTaskId ? "own" : "review",
+        repo,
+        branch: branch ?? "",
+        prNumber: prNumber ?? undefined,
+      }),
+      model: modelFor("PI_MODEL_REVISION"),
+      prompt: formatCommentsPrompt(comments),
+      run,
+      timeoutLabel: "PR session (resume)",
+    });
 
     await queries.updatePrSession(prSessionId, { lastPolledAt: new Date() });
-    await queries.updatePrSessionRun(run.id, { status: "complete", completedAt: new Date() });
-
     if (chatId) {
-      await notifyTelegram(
-        sendTelegram,
-        chatId,
-        `Addressed ${comments.length} comment${comments.length === 1 ? "" : "s"} on PR #${prSession.prNumber}. Pushed changes.`,
-      );
+      await notifyTelegram(sendTelegram, chatId,
+        `Addressed ${comments.length} comment${pluralS} on PR #${prNumber}. Pushed changes.`);
     }
   } catch (err) {
     log.error(`PR session resume failed for ${prSessionId}`, err);
-    await queries.updatePrSessionRun(run.id, {
-      status: "failed",
-      error: err instanceof Error ? err.message : String(err),
-      completedAt: new Date(),
-    });
     if (chatId) {
-      await notifyTelegram(
-        sendTelegram,
-        chatId,
-        `Failed to address comments on PR #${prSession.prNumber}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      await notifyTelegram(sendTelegram, chatId,
+        `Failed to address comments on PR #${prNumber}: ${errorMessage(err)}`);
     }
-  } finally {
-    session.kill();
-    await session.waitForExit();
-    emit({ type: "pr_session_update", prSessionId, running: false });
   }
 }
 
-/**
- * Start a PR session to review an external PR (not one we created).
- */
+/** Review an external PR we did not author. Creates a worktree at the PR head and posts a review. */
 export async function startExternalReview(options: {
   repo: string;
   prNumber: number;
@@ -281,109 +157,152 @@ export async function startExternalReview(options: {
   const { repo, prNumber, sendTelegram, chatId, taskId } = options;
 
   const repoConfig = getRepo(repo);
-  if (!repoConfig) {
-    throw new Error(`Repo '${repo}' not found in registry`);
-  }
+  if (!repoConfig) throw new Error(`Repo '${repo}' not found in registry`);
 
-  // Create worktree checked out to PR head
-  const worktreePath = await createPrWorktree(
-    repoConfig.localPath,
-    String(prNumber),
-    taskId,
-  );
-
-  // Determine branch name from the worktree
-  let branch = `pr-review-${prNumber}-${taskId.slice(0, 8)}`;
-  try {
-    const { stdout } = await exec("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-      cwd: worktreePath,
-    });
-    branch = stdout.trim();
-  } catch {
-    // fall back to the constructed name
-  }
+  const worktreePath = await createPrWorktree(repoConfig.localPath, String(prNumber), taskId);
+  const branch = await currentBranch(worktreePath) ?? `pr-review-${prNumber}-${taskId.slice(0, 8)}`;
 
   const prSession = await queries.createPrSession({
-    repo,
-    prNumber,
-    branch,
-    worktreePath,
-    telegramChatId: chatId,
+    repo, prNumber, branch, worktreePath, telegramChatId: chatId,
     // no originTaskId -- this is an external review
   });
 
-  const sessionPath = sessionFilePath(prSession.id);
+  const run = await queries.createPrSessionRun({ prSessionId: prSession.id, trigger: "external_review" });
   const nwo = repoConfig.githubUrl ? parseNwo(repoConfig.githubUrl) : null;
-
-  const systemPrompt = prSessionPrompt({
-    mode: "review",
-    repo: nwo ?? repo,
-    branch,
-    prNumber,
-  });
-
-  const model = loadEnv().PI_MODEL_REVIEWER ?? loadEnv().PI_MODEL;
-
-  const run = await queries.createPrSessionRun({
-    prSessionId: prSession.id,
-    trigger: "external_review",
-  });
-
   log.info(`Starting external review for PR #${prNumber} on ${repo}`);
-  emit({ type: "pr_session_update", prSessionId: prSession.id, running: true });
-
-  const session = spawnPiSession({
-    id: `pr-session-${prSession.id.slice(0, 8)}-review`,
-    cwd: worktreePath,
-    systemPrompt,
-    model,
-    sessionPath,
-    onLog: createSessionLogger(prSession.id, run.id),
-  });
-
-  session.sendPrompt(
-    "Review this PR. Read the diff, understand the changes, and post your review.",
-  );
 
   try {
-    await withTimeout(
-      session.waitForCompletion(),
-      SESSION_TIMEOUT_MS,
-      "PR session (external review)",
-    );
+    await runSessionTurn({
+      prSessionId: prSession.id,
+      labelSuffix: "review",
+      cwd: worktreePath,
+      systemPrompt: prSessionPrompt({ mode: "review", repo: nwo ?? repo, branch, prNumber }),
+      model: modelFor("PI_MODEL_REVIEWER"),
+      prompt: "Review this PR. Read the diff, understand the changes, and post your review.",
+      run,
+      timeoutLabel: "PR session (external review)",
+    });
 
     await queries.updatePrSession(prSession.id, { lastPolledAt: new Date() });
-    await queries.updatePrSessionRun(run.id, { status: "complete", completedAt: new Date() });
-    await notifyTelegram(
-      sendTelegram,
-      chatId,
-      `Review posted for PR #${prNumber}. I will watch for follow-up comments.`,
-    );
+    await notifyTelegram(sendTelegram, chatId,
+      `Review posted for PR #${prNumber}. I will watch for follow-up comments.`);
   } catch (err) {
     log.error(`External review failed for PR #${prNumber} on ${repo}`, err);
+    throw err;
+  }
+}
+
+// --- Shared session shell ---
+
+interface SessionTurn {
+  prSessionId: string;
+  labelSuffix: string;
+  cwd: string;
+  systemPrompt: string;
+  model: string;
+  prompt: string;
+  run: { id: string };
+  timeoutLabel: string;
+}
+
+/**
+ * Run one pi session turn: spawn, send prompt, wait (bounded), update run
+ * status, and emit running on/off. Success returns the pi output; failure
+ * marks the run failed and rethrows so the caller can do case-specific
+ * notification.
+ */
+async function runSessionTurn(turn: SessionTurn): Promise<{ fullOutput: string }> {
+  const { prSessionId, labelSuffix, cwd, systemPrompt, model, prompt, run, timeoutLabel } = turn;
+
+  emit({ type: "pr_session_update", prSessionId, running: true });
+  const session = spawnPiSession({
+    id: `pr-session-${prSessionId.slice(0, 8)}-${labelSuffix}`,
+    cwd,
+    systemPrompt,
+    model,
+    sessionPath: sessionFilePath(prSessionId),
+    onLog: createSessionLogger(prSessionId, run.id),
+  });
+  session.sendPrompt(prompt);
+
+  try {
+    const result = await withTimeout(session.waitForCompletion(), SESSION_TIMEOUT_MS, timeoutLabel);
+    await queries.updatePrSessionRun(run.id, { status: "complete", completedAt: new Date() });
+    return { fullOutput: result.fullOutput };
+  } catch (err) {
     await queries.updatePrSessionRun(run.id, {
       status: "failed",
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
       completedAt: new Date(),
     });
     throw err;
   } finally {
     session.kill();
     await session.waitForExit();
-    emit({ type: "pr_session_update", prSessionId: prSession.id, running: false });
+    emit({ type: "pr_session_update", prSessionId, running: false });
   }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// --- Helpers ---
+
+function sessionFilePath(prSessionId: string): string {
+  return path.join(config.prSessionsDir, `${prSessionId}.jsonl`);
+}
+
+function modelFor(key: keyof Env): string {
+  const env = loadEnv();
+  return (env[key] as string | undefined) ?? env.PI_MODEL;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Build an `onLog` callback that emits an SSE event and persists the entry to disk. */
+function createSessionLogger(prSessionId: string, runId: string) {
+  return (kind: LogEntryKind, text: string, meta?: Record<string, unknown>) => {
+    const entry = makePrSessionEntry(prSessionId, kind, text, meta, runId);
+    emit({ type: "pr_session_log", prSessionId, entry });
+    appendPrSessionLog(prSessionId, entry).catch((err) => {
+      log.warn(`Failed to persist PR session log: ${err}`);
+    });
+  };
+}
+
+/** Move worktree/branch ownership from the originating task row to the PR session row. */
+async function transferTaskGitOwnership(taskId: string, prSessionId: string): Promise<void> {
+  try {
+    await queries.updateTask(taskId, { worktreePath: null, branch: null });
+  } catch (err) {
+    await queries.updatePrSession(prSessionId, { status: "closed", worktreePath: null, branch: null });
+    throw err;
+  }
+}
+
+/** Rebase-pull in the worktree in case comments arrived alongside manual pushes. Best-effort. */
+async function pullLatest(worktreePath: string, prSessionId: string): Promise<void> {
+  try {
+    await exec("git", ["pull", "--rebase"], { cwd: worktreePath });
+  } catch (err) {
+    log.warn(`Git pull failed in worktree for PR session ${prSessionId}`, err);
+  }
+}
+
+/** Read the worktree's current branch name. Returns `null` on failure. */
+async function currentBranch(worktreePath: string): Promise<string | null> {
+  try {
+    const { stdout } = await exec("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: worktreePath });
+    return stdout.trim();
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Extract the most recent PR URL from agent output. Agent text may mention
- * other PRs for context, so we take the last match as the one it just created.
+ * Return the last PR URL in `text`. The agent's output may cite other PRs for
+ * context, so the last match is treated as the one just created.
  */
 function extractPrUrl(text: string): string | null {
   const matches = text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g);
-  if (!matches || matches.length === 0) return null;
-  return matches[matches.length - 1];
+  return matches?.[matches.length - 1] ?? null;
 }

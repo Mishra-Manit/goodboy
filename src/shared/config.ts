@@ -1,3 +1,9 @@
+/**
+ * Env var parsing + process-wide paths. `loadEnv()` is a lazy singleton so
+ * importing this module has no side effects; every consumer goes through
+ * the accessor. `config` exposes resolved filesystem paths.
+ */
+
 import { z } from "zod";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,10 +12,9 @@ import { createRequire } from "node:module";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
-/**
- * Resolve the pi-subagents extension entry point at startup.
- * Fails loud so deploys do not silently lose the planner's delegation tool.
- */
+// --- Subagent extension resolution ---
+
+/** Resolve pi-subagents' entry at startup. Throws loudly so deploys can't silently lose it. */
 function resolveSubagentExtensionPath(): string {
   try {
     return require.resolve("pi-subagents/index.ts");
@@ -22,10 +27,12 @@ function resolveSubagentExtensionPath(): string {
   }
 }
 
+// --- Zod schemas ---
+
 const repoEntrySchema = z.object({
   localPath: z.string().min(1),
   githubUrl: z.string().optional(),
-  /** Free-form environment notes injected into agent prompts */
+  /** Free-form environment notes injected into agent prompts. */
   envNotes: z.string().optional(),
 });
 
@@ -70,8 +77,11 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+// --- Public accessors ---
+
 let _env: Env | null = null;
 
+/** Parse and cache `process.env`. Throws on first call if anything is missing or malformed. */
 export function loadEnv(): Env {
   if (_env) return _env;
   _env = envSchema.parse(process.env);

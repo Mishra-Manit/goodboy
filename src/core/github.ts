@@ -1,21 +1,22 @@
+/**
+ * GitHub helpers: pure URL/identifier parsers and `gh` CLI wrappers for
+ * reading PR comments and state. IO functions wrap the pure parsers so the
+ * regex logic stays independently testable.
+ */
+
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createLogger } from "../shared/logger.js";
 
-// ---------------------------------------------------------------------------
-// Pure parsers
-// ---------------------------------------------------------------------------
+// --- Pure parsers ---
 
-/**
- * Extract "owner/repo" from a GitHub URL. Accepts both HTTPS and SSH forms,
- * with or without a trailing `.git`.
- */
+/** Extract "owner/repo" from a GitHub URL. Accepts HTTPS and SSH, with or without `.git`. */
 export function parseNwo(githubUrl: string): string | null {
   const match = githubUrl.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/);
   return match?.[1] ?? null;
 }
 
-/** Extract the PR number from a full URL like https://github.com/org/repo/pull/42 */
+/** Extract the PR number from a full URL like `https://github.com/org/repo/pull/42`. */
 export function parsePrNumberFromUrl(prUrl: string): number | null {
   const match = prUrl.match(/\/pull\/(\d+)/);
   if (!match) return null;
@@ -23,10 +24,7 @@ export function parsePrNumberFromUrl(prUrl: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/**
- * Parse a user-supplied PR identifier into a number.
- * Accepts a full URL (`https://.../pull/42`), `#42`, or `42`.
- */
+/** Parse a user-supplied PR identifier. Accepts a full URL, `#42`, or `42`. */
 export function parsePrIdentifier(identifier: string): number | null {
   const fromUrl = parsePrNumberFromUrl(identifier);
   if (fromUrl !== null) return fromUrl;
@@ -36,6 +34,8 @@ export function parsePrIdentifier(identifier: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+// --- gh CLI wrappers ---
+
 const exec = promisify(execFile);
 const log = createLogger("pr-session-gh");
 
@@ -44,16 +44,13 @@ export interface PrComment {
   author: string;
   body: string;
   createdAt: string;
-  /** File path (only present on inline review comments) */
+  /** File path; present only on inline review comments. */
   path?: string;
-  /** Line number (only present on inline review comments) */
+  /** Line number; present only on inline review comments. */
   line?: number;
 }
 
-/**
- * Fetch top-level issue comments on a PR.
- * Uses: gh pr view --json comments
- */
+/** Top-level issue comments on a PR. Returns `[]` on error (logged). */
 export async function getPrComments(
   nwo: string,
   prNumber: number,
@@ -84,10 +81,7 @@ export async function getPrComments(
   }
 }
 
-/**
- * Fetch inline review comments on a PR (code-level feedback).
- * Uses: gh api /repos/{nwo}/pulls/{number}/comments
- */
+/** Inline code-level review comments on a PR. Returns `[]` on error (logged). */
 export async function getPrReviewComments(
   nwo: string,
   prNumber: number,
@@ -119,9 +113,7 @@ export async function getPrReviewComments(
   }
 }
 
-/**
- * Check if a PR is merged or closed.
- */
+/** True if the PR is merged or closed. Returns `false` on error (logged). */
 export async function isPrClosed(
   nwo: string,
   prNumber: number,

@@ -1,3 +1,5 @@
+/** System prompt for the codebase-question pipeline. Enforces read-only behavior. */
+
 import { SHARED_RULES } from "../../core/prompts.js";
 
 export function questionSystemPrompt(question: string, artifactsDir: string): string {

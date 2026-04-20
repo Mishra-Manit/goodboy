@@ -1,3 +1,9 @@
+/**
+ * PR review pipeline: parse the user's PR identifier, then hand off to
+ * `startExternalReview` in `pr-session/session.ts`, which owns the worktree
+ * checkout and the pi session.
+ */
+
 import { createLogger } from "../../shared/logger.js";
 import { emit } from "../../shared/events.js";
 import * as queries from "../../db/queries.js";
@@ -11,6 +17,7 @@ import {
 
 const log = createLogger("pr-review");
 
+/** Run the PR review pipeline. Errors surface via `failTask`; never throws. */
 export async function runPrReview(
   taskId: string,
   sendTelegram: SendTelegram,

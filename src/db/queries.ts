@@ -1,3 +1,9 @@
+/**
+ * Every DB read and write the app performs. All reads filter by
+ * `instance = INSTANCE_ID` to isolate prod/dev. All writes use `.returning()`
+ * so callers never have to issue a second select.
+ */
+
 import { eq, desc, and } from "drizzle-orm";
 import { getDb, schema } from "./index.js";
 import type { Task, TaskStage, PrSession, PrSessionRun } from "./schema.js";
