@@ -13,7 +13,7 @@ import type {
   ToolResultMessage,
 } from "../../shared/session.js";
 import { truncate } from "../attributes.js";
-import type { SpanCommand, TranslatorState } from "./types.js";
+import type { EndChatSpan, SpanCommand, TranslatorState } from "./types.js";
 import { initialState } from "./types.js";
 
 /** Max chars kept for any text/thinking/tool-output preview on a span event. */
@@ -79,6 +79,15 @@ function handleMessage(
   return { state, commands: [] };
 }
 
+/**
+ * Emit chat.start + tool.starts, but defer chat.end until every tool for
+ * this assistant turn has reported a result. That gives the chat span a
+ * real duration covering the LLM call plus tool execution, and keeps it
+ * available as the parent for its tool spans.
+ *
+ * Text-only turns (no toolCalls) close immediately with a synthetic 1ms
+ * duration so Logfire doesn't collapse them.
+ */
 function handleAssistant(
   state: TranslatorState,
   entry: SessionMessageEntry,
@@ -105,10 +114,26 @@ function handleAssistant(
     .map((b) => b.thinking)
     .join("\n");
 
-  commands.push({
+  const toolIds: string[] = [];
+  for (const block of m.content) {
+    if (block.type !== "toolCall") continue;
+    commands.push({
+      type: "tool.start",
+      key: block.id,
+      name: block.name,
+      argsJson: truncate(JSON.stringify(block.arguments)),
+      startedAtMs: m.timestamp,
+      parentChatKey: key,
+    });
+    toolIds.push(block.id);
+  }
+
+  const chatEnd: EndChatSpan = {
     type: "chat.end",
     key,
-    endedAtMs: m.timestamp,
+    // Synthetic placeholder; overwritten by the last tool result's timestamp
+    // when tools are present.
+    endedAtMs: m.timestamp + 1,
     usage: {
       inputTokens: m.usage.input,
       outputTokens: m.usage.output,
@@ -120,27 +145,26 @@ function handleAssistant(
     textPreview: truncate(texts, MAX_PREVIEW),
     thinkingPreview: thinkings ? truncate(thinkings, MAX_PREVIEW) : undefined,
     errorMessage: m.errorMessage,
-  });
-
-  const openedToolIds = new Set(state.openToolIds);
-  for (const block of m.content) {
-    if (block.type !== "toolCall") continue;
-    commands.push({
-      type: "tool.start",
-      key: block.id,
-      name: block.name,
-      argsJson: truncate(JSON.stringify(block.arguments)),
-      startedAtMs: m.timestamp,
-      parentChatKey: key,
-    });
-    openedToolIds.add(block.id);
-  }
+  };
 
   commands.push({ type: "cost.add", usd: m.usage.cost.total });
-  return {
-    state: { ...state, openChatKey: key, openToolIds: openedToolIds },
-    commands,
-  };
+
+  const pendingToolsByChat = new Map(state.pendingToolsByChat);
+  const toolToChat = new Map(state.toolToChat);
+  const pendingChatEnds = new Map(state.pendingChatEnds);
+
+  if (toolIds.length === 0) {
+    // No tools; emit chat.end immediately with a 1ms synthetic duration so
+    // Logfire doesn't collapse the span into its events.
+    commands.push(chatEnd);
+    return { state: { ...state, pendingToolsByChat, toolToChat, pendingChatEnds }, commands };
+  }
+
+  pendingToolsByChat.set(key, new Set(toolIds));
+  for (const toolId of toolIds) toolToChat.set(toolId, key);
+  pendingChatEnds.set(key, chatEnd);
+
+  return { state: { ...state, pendingToolsByChat, toolToChat, pendingChatEnds }, commands };
 }
 
 function handleToolResult(
@@ -148,7 +172,8 @@ function handleToolResult(
   _entry: SessionMessageEntry,
   m: ToolResultMessage,
 ): { state: TranslatorState; commands: SpanCommand[] } {
-  if (!state.openToolIds.has(m.toolCallId)) {
+  const chatKey = state.toolToChat.get(m.toolCallId);
+  if (!chatKey) {
     // Result without a matching call -- possible with pi replays; skip.
     return { state, commands: [] };
   }
@@ -156,20 +181,40 @@ function handleToolResult(
     .filter((b): b is { type: "text"; text: string } => b.type === "text")
     .map((b) => b.text)
     .join("\n");
-  const nextOpen = new Set(state.openToolIds);
-  nextOpen.delete(m.toolCallId);
-  return {
-    state: { ...state, openToolIds: nextOpen },
-    commands: [
-      {
-        type: "tool.end",
-        key: m.toolCallId,
-        endedAtMs: m.timestamp,
-        outputPreview: truncate(outputText, MAX_PREVIEW),
-        isError: m.isError,
-      },
-    ],
-  };
+
+  const commands: SpanCommand[] = [
+    {
+      type: "tool.end",
+      key: m.toolCallId,
+      endedAtMs: m.timestamp,
+      outputPreview: truncate(outputText, MAX_PREVIEW),
+      isError: m.isError,
+    },
+  ];
+
+  const pendingToolsByChat = new Map(state.pendingToolsByChat);
+  const toolToChat = new Map(state.toolToChat);
+  const pendingChatEnds = new Map(state.pendingChatEnds);
+  toolToChat.delete(m.toolCallId);
+
+  const pending = pendingToolsByChat.get(chatKey);
+  if (pending) {
+    const next = new Set(pending);
+    next.delete(m.toolCallId);
+    if (next.size === 0) {
+      // Last tool for this chat -- fire the deferred chat.end at this timestamp.
+      pendingToolsByChat.delete(chatKey);
+      const chatEnd = pendingChatEnds.get(chatKey);
+      pendingChatEnds.delete(chatKey);
+      if (chatEnd) {
+        commands.push({ ...chatEnd, endedAtMs: m.timestamp });
+      }
+    } else {
+      pendingToolsByChat.set(chatKey, next);
+    }
+  }
+
+  return { state: { ...state, pendingToolsByChat, toolToChat, pendingChatEnds }, commands };
 }
 
 // --- Helpers ---

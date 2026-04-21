@@ -78,10 +78,18 @@ export interface AccumulateCost {
 
 export interface TranslatorState {
   sessionHeader?: SessionHeader;
-  openChatKey: string | null;
-  openToolIds: Set<string>;
+  /** Chat key -> set of toolCall ids still waiting for results. */
+  pendingToolsByChat: Map<string, Set<string>>;
+  /** toolCall id -> the chat key that spawned it (for reverse lookup). */
+  toolToChat: Map<string, string>;
+  /** Chat key -> deferred EndChatSpan waiting on its last tool result. */
+  pendingChatEnds: Map<string, EndChatSpan>;
 }
 
 export function initialState(): TranslatorState {
-  return { openChatKey: null, openToolIds: new Set() };
+  return {
+    pendingToolsByChat: new Map(),
+    toolToChat: new Map(),
+    pendingChatEnds: new Map(),
+  };
 }

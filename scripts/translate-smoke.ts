@@ -39,6 +39,7 @@ for (const line of lines) {
 
 console.log(`Entries processed: ${lines.length}`);
 console.log(`Chat spans:  start=${chatStarts} end=${chatEnds}`);
-console.log(`Tool spans:  start=${toolStarts} end=${toolEnds} (open=${state.openToolIds.size})`);
+console.log(`Tool spans:  start=${toolStarts} end=${toolEnds} (open=${state.toolToChat.size})`);
+console.log(`Pending chat ends: ${state.pendingChatEnds.size}`);
 console.log(`Tokens:      in=${totalIn} out=${totalOut}`);
 console.log(`Cost:        $${totalCost.toFixed(4)}`);
