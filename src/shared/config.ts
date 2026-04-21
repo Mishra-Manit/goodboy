@@ -71,6 +71,11 @@ export function loadEnv(): Env {
   return _env;
 }
 
+/** Test-only. Clears the cached env so the next `loadEnv()` re-parses `process.env`. */
+export function resetEnvForTesting(): void {
+  _env = null;
+}
+
 export const config = {
   artifactsDir: path.resolve(__dirname, "../../artifacts"),
   prSessionsDir: path.resolve(__dirname, "../../data/pr-sessions"),
