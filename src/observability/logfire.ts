@@ -15,6 +15,10 @@ import { createLogger } from "../shared/logger.js";
 const log = createLogger("observability");
 
 let _initialized = false;
+let _flushTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Spans close as pi writes; without this, live view lags ~5s behind reality. */
+const FLUSH_INTERVAL_MS = 2000;
 
 export function initObservability(): void {
   if (_initialized) return;
@@ -26,6 +30,16 @@ export function initObservability(): void {
     serviceName: "goodboy",
     environment: env.INSTANCE_ID,
     distributedTracing: false,
+    // Disable the default node auto-instrumentations. We don't want undici /
+    // fs / dns spans flooding Logfire -- the only thing we want to see is
+    // the agent tree emitted by our bridge + the manual pipeline/stage spans.
+    nodeAutoInstrumentations: {
+      "@opentelemetry/instrumentation-undici": { enabled: false },
+      "@opentelemetry/instrumentation-http": { enabled: false },
+      "@opentelemetry/instrumentation-fs": { enabled: false },
+      "@opentelemetry/instrumentation-dns": { enabled: false },
+      "@opentelemetry/instrumentation-net": { enabled: false },
+    },
   });
   _initialized = true;
   log.info(
@@ -33,11 +47,22 @@ export function initObservability(): void {
       ? `Logfire enabled (environment=${env.INSTANCE_ID})`
       : "LOGFIRE_TOKEN unset; spans will be dropped",
   );
+
+  if (token) {
+    _flushTimer = setInterval(() => {
+      const provider = trace.getTracerProvider() as unknown as {
+        forceFlush?: () => Promise<void>;
+      };
+      provider.forceFlush?.().catch(() => {});
+    }, FLUSH_INTERVAL_MS);
+    _flushTimer.unref?.();
+  }
 }
 
 /** Flush and shut down the OTel provider. Call from SIGINT/SIGTERM. */
 export async function shutdownObservability(): Promise<void> {
   if (!_initialized) return;
+  if (_flushTimer) { clearInterval(_flushTimer); _flushTimer = null; }
   const provider = trace.getTracerProvider() as unknown as {
     forceFlush?: () => Promise<void>;
     shutdown?: () => Promise<void>;
