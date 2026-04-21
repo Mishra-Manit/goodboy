@@ -14,6 +14,7 @@ import * as queries from "../db/queries.js";
 import { spawnPiSession, type PiSession } from "./pi/session.js";
 import { ensureSessionDir, taskSessionPath } from "./session-file.js";
 import { broadcastSessionFile } from "./session-broadcast.js";
+import { withStageSpan, bridgeSessionToOtel } from "../observability/index.js";
 import type { StageName } from "../shared/types.js";
 
 const log = createLogger("stage");
@@ -122,44 +123,52 @@ export async function runStage(options: RunStageOptions): Promise<void> {
     extensions, envOverrides, timeoutMs,
   } = options;
 
-  await queries.updateTask(taskId, { status: "running" });
-  emit({ type: "task_update", taskId, status: "running" });
-
-  const stageRecord = await queries.createTaskStage({ taskId, stage });
-  emit({ type: "stage_update", taskId, stage, status: "running" });
-  log.info(`Starting stage ${stage} for task ${taskId}`);
-  await notifyTelegram(sendTelegram, chatId, `Stage started: ${stageLabel}.`);
-
   const sessionPath = taskSessionPath(taskId, stage);
-  await ensureSessionDir(sessionPath);
-  const stopBroadcast = broadcastSessionFile(sessionPath, { scope: "task", taskId, stage });
 
-  const session = spawnPiSession({
-    id: `${taskId}-${stage}`,
-    cwd,
-    systemPrompt,
-    model,
-    sessionPath,
-    extensions,
-    envOverrides,
-  });
-  setActiveSession(taskId, session);
-  session.sendPrompt(initialPrompt);
+  await withStageSpan(
+    { taskId, stage, model, stageLabel, piSessionPath: sessionPath },
+    async (stageSpan) => {
+      await queries.updateTask(taskId, { status: "running" });
+      emit({ type: "task_update", taskId, status: "running" });
 
-  try {
-    await withTimeout(session.waitForCompletion(), timeoutMs ?? STAGE_TIMEOUT_MS, `Stage ${stage}`);
-    await queries.updateTaskStage(stageRecord.id, { status: "complete", completedAt: new Date() });
-    emit({ type: "stage_update", taskId, stage, status: "complete" });
-    await notifyTelegram(sendTelegram, chatId, `Stage complete: ${stageLabel}.`);
-    log.info(`Stage ${stage} complete for task ${taskId}`);
-  } catch (err) {
-    await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
-    emit({ type: "stage_update", taskId, stage, status: "failed" });
-    throw err;
-  } finally {
-    session.kill();
-    await session.waitForExit();
-    clearActiveSession(taskId);
-    stopBroadcast();
-  }
+      const stageRecord = await queries.createTaskStage({ taskId, stage });
+      emit({ type: "stage_update", taskId, stage, status: "running" });
+      log.info(`Starting stage ${stage} for task ${taskId}`);
+      await notifyTelegram(sendTelegram, chatId, `Stage started: ${stageLabel}.`);
+
+      await ensureSessionDir(sessionPath);
+      const stopBroadcast = broadcastSessionFile(sessionPath, { scope: "task", taskId, stage });
+      const stopBridge = bridgeSessionToOtel({ sessionPath, stageSpan, taskId });
+
+      const session = spawnPiSession({
+        id: `${taskId}-${stage}`,
+        cwd,
+        systemPrompt,
+        model,
+        sessionPath,
+        extensions,
+        envOverrides,
+      });
+      setActiveSession(taskId, session);
+      session.sendPrompt(initialPrompt);
+
+      try {
+        await withTimeout(session.waitForCompletion(), timeoutMs ?? STAGE_TIMEOUT_MS, `Stage ${stage}`);
+        await queries.updateTaskStage(stageRecord.id, { status: "complete", completedAt: new Date() });
+        emit({ type: "stage_update", taskId, stage, status: "complete" });
+        await notifyTelegram(sendTelegram, chatId, `Stage complete: ${stageLabel}.`);
+        log.info(`Stage ${stage} complete for task ${taskId}`);
+      } catch (err) {
+        await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
+        emit({ type: "stage_update", taskId, stage, status: "failed" });
+        throw err;
+      } finally {
+        session.kill();
+        await session.waitForExit();
+        clearActiveSession(taskId);
+        stopBridge();
+        stopBroadcast();
+      }
+    },
+  );
 }
