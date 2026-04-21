@@ -1,16 +1,19 @@
 /**
- * End-to-end smoke for the observability bridge: spin up Logfire with a
- * ConsoleSpanExporter, open a stage span, point the bridge at an existing
- * pi session JSONL, wait for the tail-watcher to read the whole file,
- * then flush and shut down. Prints every emitted span to stdout.
+ * End-to-end smoke: boot Logfire for real, open a pipeline + stage span,
+ * run the bridge against an existing pi session JSONL, flush, shut down.
+ * Spans land in the Logfire project that owns `LOGFIRE_TOKEN`.
+ *
+ * Usage: tsx scripts/bridge-smoke.ts <path/to/session.jsonl>
  */
 
 import "dotenv/config";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import { ConsoleSpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { trace } from "@opentelemetry/api";
-import { bridgeSessionToOtel } from "../src/observability/bridge/index.js";
-import { withPipelineSpan, withStageSpan } from "../src/observability/index.js";
+import {
+  initObservability,
+  shutdownObservability,
+  withPipelineSpan,
+  withStageSpan,
+  bridgeSessionToOtel,
+} from "../src/observability/index.js";
 
 const path = process.argv[2];
 if (!path) {
@@ -18,12 +21,9 @@ if (!path) {
   process.exit(1);
 }
 
-const provider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(new ConsoleSpanExporter())],
-});
-provider.register();
-
 async function main() {
+  initObservability();
+
   await withPipelineSpan(
     { taskId: "smoke-task", kind: "coding_task", repo: "smoke/repo" },
     async () => {
@@ -32,19 +32,24 @@ async function main() {
           taskId: "smoke-task",
           stage: "planner",
           model: "smoke-model",
-          stageLabel: "Planner",
+          stageLabel: "Planner (smoke)",
           piSessionPath: path,
         },
         async (stageSpan) => {
           const stop = bridgeSessionToOtel({ sessionPath: path, stageSpan, taskId: "smoke-task" });
-          // Give the poll loop time to chew through the whole file.
-          await new Promise((r) => setTimeout(r, 2000));
+          // Give the poll loop enough wall-clock to chew through the whole file.
+          await new Promise((r) => setTimeout(r, 3000));
           stop();
         },
       );
     },
   );
-  await provider.shutdown();
+
+  await shutdownObservability();
+  console.log("smoke complete; check Logfire for task_id='smoke-task'");
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
