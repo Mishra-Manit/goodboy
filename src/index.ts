@@ -15,10 +15,12 @@ import { startPrPoller, stopPrPoller } from "./pipelines/pr-session/poller.js";
 import type { SendTelegram } from "./core/stage.js";
 import { loadEnv } from "./shared/config.js";
 import { createLogger } from "./shared/logger.js";
+import { initObservability, shutdownObservability } from "./observability/index.js";
 
 const log = createLogger("main");
 
 async function main(): Promise<void> {
+  initObservability();
   const env = loadEnv();
 
   const app = new Hono();
@@ -57,6 +59,7 @@ async function main(): Promise<void> {
         stopPrPoller();
         await telegramBot.stop();
         server.close();
+        await shutdownObservability();
         process.exit(0);
       };
 
@@ -66,8 +69,9 @@ async function main(): Promise<void> {
   });
 }
 
-process.on("unhandledRejection", (reason) => {
+process.on("unhandledRejection", async (reason) => {
   log.error("Unhandled rejection", reason);
+  await shutdownObservability().catch(() => {});
   process.exit(1);
 });
 
