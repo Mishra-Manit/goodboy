@@ -6,7 +6,7 @@
  * (c) always end the span.
  */
 
-import { SpanStatusCode, type Span } from "@opentelemetry/api";
+import { SpanStatusCode, type Span, type TimeInput } from "@opentelemetry/api";
 import { getTracer } from "./tracer.js";
 import { GenAi, Goodboy } from "./attributes.js";
 import type { StageName } from "../shared/types.js";
@@ -26,6 +26,8 @@ export interface PipelineSpanContext {
   kind: PipelineKind;
   repo?: string;
   branch?: string;
+  /** Override the span start time (replay scripts only; production leaves it unset). */
+  startTime?: TimeInput;
 }
 
 /** Wrap the body of a pipeline entry point in a root OTel span. */
@@ -43,6 +45,7 @@ export async function withPipelineSpan<T>(
         ...(ctx.branch ? { [Goodboy.Branch]: ctx.branch } : {}),
         [GenAi.ConversationId]: ctx.taskId,
       },
+      ...(ctx.startTime !== undefined ? { startTime: ctx.startTime } : {}),
     },
     async (span) => {
       try {
@@ -68,6 +71,8 @@ export interface StageSpanContext {
   model: string;
   stageLabel: string;
   piSessionPath: string;
+  /** Override the span start time (replay scripts only; production leaves it unset). */
+  startTime?: TimeInput;
 }
 
 /** Wrap a single pi stage run in a child OTel span; parents the JSONL bridge's spans. */
@@ -86,6 +91,7 @@ export async function withStageSpan<T>(
         [GenAi.RequestModel]: ctx.model,
         [GenAi.System]: "pi",
       },
+      ...(ctx.startTime !== undefined ? { startTime: ctx.startTime } : {}),
     },
     async (span) => {
       try {
