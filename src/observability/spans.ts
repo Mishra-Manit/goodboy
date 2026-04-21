@@ -1,0 +1,96 @@
+/**
+ * High-level span helpers. Every pipeline calls `withPipelineSpan` at its
+ * top and `core/stage.ts` calls `withStageSpan` for each stage. Both are
+ * thin wrappers around `tracer.startActiveSpan` that (a) pre-populate the
+ * goodboy attribute set, (b) set span status from the callback's outcome,
+ * (c) always end the span.
+ */
+
+import { SpanStatusCode, type Span } from "@opentelemetry/api";
+import { getTracer } from "./tracer.js";
+import { GenAi, Goodboy } from "./attributes.js";
+import type { StageName, TaskKind } from "../shared/types.js";
+
+// --- Pipeline span ---
+
+export interface PipelineSpanContext {
+  taskId: string;
+  kind: TaskKind;
+  repo?: string;
+  branch?: string;
+}
+
+/** Wrap the body of a pipeline entry point in a root OTel span. */
+export async function withPipelineSpan<T>(
+  ctx: PipelineSpanContext,
+  fn: (span: Span) => Promise<T>,
+): Promise<T> {
+  return getTracer().startActiveSpan(
+    `goodboy.pipeline.${ctx.kind}`,
+    {
+      attributes: {
+        [Goodboy.TaskId]: ctx.taskId,
+        [Goodboy.PipelineKind]: ctx.kind,
+        ...(ctx.repo ? { [Goodboy.Repo]: ctx.repo } : {}),
+        ...(ctx.branch ? { [Goodboy.Branch]: ctx.branch } : {}),
+        [GenAi.ConversationId]: ctx.taskId,
+      },
+    },
+    async (span) => {
+      try {
+        const out = await fn(span);
+        span.setStatus({ code: SpanStatusCode.OK });
+        return out;
+      } catch (err) {
+        span.recordException(err as Error);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+        throw err;
+      } finally {
+        span.end();
+      }
+    },
+  );
+}
+
+// --- Stage span ---
+
+export interface StageSpanContext {
+  taskId: string;
+  stage: StageName;
+  model: string;
+  stageLabel: string;
+  piSessionPath: string;
+}
+
+/** Wrap a single pi stage run in a child OTel span; parents the JSONL bridge's spans. */
+export async function withStageSpan<T>(
+  ctx: StageSpanContext,
+  fn: (span: Span) => Promise<T>,
+): Promise<T> {
+  return getTracer().startActiveSpan(
+    `goodboy.stage.${ctx.stage}`,
+    {
+      attributes: {
+        [Goodboy.TaskId]: ctx.taskId,
+        [Goodboy.Stage]: ctx.stage,
+        [Goodboy.PiSessionPath]: ctx.piSessionPath,
+        [GenAi.AgentName]: ctx.stageLabel,
+        [GenAi.RequestModel]: ctx.model,
+        [GenAi.System]: "pi",
+      },
+    },
+    async (span) => {
+      try {
+        const out = await fn(span);
+        span.setStatus({ code: SpanStatusCode.OK });
+        return out;
+      } catch (err) {
+        span.recordException(err as Error);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+        throw err;
+      } finally {
+        span.end();
+      }
+    },
+  );
+}
