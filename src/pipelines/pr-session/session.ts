@@ -26,6 +26,9 @@ import { prSessionPrompt, formatCommentsPrompt } from "./prompts.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import type { Env } from "../../shared/config.js";
 import { parseNwo, parsePrNumberFromUrl, type PrComment } from "../../core/github.js";
+import { withPipelineSpan, bridgeSessionToOtel } from "../../observability/index.js";
+import { trace } from "@opentelemetry/api";
+import { Goodboy } from "../../observability/attributes.js";
 
 const exec = promisify(execFile);
 const log = createLogger("pr-session");
@@ -215,12 +218,32 @@ interface SessionTurn {
  * so the caller can do case-specific notification.
  */
 async function runSessionTurn(turn: SessionTurn): Promise<void> {
+  // Each turn (create / resume / review) is its own root trace, linked to the
+  // long-lived PR session via `goodboy.pr_session.id`.
+  return withPipelineSpan(
+    { taskId: turn.run.id, kind: "pr_session" },
+    async (pipelineSpan) => {
+      pipelineSpan.setAttribute(Goodboy.PrSessionId, turn.prSessionId);
+      pipelineSpan.setAttribute(Goodboy.PrSessionRunId, turn.run.id);
+      await runSessionTurnInner(turn);
+    },
+  );
+}
+
+async function runSessionTurnInner(turn: SessionTurn): Promise<void> {
   const { prSessionId, labelSuffix, cwd, systemPrompt, model, prompt, run, timeoutLabel } = turn;
 
   emit({ type: "pr_session_update", prSessionId, running: true });
   const filePath = prSessionPath(prSessionId);
   await ensureSessionDir(filePath);
   const stopBroadcast = broadcastSessionFile(filePath, { scope: "pr_session", prSessionId });
+
+  // Bridge pi's JSONL to OTel, parented under the active pipeline span. Safe
+  // because `runSessionTurn` always invokes this from inside withPipelineSpan.
+  const activeSpan = trace.getActiveSpan();
+  const stopBridge = activeSpan
+    ? bridgeSessionToOtel({ sessionPath: filePath, stageSpan: activeSpan, taskId: run.id })
+    : () => {};
 
   const session = spawnPiSession({
     id: `pr-session-${prSessionId.slice(0, 8)}-${labelSuffix}`,
@@ -244,6 +267,7 @@ async function runSessionTurn(turn: SessionTurn): Promise<void> {
   } finally {
     session.kill();
     await session.waitForExit();
+    stopBridge();
     stopBroadcast();
     emit({ type: "pr_session_update", prSessionId, running: false });
   }

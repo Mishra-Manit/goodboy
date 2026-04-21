@@ -21,6 +21,7 @@ import {
   runStage,
   type SendTelegram,
 } from "../../core/stage.js";
+import { withPipelineSpan } from "../../observability/index.js";
 import {
   plannerPrompt,
   implementerPrompt,
@@ -73,6 +74,17 @@ export async function runPipeline(taskId: string, sendTelegram: SendTelegram): P
     return;
   }
 
+  return withPipelineSpan(
+    { taskId, kind: "coding_task", repo: task.repo },
+    () => runCodingPipelineInner(taskId, task, sendTelegram),
+  );
+}
+
+async function runCodingPipelineInner(
+  taskId: string,
+  task: NonNullable<Awaited<ReturnType<typeof queries.getTask>>>,
+  sendTelegram: SendTelegram,
+): Promise<void> {
   const repo = getRepo(task.repo);
   if (!repo) {
     await failTask(taskId, `Repo '${task.repo}' not found in registry`, sendTelegram, task.telegramChatId);

@@ -9,13 +9,21 @@
 import { SpanStatusCode, type Span } from "@opentelemetry/api";
 import { getTracer } from "./tracer.js";
 import { GenAi, Goodboy } from "./attributes.js";
-import type { StageName, TaskKind } from "../shared/types.js";
+import type { StageName } from "../shared/types.js";
 
 // --- Pipeline span ---
 
+/** Named kinds for the pipeline span suffix. Not tied to `TaskKind` -- PR
+ * sessions have no task row and still emit pipeline spans. */
+export type PipelineKind =
+  | "coding_task"
+  | "codebase_question"
+  | "pr_review"
+  | "pr_session";
+
 export interface PipelineSpanContext {
   taskId: string;
-  kind: TaskKind;
+  kind: PipelineKind;
   repo?: string;
   branch?: string;
 }

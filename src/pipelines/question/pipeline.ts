@@ -19,6 +19,7 @@ import {
   clearActiveSession,
   type SendTelegram,
 } from "../../core/stage.js";
+import { withPipelineSpan } from "../../observability/index.js";
 import { questionSystemPrompt, questionInitialPrompt } from "./prompts.js";
 
 const log = createLogger("question");
@@ -36,6 +37,17 @@ export async function runQuestion(taskId: string, sendTelegram: SendTelegram): P
     return;
   }
 
+  return withPipelineSpan(
+    { taskId, kind: "codebase_question", repo: task.repo },
+    () => runQuestionInner(taskId, task, sendTelegram),
+  );
+}
+
+async function runQuestionInner(
+  taskId: string,
+  task: NonNullable<Awaited<ReturnType<typeof queries.getTask>>>,
+  sendTelegram: SendTelegram,
+): Promise<void> {
   const repo = getRepo(task.repo);
   if (!repo) {
     await failTask(taskId, `Repo '${task.repo}' not found`, sendTelegram, task.telegramChatId);
