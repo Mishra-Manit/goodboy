@@ -4,17 +4,14 @@ import path from "node:path";
 export default defineConfig({
   resolve: {
     alias: {
+      "@src": path.resolve(__dirname, "src"),
       "@dashboard": path.resolve(__dirname, "dashboard/src"),
       "@shared": path.resolve(__dirname, "src/shared"),
     },
   },
   test: {
     environment: "node",
-    include: [
-      "src/**/*.test.ts",
-      "dashboard/src/**/*.test.ts",
-      "tests/**/*.test.ts",
-    ],
+    include: ["tests/**/*.test.ts"],
     setupFiles: ["tests/setup/env.ts"],
     coverage: {
       provider: "v8",
