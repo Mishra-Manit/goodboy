@@ -64,13 +64,14 @@ Full architecture walkthrough: [`docs/architecture.md`](docs/architecture.md).
 A change is complete when **all** of these pass:
 
 1. `npm run build` exits 0 (both `tsc` and `vite build`).
-2. Any touched pipeline has been manually run via `npm run dev` + Telegram, or dashboard-triggered retry, at least once.
-3. New env vars are in `.env.example`.
-4. Schema changes have a generated file in `drizzle/` and have been applied with `npm run db:migrate` before the code that reads them merges.
-5. Commit messages use conventional prefixes (`feat:`, `fix:`, `refactor:`, `chore:`, `perf:`), one logical unit per commit.
-6. No emojis. No `console.log`. No default exports. No mutated arrays or objects.
+2. `npm test` exits 0 (all unit and integration tests pass).
+3. Any touched pipeline has been manually run via `npm run dev` + Telegram, or dashboard-triggered retry, at least once.
+4. New env vars are in `.env.example`.
+5. Schema changes have a generated file in `drizzle/` and have been applied with `npm run db:migrate` before the code that reads them merges.
+6. Commit messages use conventional prefixes (`feat:`, `fix:`, `refactor:`, `chore:`, `perf:`), one logical unit per commit.
+7. No emojis. No `console.log`. No default exports. No mutated arrays or objects.
 
-Never report "done" without running `npm run build`.
+Never report "done" without running `npm run build && npm test`.
 
 ---
 
@@ -206,9 +207,14 @@ function mergeProgress(...) { ... }
 
 ## Testing
 
-Vitest is the chosen framework (reuses the Vite toolchain). Not yet wired. First test targets when added: `core/git/github.ts`, `core/pi/session-file.ts` (pure `parseLines`/`parseLine`), `dashboard/src/components/log-viewer/helpers.ts`.
+Vitest is wired via `vitest.config.ts` (single `node` environment). All test files live under `tests/` mirroring the source layout — `tests/unit/**` for unit tests, `tests/integration/**` for integration tests. Source files under `src/` and `dashboard/src/` stay free of `*.test.ts` files. Tests import production code via the `@src` and `@dashboard` path aliases. Run the suite with `npm test`.
 
-Until then: verify via `npm run dev` + real Telegram / dashboard flows before committing.
+Scope covered by tests:
+- Pure functions: `core/git/github.ts` parsers, `core/pi/session-file.ts` read + path helpers, `core/git/worktree.ts#generateBranchName`, `shared/repos.ts`, `shared/config.ts` env schema, `shared/events.ts`, dashboard `log-viewer/helpers.ts`, `lib/format.ts`, `lib/task-grouping.ts`, `lib/utils.ts`.
+- IO adapters with mocked boundaries: `core/git/github.ts` gh-CLI wrappers (`vi.mock execFile`), `shared/llm.ts` (msw on the Fireworks endpoint), `telegram/intent-classifier.ts` + `telegram/handlers.ts`, `core/pi/session-file.ts#watchSessionFile` (real IO in `os.tmpdir()`), `core/cleanup.ts`.
+- HTTP + SSE: `api/index.ts` via `app.fetch(new Request(...))` with `db/queries`, pipelines, and `cleanup.ts` mocked.
+
+Scope **not** covered (deliberately): `core/pi/**`, `core/stage.ts`, `pipelines/**/pipeline.ts`, PR-session orchestration, `db/queries.ts`, dashboard React components and hooks. Verify those via `npm run dev` + real Telegram / dashboard flows before committing.
 
 ---
 

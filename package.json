@@ -12,7 +12,10 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "dev:server": "tsx watch src/index.ts",
-    "dev:dashboard": "vite build --watch --config dashboard/vite.config.ts"
+    "dev:dashboard": "vite build --watch --config dashboard/vite.config.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
@@ -35,15 +38,18 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "^4.1.5",
     "clsx": "^2.1.1",
     "drizzle-kit": "^0.30.4",
     "lucide-react": "^1.7.0",
+    "msw": "^2.13.4",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-router-dom": "^7.14.0",
     "tailwindcss": "^4.2.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
-    "vite": "^8.0.7"
+    "vite": "^8.0.7",
+    "vitest": "^4.1.5"
   }
 }
