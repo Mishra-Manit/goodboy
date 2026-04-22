@@ -11,7 +11,7 @@
 import { createLogger } from "../shared/logger.js";
 import { emit } from "../shared/events.js";
 import * as queries from "../db/queries.js";
-import { spawnPiSession, type PiSession } from "./pi/session.js";
+import { spawnPiSession, type PiSession } from "./pi/spawn.js";
 import { ensureSessionDir, taskSessionPath } from "./pi/session-file.js";
 import { broadcastSessionFile } from "./pi/session-broadcast.js";
 import { withStageSpan, bridgeSessionToOtel } from "../observability/index.js";

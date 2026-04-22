@@ -12,7 +12,7 @@ import { promisify } from "node:util";
 import { createLogger } from "../../shared/logger.js";
 import { loadEnv } from "../../shared/config.js";
 import { emit } from "../../shared/events.js";
-import { spawnPiSession } from "../../core/pi/session.js";
+import { spawnPiSession } from "../../core/pi/spawn.js";
 import {
   ensureSessionDir,
   prSessionPath,
