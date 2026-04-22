@@ -51,7 +51,7 @@ vi.mock("node:fs/promises", async (orig) => {
   };
 });
 
-vi.mock("@src/core/worktree.js", () => ({
+vi.mock("@src/core/git/worktree.js", () => ({
   removeWorktree: (repoPath: string, worktreePath: string) => {
     worktreeHandler.calls.push([repoPath, worktreePath]);
     return worktreeHandler.impl(repoPath, worktreePath);
@@ -87,7 +87,7 @@ vi.mock("@src/shared/events.js", () => ({
   },
 }));
 
-import { dismissTask, cleanupTaskResources, cleanupPrSession } from "@src/pipelines/cleanup.js";
+import { dismissTask, cleanupTaskResources, cleanupPrSession } from "@src/core/cleanup.js";
 
 function mkTask(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {

@@ -6,7 +6,7 @@ import {
   taskSessionPath,
   prSessionPath,
   readSessionFile,
-} from "@src/core/session-file.js";
+} from "@src/core/pi/session-file.js";
 
 describe("path helpers", () => {
   it("taskSessionPath composes artifactsDir/taskId/<stage>.session.jsonl", () => {

@@ -34,7 +34,7 @@ vi.mock("node:child_process", () => {
   return { execFile };
 });
 
-import { getPrComments, getPrReviewComments, isPrClosed } from "@src/core/github.js";
+import { getPrComments, getPrReviewComments, isPrClosed } from "@src/core/git/github.js";
 
 function stubExecOk(stdout: string) {
   handler.impl = async () => ({ stdout, stderr: "" });

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtemp, writeFile, appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { watchSessionFile } from "@src/core/session-file.js";
+import { watchSessionFile } from "@src/core/pi/session-file.js";
 
 function entryLine(id: string): string {
   return (

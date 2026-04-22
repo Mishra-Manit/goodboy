@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseNwo, parsePrNumberFromUrl, parsePrIdentifier } from "@src/core/github.js";
+import { parseNwo, parsePrNumberFromUrl, parsePrIdentifier } from "@src/core/git/github.js";
 
 describe("parseNwo", () => {
   it("parses https URL", () => {

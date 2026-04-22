@@ -21,7 +21,7 @@ vi.mock("@src/core/subagents/index.js", () => ({
   stageSubagentAssets: async () => undefined,
 }));
 
-import { generateBranchName } from "@src/core/worktree.js";
+import { generateBranchName } from "@src/core/git/worktree.js";
 
 beforeEach(() => {
   llmHandler.impl = async () => ({ slug: "default-slug" });
