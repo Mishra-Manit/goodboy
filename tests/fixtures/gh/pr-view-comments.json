@@ -1,0 +1,16 @@
+{
+  "comments": [
+    {
+      "id": "IC_kwDOABCDEF1",
+      "author": { "login": "alice" },
+      "body": "lgtm",
+      "createdAt": "2026-04-20T10:00:00Z"
+    },
+    {
+      "id": "IC_kwDOABCDEF2",
+      "author": { "login": "bob" },
+      "body": "one nit on the prompt",
+      "createdAt": "2026-04-20T10:05:00Z"
+    }
+  ]
+}
