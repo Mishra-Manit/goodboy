@@ -15,7 +15,7 @@ import {
   type PrComment,
 } from "../../core/github.js";
 import { resumePrSession } from "./session.js";
-import { cleanupPrSession } from "../cleanup.js";
+import { cleanupPrSession } from "../../core/cleanup.js";
 import type { SendTelegram } from "../../core/stage.js";
 
 const log = createLogger("pr-poller");

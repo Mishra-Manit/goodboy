@@ -27,7 +27,7 @@ import { cancelTask as cancelRunningTask, type SendTelegram } from "../core/stag
 import { runPipeline } from "../pipelines/coding/pipeline.js";
 import { runQuestion } from "../pipelines/question/pipeline.js";
 import { runPrReview } from "../pipelines/pr-review/pipeline.js";
-import { dismissTask } from "../pipelines/cleanup.js";
+import { dismissTask } from "../core/cleanup.js";
 
 const log = createLogger("api");
 
