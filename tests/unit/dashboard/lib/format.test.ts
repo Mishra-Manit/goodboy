@@ -73,9 +73,12 @@ describe("formatTime", () => {
 });
 
 describe("formatDate", () => {
-  it("returns a short date string", () => {
+  // formatDate uses toLocaleDateString("en-US") so the month abbreviation
+  // and day are deterministic; the hour shifts with timezone so we don't
+  // pin it.
+  it("includes the short month name and day", () => {
     const out = formatDate("2026-04-21T12:34:56Z");
-    expect(typeof out).toBe("string");
-    expect(out.length).toBeGreaterThan(0);
+    expect(out).toContain("Apr");
+    expect(out).toContain("21");
   });
 });

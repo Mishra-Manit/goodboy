@@ -55,7 +55,7 @@ const toolResult = {
 describe("visibleEntries", () => {
   it("drops session + model_change, keeps messages", () => {
     const out = visibleEntries([header, modelChange, userMsg, assistantMsg]);
-    expect(out.map((e) => (e as any).id)).toEqual(["m1", "m2"]);
+    expect(out.map((e) => e.id)).toEqual(["m1", "m2"]);
   });
 
   it("returns empty array when every entry is hidden", () => {
@@ -66,7 +66,7 @@ describe("visibleEntries", () => {
 describe("dedupeById", () => {
   it("preserves first-seen order and drops repeats", () => {
     const out = dedupeById([userMsg, userMsg, toolResult]);
-    expect(out.map((e) => (e as any).id)).toEqual(["m1", "m3"]);
+    expect(out.map((e) => e.id)).toEqual(["m1", "m3"]);
   });
 
   it("keeps entries without an id by falling back to type+index", () => {
