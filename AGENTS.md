@@ -44,7 +44,7 @@ src/
   index.ts      entry: Hono + Grammy bot + PR poller + shutdown
   telegram/     Grammy bot, intent classifier, handlers
   api/          Hono REST + SSE
-  db/           Drizzle schema, queries, Neon singleton
+  db/           Drizzle schema, repository, Neon singleton
   shared/       config, types, logger, events, repos, llm, agent-prompts (zero side effects)
   core/         infra primitives: stage.ts, cleanup.ts
   core/git/     git + GitHub helpers: worktree.ts, github.ts
@@ -84,7 +84,7 @@ Never report "done" without running `npm run build && npm test`.
 - Every backend file declares `const log = createLogger("<short-name>")` at the top. No `console.log` / `console.error`.
 - Module-level singletons use `_` prefix (`_env`, `_db`), lazy init via a `loadX()` / `getX()` accessor, never exported.
 - Magic numbers live in `shared/config.ts` or `shared/limits.ts`, never inline.
-- Section files with two or more responsibilities using `// --- Tasks ---` style headers (see `db/queries.ts`, `api/index.ts`).
+- Section files with two or more responsibilities using `// --- Tasks ---` style headers (see `db/repository.ts`, `api/index.ts`).
 
 ## When Touching Pipelines
 
@@ -111,7 +111,7 @@ Never report "done" without running `npm run build && npm test`.
 3. **Stop.** Do not apply. Wait for human review of the generated SQL.
 4. After approval, a human runs `npm run db:migrate` from their laptop, then the dependent code may be merged.
 
-All queries go through `src/db/queries.ts`. All writes use `.returning()`. All reads filter by `instance = loadEnv().INSTANCE_ID`.
+All reads and writes go through `src/db/repository.ts`. All writes use `.returning()`. All reads filter by `instance = loadEnv().INSTANCE_ID`.
 
 ## When Committing
 
@@ -130,7 +130,7 @@ All queries go through `src/db/queries.ts`. All writes use `.returning()`. All r
 | Discriminated unions over booleans/strings | `Intent`, `SSEEvent`, `FileEntry` | Anything with >2 states uses `{ type: "foo"; ... } \| { type: "bar"; ... }`. No parallel booleans (`isLoading`/`isError`). |
 | `const X = [...] as const; type Y = (typeof X)[number]` | `shared/types.ts` | Single source of truth for enums. Same array drives the TS union, the Postgres `pgEnum`, and runtime `.includes()` checks. |
 | Lazy singleton with `_` prefix | `shared/config.ts#_env`, `db/index.ts#_db` | Expensive one-time init hides behind `loadX()` / `getX()`. Importing the module has no side effects. |
-| Section headers in multi-responsibility files | `db/queries.ts`, `api/index.ts`, `telegram/index.ts`, `core/stage.ts` | Use `// --- Name ---` blocks once a file holds two clear jobs. |
+| Section headers in multi-responsibility files | `db/repository.ts`, `api/index.ts`, `telegram/index.ts`, `core/stage.ts` | Use `// --- Name ---` blocks once a file holds two clear jobs. |
 | `createLogger("module")` everywhere | all backend files | No `console.log` / `console.error`. |
 | **Pure parsers separated from IO** | `core/git/github.ts`, `core/pi/session-file.ts`, `dashboard/src/components/log-viewer/helpers.ts` | **The key testability pattern. Extend everywhere.** Parsing / formatting / state-transition logic is exported as pure functions. IO (spawn, fetch, fs, exec, gh, db) wraps those pure functions. A file without a pure section that could have one is a smell. |
 
@@ -144,7 +144,7 @@ All queries go through `src/db/queries.ts`. All writes use `.returning()`. All r
 ### No hidden duplication
 
 - PR/GitHub URL parsing → import `parseNwo` / `parsePrNumberFromUrl` / `parsePrIdentifier` from `core/git/github.ts`. Never re-implement the regex.
-- DB reads → go through `db/queries.ts`, never touch `schema` from other modules.
+- DB reads → go through `db/repository.ts`, never touch `schema` from other modules.
 
 ### Docstrings and file shape
 
@@ -197,7 +197,7 @@ function mergeProgress(...) { ... }
 
 **Never:**
 - Commit emojis, `console.log`, default exports, or mutated objects.
-- Bypass `db/queries.ts` to read or write the database directly.
+- Bypass `db/repository.ts` to read or write the database directly.
 - Spawn `pi` outside `core/stage.ts#runStage`.
 - Apply a migration as part of deploy.
 - Put secrets in `AGENTS.md`, logs, or committed files.
@@ -212,9 +212,9 @@ Vitest is wired via `vitest.config.ts` (single `node` environment). All test fil
 Scope covered by tests:
 - Pure functions: `core/git/github.ts` parsers, `core/pi/session-file.ts` read + path helpers, `core/git/worktree.ts#generateBranchName`, `shared/repos.ts`, `shared/config.ts` env schema, `shared/events.ts`, dashboard `log-viewer/helpers.ts`, `lib/format.ts`, `lib/task-grouping.ts`, `lib/utils.ts`.
 - IO adapters with mocked boundaries: `core/git/github.ts` gh-CLI wrappers (`vi.mock execFile`), `shared/llm.ts` (msw on the Fireworks endpoint), `telegram/intent-classifier.ts` + `telegram/handlers.ts`, `core/pi/session-file.ts#watchSessionFile` (real IO in `os.tmpdir()`), `core/cleanup.ts`.
-- HTTP + SSE: `api/index.ts` via `app.fetch(new Request(...))` with `db/queries`, pipelines, and `cleanup.ts` mocked.
+- HTTP + SSE: `api/index.ts` via `app.fetch(new Request(...))` with `db/repository`, pipelines, and `cleanup.ts` mocked.
 
-Scope **not** covered (deliberately): `core/pi/**`, `core/stage.ts`, `pipelines/**/pipeline.ts`, PR-session orchestration, `db/queries.ts`, dashboard React components and hooks. Verify those via `npm run dev` + real Telegram / dashboard flows before committing.
+Scope **not** covered (deliberately): `core/pi/**`, `core/stage.ts`, `pipelines/**/pipeline.ts`, PR-session orchestration, `db/repository.ts`, dashboard React components and hooks. Verify those via `npm run dev` + real Telegram / dashboard flows before committing.
 
 ---
 

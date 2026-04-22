@@ -12,7 +12,7 @@ import { subagentCapability } from "../../core/subagents/index.js";
 import { emit } from "../../shared/events.js";
 import { getRepo } from "../../shared/repos.js";
 import { createWorktree, generateBranchName, syncRepo } from "../../core/git/worktree.js";
-import * as queries from "../../db/queries.js";
+import * as queries from "../../db/repository.js";
 import type { Env } from "../../shared/config.js";
 import {
   failTask,

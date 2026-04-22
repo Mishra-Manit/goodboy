@@ -58,7 +58,7 @@ vi.mock("@src/core/git/worktree.js", () => ({
   },
 }));
 
-vi.mock("@src/db/queries.js", () => ({
+vi.mock("@src/db/repository.js", () => ({
   getTask: (id: string) => {
     queriesHandler.getTask.calls.push([id]);
     return queriesHandler.getTask.impl(id);

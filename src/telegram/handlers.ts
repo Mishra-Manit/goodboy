@@ -6,13 +6,13 @@
 
 import { getRepo, listRepoNames } from "../shared/repos.js";
 import { createLogger } from "../shared/logger.js";
-import * as queries from "../db/queries.js";
+import * as queries from "../db/repository.js";
 import { runPipeline } from "../pipelines/coding/pipeline.js";
 import { runQuestion } from "../pipelines/question/pipeline.js";
 import { runPrReview } from "../pipelines/pr-review/pipeline.js";
 import { cancelTask, type SendTelegram } from "../core/stage.js";
 import type { Intent } from "./intent-classifier.js";
-import type { Task } from "../db/queries.js";
+import type { Task } from "../db/repository.js";
 import type { TaskKind } from "../shared/types.js";
 
 const log = createLogger("telegram");

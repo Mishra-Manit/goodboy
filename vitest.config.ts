@@ -28,7 +28,7 @@ export default defineConfig({
         "src/pipelines/**/pipeline.ts",
         "src/pipelines/pr-session/session.ts",
         "src/pipelines/pr-session/poller.ts",
-        "src/db/queries.ts",
+        "src/db/repository.ts",
         "src/db/schema.ts",
         "src/db/index.ts",
         "src/index.ts",

@@ -58,7 +58,7 @@ vi.mock("@src/core/stage.js", () => ({
     return stageHandler.cancelTask.returns;
   },
 }));
-vi.mock("@src/db/queries.js", () => ({
+vi.mock("@src/db/repository.js", () => ({
   createTask: (data: Record<string, unknown>) => {
     queriesHandler.createTask.calls.push([data]);
     return queriesHandler.createTask.impl(data);

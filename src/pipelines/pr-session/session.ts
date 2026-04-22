@@ -21,7 +21,7 @@ import {
 import { broadcastSessionFile } from "../../core/pi/session-broadcast.js";
 import { createPrWorktree } from "../../core/git/worktree.js";
 import { getRepo } from "../../shared/repos.js";
-import * as queries from "../../db/queries.js";
+import * as queries from "../../db/repository.js";
 import { prSessionPrompt, formatCommentsPrompt, prCreationPrompt, externalReviewPrompt } from "./prompts.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import type { Env } from "../../shared/config.js";

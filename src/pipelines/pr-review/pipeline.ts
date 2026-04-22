@@ -8,7 +8,7 @@
 
 import { createLogger } from "../../shared/logger.js";
 import { failTask, type SendTelegram } from "../../core/stage.js";
-import * as queries from "../../db/queries.js";
+import * as queries from "../../db/repository.js";
 
 const log = createLogger("pr-review");
 

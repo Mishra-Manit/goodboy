@@ -14,7 +14,7 @@ import { config } from "../shared/config.js";
 import { getRepo } from "../shared/repos.js";
 import { removeWorktree } from "./git/worktree.js";
 import { parseNwo } from "./git/github.js";
-import * as queries from "../db/queries.js";
+import * as queries from "../db/repository.js";
 import { emit } from "../shared/events.js";
 
 const exec = promisify(execFile);

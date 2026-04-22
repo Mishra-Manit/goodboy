@@ -6,8 +6,8 @@
 
 import { createLogger } from "../../shared/logger.js";
 import { getRepoNwo } from "../../shared/repos.js";
-import * as queries from "../../db/queries.js";
-import type { PrSession } from "../../db/queries.js";
+import * as queries from "../../db/repository.js";
+import type { PrSession } from "../../db/repository.js";
 import {
   getPrComments,
   getPrReviewComments,

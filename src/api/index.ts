@@ -11,7 +11,7 @@ import { streamSSE } from "hono/streaming";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { subscribe } from "../shared/events.js";
-import * as queries from "../db/queries.js";
+import * as queries from "../db/repository.js";
 import { listRepos, buildPrUrl } from "../shared/repos.js";
 import { config } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
