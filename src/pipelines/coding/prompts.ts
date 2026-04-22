@@ -1,8 +1,11 @@
 /** System prompts for each stage of the coding pipeline (planner, implementer, reviewer). */
 
+import path from "node:path";
 import { SHARED_RULES, worktreeBlock, type WorktreeEnv } from "../../shared/agent-prompts.js";
 
 export type { WorktreeEnv };
+
+export type CodingStage = "planner" | "implementer" | "reviewer";
 
 export function plannerPrompt(taskDescription: string, artifactsDir: string, env?: WorktreeEnv): string {
   return `You are the Planner stage of an autonomous coding pipeline.
@@ -137,4 +140,36 @@ Rules:
 
 After pushing, end your output with:
   {"status": "complete"}`;
+}
+
+// --- Stage routing ---
+
+/** Select the system prompt for a given coding stage. */
+export function codingSystemPrompt(
+  stage: CodingStage,
+  absArtifacts: string,
+  env: WorktreeEnv,
+  description: string,
+): string {
+  const planPath = path.join(absArtifacts, "plan.md");
+  const summaryPath = path.join(absArtifacts, "implementation-summary.md");
+  switch (stage) {
+    case "planner":     return plannerPrompt(description, absArtifacts, env);
+    case "implementer": return implementerPrompt(planPath, absArtifacts, env);
+    case "reviewer":    return reviewerPrompt(planPath, summaryPath, absArtifacts, env);
+  }
+}
+
+/** Select the initial user prompt for a given coding stage. */
+export function codingInitialPrompt(stage: CodingStage, absArtifacts: string, description: string): string {
+  const planPath = path.join(absArtifacts, "plan.md");
+  const summaryPath = path.join(absArtifacts, "implementation-summary.md");
+  switch (stage) {
+    case "planner":
+      return `Here is the task:\n\n${description}\n\nStart by exploring the codebase structure, then write the plan to ${absArtifacts}/plan.md. Do not stop until the file is written.`;
+    case "implementer":
+      return `Read the plan at ${planPath}, then implement every step. Make git commits as you go. When all code is written and committed, write the summary to ${absArtifacts}/implementation-summary.md. Do not stop until both the code is committed and the summary file is written.`;
+    case "reviewer":
+      return `Read the plan at ${planPath} and the summary at ${summaryPath}. Run git diff main to see all changes. Review the code, fix any issues, then write your review to ${absArtifacts}/review.md. Do not stop until the review file is written.`;
+  }
 }
