@@ -5,7 +5,7 @@
  */
 
 import { loadEnv } from "./config.js";
-import { parseNwo } from "../core/github.js";
+import { parseNwo } from "../core/git/github.js";
 
 export interface Repo {
   name: string;

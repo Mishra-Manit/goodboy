@@ -19,13 +19,13 @@ import {
   readSessionFile,
 } from "../../core/pi/session-file.js";
 import { broadcastSessionFile } from "../../core/pi/session-broadcast.js";
-import { createPrWorktree } from "../../core/worktree.js";
+import { createPrWorktree } from "../../core/git/worktree.js";
 import { getRepo } from "../../shared/repos.js";
 import * as queries from "../../db/queries.js";
-import { prSessionPrompt, formatCommentsPrompt } from "./prompts.js";
+import { prSessionPrompt, formatCommentsPrompt, prCreationPrompt, externalReviewPrompt } from "./prompts.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import type { Env } from "../../shared/config.js";
-import { parseNwo, parsePrNumberFromUrl, type PrComment } from "../../core/github.js";
+import { parseNwo, parsePrNumberFromUrl, type PrComment } from "../../core/git/github.js";
 import { withPipelineSpan, bridgeSessionToOtel } from "../../observability/index.js";
 import { trace } from "@opentelemetry/api";
 import { Goodboy } from "../../observability/attributes.js";
@@ -72,7 +72,7 @@ export async function startPrSession(options: {
         reviewPath: path.join(artifactsDir, "review.md"),
       }),
       model: modelFor("PI_MODEL_PR_CREATOR"),
-      prompt: "Push the branch and create a PR. Read the artifact files for context on the PR description.",
+      prompt: prCreationPrompt(branch, artifactsDir),
       run,
       timeoutLabel: "PR session (create)",
     });
@@ -185,7 +185,7 @@ export async function startExternalReview(options: {
       cwd: worktreePath,
       systemPrompt: prSessionPrompt({ mode: "review", repo: nwo ?? repo, branch, prNumber }),
       model: modelFor("PI_MODEL_REVIEWER"),
-      prompt: "Review this PR. Read the diff, understand the changes, and post your review.",
+      prompt: externalReviewPrompt(),
       run,
       timeoutLabel: "PR session (external review)",
     });

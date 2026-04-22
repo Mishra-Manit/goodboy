@@ -46,7 +46,8 @@ src/
   api/          Hono REST + SSE
   db/           Drizzle schema, queries, Neon singleton
   shared/       config, types, logger, events, repos, llm, agent-prompts (zero side effects)
-  core/         infra primitives: stage.ts, cleanup.ts, worktree.ts, github.ts
+  core/         infra primitives: stage.ts, cleanup.ts
+  core/git/     git + GitHub helpers: worktree.ts, github.ts
   core/pi/      pi subprocess layer: spawn.ts, jsonl-reader.ts, session-file.ts, session-broadcast.ts
   pipelines/    one folder per task kind: coding/, question/, pr-review/, pr-session/
 dashboard/src/  Vite React SPA
@@ -130,7 +131,7 @@ All queries go through `src/db/queries.ts`. All writes use `.returning()`. All r
 | Lazy singleton with `_` prefix | `shared/config.ts#_env`, `db/index.ts#_db` | Expensive one-time init hides behind `loadX()` / `getX()`. Importing the module has no side effects. |
 | Section headers in multi-responsibility files | `db/queries.ts`, `api/index.ts`, `telegram/index.ts`, `core/stage.ts` | Use `// --- Name ---` blocks once a file holds two clear jobs. |
 | `createLogger("module")` everywhere | all backend files | No `console.log` / `console.error`. |
-| **Pure parsers separated from IO** | `core/github.ts`, `core/pi/session-file.ts`, `dashboard/src/components/log-viewer/helpers.ts` | **The key testability pattern. Extend everywhere.** Parsing / formatting / state-transition logic is exported as pure functions. IO (spawn, fetch, fs, exec, gh, db) wraps those pure functions. A file without a pure section that could have one is a smell. |
+| **Pure parsers separated from IO** | `core/git/github.ts`, `core/pi/session-file.ts`, `dashboard/src/components/log-viewer/helpers.ts` | **The key testability pattern. Extend everywhere.** Parsing / formatting / state-transition logic is exported as pure functions. IO (spawn, fetch, fs, exec, gh, db) wraps those pure functions. A file without a pure section that could have one is a smell. |
 
 ### Error policy
 
@@ -141,7 +142,7 @@ All queries go through `src/db/queries.ts`. All writes use `.returning()`. All r
 
 ### No hidden duplication
 
-- PR/GitHub URL parsing → import `parseNwo` / `parsePrNumberFromUrl` / `parsePrIdentifier` from `core/github.ts`. Never re-implement the regex.
+- PR/GitHub URL parsing → import `parseNwo` / `parsePrNumberFromUrl` / `parsePrIdentifier` from `core/git/github.ts`. Never re-implement the regex.
 - DB reads → go through `db/queries.ts`, never touch `schema` from other modules.
 
 ### Docstrings and file shape
@@ -205,7 +206,7 @@ function mergeProgress(...) { ... }
 
 ## Testing
 
-Vitest is the chosen framework (reuses the Vite toolchain). Not yet wired. First test targets when added: `core/github.ts`, `core/pi/session-file.ts` (pure `parseLines`/`parseLine`), `dashboard/src/components/log-viewer/helpers.ts`.
+Vitest is the chosen framework (reuses the Vite toolchain). Not yet wired. First test targets when added: `core/git/github.ts`, `core/pi/session-file.ts` (pure `parseLines`/`parseLine`), `dashboard/src/components/log-viewer/helpers.ts`.
 
 Until then: verify via `npm run dev` + real Telegram / dashboard flows before committing.
 
@@ -220,5 +221,5 @@ Keep `.env.example` in sync on every change. Required keys:
 - `PI_MODEL_{PLANNER,IMPLEMENTER,REVIEWER,PR_CREATOR,REVISION}` — optional per-stage overrides.
 - `REGISTERED_REPOS` — JSON string, Zod-validated at startup.
 - `FIREWORKS_API_KEY` — used by `shared/llm.ts` (intent classifier, branch-name slugging).
-- `GH_TOKEN` — used by `gh` CLI in `core/github.ts` and `core/cleanup.ts`.
+- `GH_TOKEN` — used by `gh` CLI in `core/git/github.ts` and `core/cleanup.ts`.
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_USER_ID`, `DATABASE_URL`.

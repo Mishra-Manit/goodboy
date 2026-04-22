@@ -11,7 +11,7 @@ import { config, loadEnv } from "../../shared/config.js";
 import { subagentCapability } from "../../core/subagents/index.js";
 import { emit } from "../../shared/events.js";
 import { getRepo } from "../../shared/repos.js";
-import { createWorktree, generateBranchName, syncRepo } from "../../core/worktree.js";
+import { createWorktree, generateBranchName, syncRepo } from "../../core/git/worktree.js";
 import * as queries from "../../db/queries.js";
 import type { Env } from "../../shared/config.js";
 import {
@@ -23,16 +23,14 @@ import {
 } from "../../core/stage.js";
 import { withPipelineSpan } from "../../observability/index.js";
 import {
-  plannerPrompt,
-  implementerPrompt,
-  reviewerPrompt,
+  codingSystemPrompt,
+  codingInitialPrompt,
+  type CodingStage,
   type WorktreeEnv,
 } from "./prompts.js";
 import { startPrSession } from "../pr-session/session.js";
 
 const log = createLogger("coding");
-
-type CodingStage = "planner" | "implementer" | "reviewer";
 
 interface StageSpec {
   readonly label: string;
@@ -183,36 +181,6 @@ async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<vo
     extensions: cap?.extensions,
     envOverrides: cap?.envOverrides ?? {},
   });
-}
-
-// --- Prompt routing ---
-
-function codingSystemPrompt(
-  stage: CodingStage,
-  absArtifacts: string,
-  env: WorktreeEnv,
-  description: string,
-): string {
-  const planPath = path.join(absArtifacts, "plan.md");
-  const summaryPath = path.join(absArtifacts, "implementation-summary.md");
-  switch (stage) {
-    case "planner":     return plannerPrompt(description, absArtifacts, env);
-    case "implementer": return implementerPrompt(planPath, absArtifacts, env);
-    case "reviewer":    return reviewerPrompt(planPath, summaryPath, absArtifacts, env);
-  }
-}
-
-function codingInitialPrompt(stage: CodingStage, absArtifacts: string, description: string): string {
-  const planPath = path.join(absArtifacts, "plan.md");
-  const summaryPath = path.join(absArtifacts, "implementation-summary.md");
-  switch (stage) {
-    case "planner":
-      return `Here is the task:\n\n${description}\n\nStart by exploring the codebase structure, then write the plan to ${absArtifacts}/plan.md. Do not stop until the file is written.`;
-    case "implementer":
-      return `Read the plan at ${planPath}, then implement every step. Make git commits as you go. When all code is written and committed, write the summary to ${absArtifacts}/implementation-summary.md. Do not stop until both the code is committed and the summary file is written.`;
-    case "reviewer":
-      return `Read the plan at ${planPath} and the summary at ${summaryPath}. Run git diff main to see all changes. Review the code, fix any issues, then write your review to ${absArtifacts}/review.md. Do not stop until the review file is written.`;
-  }
 }
 
 // --- Helpers ---

@@ -10,7 +10,7 @@ import { createLogger } from "../../shared/logger.js";
 import { config, loadEnv } from "../../shared/config.js";
 import { emit } from "../../shared/events.js";
 import { getRepo } from "../../shared/repos.js";
-import { syncRepo } from "../../core/worktree.js";
+import { syncRepo } from "../../core/git/worktree.js";
 import * as queries from "../../db/queries.js";
 import {
   failTask,
