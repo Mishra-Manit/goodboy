@@ -21,7 +21,7 @@ import {
   readSessionFile,
   taskSessionPath,
   prSessionPath,
-} from "../core/session-file.js";
+} from "../core/pi/session-file.js";
 import { STAGE_NAMES } from "../shared/types.js";
 import { cancelTask as cancelRunningTask, type SendTelegram } from "../core/stage.js";
 import { runPipeline } from "../pipelines/coding/pipeline.js";

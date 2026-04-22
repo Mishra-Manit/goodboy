@@ -9,10 +9,10 @@
 import { mkdir, stat, readFile, open } from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import { createLogger } from "../shared/logger.js";
-import { config } from "../shared/config.js";
-import { CURRENT_SESSION_VERSION, type FileEntry } from "../shared/session.js";
-import type { StageName } from "../shared/types.js";
+import { createLogger } from "../../shared/logger.js";
+import { config } from "../../shared/config.js";
+import { CURRENT_SESSION_VERSION, type FileEntry } from "../../shared/session.js";
+import type { StageName } from "../../shared/types.js";
 
 const log = createLogger("session-file");
 

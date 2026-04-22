@@ -7,7 +7,7 @@
  */
 
 import { context, trace, SpanStatusCode, type Span } from "@opentelemetry/api";
-import { watchSessionFile } from "../../core/session-file.js";
+import { watchSessionFile } from "../../core/pi/session-file.js";
 import { createLogger } from "../../shared/logger.js";
 import { getTracer } from "../tracer.js";
 import { GenAi, Goodboy, truncate } from "../attributes.js";

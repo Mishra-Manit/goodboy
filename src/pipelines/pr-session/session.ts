@@ -17,8 +17,8 @@ import {
   ensureSessionDir,
   prSessionPath,
   readSessionFile,
-} from "../../core/session-file.js";
-import { broadcastSessionFile } from "../../core/session-broadcast.js";
+} from "../../core/pi/session-file.js";
+import { broadcastSessionFile } from "../../core/pi/session-broadcast.js";
 import { createPrWorktree } from "../../core/worktree.js";
 import { getRepo } from "../../shared/repos.js";
 import * as queries from "../../db/queries.js";
