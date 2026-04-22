@@ -29,20 +29,20 @@ It also ships with a live dashboard so you can watch every stage, log line, arti
 ## Architecture (high level)
 
 ```mermaid
-graph TD
+flowchart TD
   TG[Telegram User] --> BOT[Grammy Bot + Intent Classifier]
   BOT --> PIPE[Pipelines]
   PIPE --> PI[pi RPC Sessions]
-  PI --> ART[artifacts/* + session JSONL]
+  PI --> ART[artifacts + session JSONL]
   PIPE --> DB[(Neon Postgres via Drizzle)]
 
   UI[Dashboard SPA] --> API[Hono API]
-  UI --> SSE[/api/events SSE]
+  UI --> SSE["/api/events (SSE)"]
   API --> DB
   API --> ART
   SSE --> UI
 
-  PIPE --> GH[Git/GitHub via gh + worktrees]
+  PIPE --> GH[GitHub via gh + worktrees]
 ```
 
 ## Runtime flow for a coding task
