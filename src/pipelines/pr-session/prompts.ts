@@ -3,7 +3,7 @@
  * the PR; address feedback on it) and `review` (external PR we are reviewing).
  */
 
-import { SHARED_RULES } from "../../core/prompts.js";
+import { SHARED_RULES } from "../../shared/agent-prompts.js";
 
 export function prSessionPrompt(options: {
   mode: "own" | "review";
