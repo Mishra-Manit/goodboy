@@ -242,7 +242,12 @@ async function runSessionTurnInner(turn: SessionTurn): Promise<void> {
   // because `runSessionTurn` always invokes this from inside withPipelineSpan.
   const activeSpan = trace.getActiveSpan();
   const stopBridge = activeSpan
-    ? bridgeSessionToOtel({ sessionPath: filePath, stageSpan: activeSpan, taskId: run.id })
+    ? bridgeSessionToOtel({
+        sessionPath: filePath,
+        stageSpan: activeSpan,
+        taskId: run.id,
+        initialModel: model,
+      })
     : () => {};
 
   const session = spawnPiSession({

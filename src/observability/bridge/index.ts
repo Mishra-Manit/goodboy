@@ -21,6 +21,12 @@ export interface BridgeOptions {
   /** Span the bridged chat/tool spans are parented under. */
   stageSpan: Span;
   taskId: string;
+  /**
+   * Model the session was spawned with. Used to suppress the no-op
+   * `model_change` event pi writes at session start (it's a "current
+   * model" record, not a change notification).
+   */
+  initialModel?: string;
 }
 
 /**
@@ -28,11 +34,17 @@ export interface BridgeOptions {
  * and tool call. Returns a disposer that stops watching and force-closes
  * any spans that never saw their end (e.g. killed session).
  */
-export function bridgeSessionToOtel({ sessionPath, stageSpan, taskId }: BridgeOptions): () => void {
+export function bridgeSessionToOtel({
+  sessionPath,
+  stageSpan,
+  taskId,
+  initialModel,
+}: BridgeOptions): () => void {
   const tracer = getTracer();
   const chatSpans = new Map<string, Span>();
   const toolSpans = new Map<string, Span>();
   let state: TranslatorState = initialState();
+  if (initialModel) state = { ...state, lastModelId: initialModel };
   let totalCost = 0;
 
   const stageCtx = trace.setSpan(context.active(), stageSpan);

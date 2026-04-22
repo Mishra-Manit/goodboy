@@ -31,11 +31,26 @@ export function translate(
   if (entry.type === "message") {
     return handleMessage(state, entry);
   }
-  if (
-    entry.type === "model_change" ||
-    entry.type === "compaction" ||
-    entry.type === "branch_summary"
-  ) {
+  if (entry.type === "model_change") {
+    // pi writes exactly one `model_change` per session at spawn time as a
+    // "this is the active model" record, not a change notification. Skip
+    // emits that repeat the current `modelId` so the first one (when the
+    // model truly changes within a session) is the only event we forward.
+    if (state.lastModelId === entry.modelId) {
+      return { state, commands: [] };
+    }
+    return {
+      state: { ...state, lastModelId: entry.modelId },
+      commands: [
+        {
+          type: "stage.event",
+          name: entry.type,
+          attributes: flattenAttrs(entry),
+        },
+      ],
+    };
+  }
+  if (entry.type === "compaction" || entry.type === "branch_summary") {
     return {
       state,
       commands: [

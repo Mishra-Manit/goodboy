@@ -84,6 +84,12 @@ export interface TranslatorState {
   toolToChat: Map<string, string>;
   /** Chat key -> deferred EndChatSpan waiting on its last tool result. */
   pendingChatEnds: Map<string, EndChatSpan>;
+  /**
+   * Last `model_change.modelId` we forwarded as an event. pi writes one
+   * `model_change` entry at session start regardless of whether the model
+   * actually changed, so we dedupe by id to avoid no-op span events.
+   */
+  lastModelId?: string;
 }
 
 export function initialState(): TranslatorState {

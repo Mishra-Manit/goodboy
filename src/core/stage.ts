@@ -138,7 +138,12 @@ export async function runStage(options: RunStageOptions): Promise<void> {
 
       await ensureSessionDir(sessionPath);
       const stopBroadcast = broadcastSessionFile(sessionPath, { scope: "task", taskId, stage });
-      const stopBridge = bridgeSessionToOtel({ sessionPath, stageSpan, taskId });
+      const stopBridge = bridgeSessionToOtel({
+        sessionPath,
+        stageSpan,
+        taskId,
+        initialModel: model,
+      });
 
       const session = spawnPiSession({
         id: `${taskId}-${stage}`,
