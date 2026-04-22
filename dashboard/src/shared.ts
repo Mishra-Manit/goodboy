@@ -15,6 +15,9 @@ export type {
   SSEEvent,
 } from "@shared/types.js";
 
+export { TASK_KIND_CONFIG } from "@shared/task-kinds.js";
+export type { TaskKindConfig } from "@shared/task-kinds.js";
+
 export type {
   FileEntry,
   SessionEntry,

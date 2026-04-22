@@ -23,6 +23,8 @@ export type {
   StageName,
 } from "@dashboard/shared";
 
+export { TASK_KIND_CONFIG } from "@dashboard/shared";
+
 // --- Task resources ---
 
 export interface Task {
@@ -113,31 +115,3 @@ export interface StageSession {
   stage: StageName;
   entries: FileEntry[];
 }
-
-// --- Per-kind UI config ---
-
-/** Per-kind pipeline + artifact catalogue. Keyed off `TaskKind`, so a new kind forces a compile error. */
-export const TASK_KIND_CONFIG: Record<
-  TaskKind,
-  { label: string; stages: string[]; artifacts: { key: string; label: string }[] }
-> = {
-  coding_task: {
-    label: "coding task",
-    stages: ["planner", "implementer", "reviewer"],
-    artifacts: [
-      { key: "plan.md", label: "plan" },
-      { key: "implementation-summary.md", label: "summary" },
-      { key: "review.md", label: "review" },
-    ],
-  },
-  codebase_question: {
-    label: "question",
-    stages: ["answering"],
-    artifacts: [{ key: "answer.md", label: "answer" }],
-  },
-  pr_review: {
-    label: "PR review",
-    stages: ["pr_reviewing"],
-    artifacts: [{ key: "pr-review.md", label: "review" }],
-  },
-};
