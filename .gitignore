@@ -6,3 +6,4 @@ data/pr-sessions/
 !data/pr-sessions/.gitkeep
 dashboard/dist/
 handoffs/
+pi-session-*.html
