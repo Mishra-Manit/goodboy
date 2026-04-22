@@ -78,11 +78,7 @@ export function formatCommentsPrompt(
 }
 
 /** Initial prompt for the PR creation turn (push branch + open PR). */
-export function prCreationPrompt(branch: string, artifactsDir: string): string {
-  return `Push the branch and create a PR. Read the artifact files for context on the PR description.`;
-}
+export const prCreationPrompt = `Push the branch and create a PR. Read the artifact files for context on the PR description.`;
 
 /** Initial prompt for an external PR review turn. */
-export function externalReviewPrompt(): string {
-  return `Review this PR. Read the diff, understand the changes, and post your review.`;
-}
+export const externalReviewPrompt = `Review this PR. Read the diff, understand the changes, and post your review.`;

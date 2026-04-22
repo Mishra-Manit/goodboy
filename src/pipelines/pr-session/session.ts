@@ -72,7 +72,7 @@ export async function startPrSession(options: {
         reviewPath: path.join(artifactsDir, "review.md"),
       }),
       model: modelFor("PI_MODEL_PR_CREATOR"),
-      prompt: prCreationPrompt(branch, artifactsDir),
+      prompt: prCreationPrompt,
       run,
       timeoutLabel: "PR session (create)",
     });
@@ -185,7 +185,7 @@ export async function startExternalReview(options: {
       cwd: worktreePath,
       systemPrompt: prSessionPrompt({ mode: "review", repo: nwo ?? repo, branch, prNumber }),
       model: modelFor("PI_MODEL_REVIEWER"),
-      prompt: externalReviewPrompt(),
+      prompt: externalReviewPrompt,
       run,
       timeoutLabel: "PR session (external review)",
     });

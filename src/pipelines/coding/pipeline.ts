@@ -23,8 +23,7 @@ import {
 } from "../../core/stage.js";
 import { withPipelineSpan } from "../../observability/index.js";
 import {
-  codingSystemPrompt,
-  codingInitialPrompt,
+  codingPrompts,
   type CodingStage,
   type WorktreeEnv,
 } from "./prompts.js";
@@ -163,6 +162,7 @@ interface StageContext {
 async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<void> {
   const absArtifacts = path.resolve(ctx.artifactsDir);
   const spec = STAGES[stage];
+  const { systemPrompt, initialPrompt } = codingPrompts(stage, absArtifacts, ctx.worktreeEnv, ctx.task.description);
 
   // Only the planner delegates to subagents. Other stages stay on
   // --no-extensions for reproducibility.
@@ -172,8 +172,8 @@ async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<vo
     taskId: ctx.taskId,
     stage,
     cwd: ctx.worktreePath,
-    systemPrompt: codingSystemPrompt(stage, absArtifacts, ctx.worktreeEnv, ctx.task.description),
-    initialPrompt: codingInitialPrompt(stage, absArtifacts, ctx.task.description),
+    systemPrompt,
+    initialPrompt,
     model: modelFor(spec.modelKey),
     sendTelegram: ctx.sendTelegram,
     chatId: ctx.task.telegramChatId,
