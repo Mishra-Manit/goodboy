@@ -21,6 +21,7 @@ import {
 } from "../../core/stage.js";
 import { withPipelineSpan } from "../../observability/index.js";
 import { questionSystemPrompt, questionInitialPrompt } from "./prompts.js";
+import { runMemory } from "../memory/pipeline.js";
 
 const log = createLogger("question");
 
@@ -69,6 +70,11 @@ async function runQuestionInner(
     return;
   }
 
+  // Run the memory stage before answering. Soft-fail: never throws to caller.
+  await runMemory({
+    taskId, repo: task.repo, repoPath: repo.localPath, sendTelegram, chatId,
+  });
+
   const absArtifacts = path.resolve(artifactsDir);
 
   try {
@@ -76,7 +82,7 @@ async function runQuestionInner(
       taskId,
       stage: "answering",
       cwd: repo.localPath,
-      systemPrompt: questionSystemPrompt(task.description, absArtifacts),
+      systemPrompt: await questionSystemPrompt(task.repo, task.description, absArtifacts),
       initialPrompt: questionInitialPrompt(task.description, absArtifacts),
       model: loadEnv().PI_MODEL,
       sendTelegram,

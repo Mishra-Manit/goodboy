@@ -1,9 +1,10 @@
 /** System prompt for the codebase-question pipeline. Enforces read-only behavior. */
 
-import { SHARED_RULES } from "../../shared/agent-prompts.js";
+import { SHARED_RULES, memoryBlock } from "../../shared/agent-prompts.js";
 
-export function questionSystemPrompt(question: string, artifactsDir: string): string {
-  return `You are answering a question about a codebase. You have READ-ONLY access.
+export async function questionSystemPrompt(repo: string, question: string, artifactsDir: string): Promise<string> {
+  const memory = await memoryBlock(repo);
+  return `${memory}You are answering a question about a codebase. You have READ-ONLY access.
 ${SHARED_RULES}
 READ-ONLY RULES:
 - Use read and bash (grep, find, ls, head, tail, wc) to explore the codebase
