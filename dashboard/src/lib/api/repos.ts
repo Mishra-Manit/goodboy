@@ -8,5 +8,5 @@ export async function fetchRepos(): Promise<Repo[]> {
 }
 
 export async function fetchMemoryStatus(repo: string): Promise<MemoryStatus> {
-  return request(`/api/memory/${encodeURIComponent(repo)}`);
+  return request(`/api/memory/status/${encodeURIComponent(repo)}`);
 }

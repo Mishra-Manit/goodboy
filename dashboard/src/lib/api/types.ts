@@ -1,6 +1,15 @@
 /** Dashboard-side wire types. Enum sources of truth live in `@dashboard/shared`. */
 
-import type { FileEntry, TaskKind, TaskStatus, StageStatus, StageName } from "@dashboard/shared";
+import type {
+  FileEntry,
+  TaskKind,
+  TaskStatus,
+  StageStatus,
+  StageName,
+  MemoryRunKind,
+  MemoryRunStatus,
+  MemoryRunSource,
+} from "@dashboard/shared";
 
 export type {
   FileEntry,
@@ -21,6 +30,9 @@ export type {
   TaskStatus,
   StageStatus,
   StageName,
+  MemoryRunKind,
+  MemoryRunStatus,
+  MemoryRunSource,
 } from "@dashboard/shared";
 
 export { TASK_KIND_CONFIG } from "@dashboard/shared";
@@ -134,4 +146,21 @@ export interface MemoryStatus {
   fileCount: number;
   totalBytes: number;
   zones: MemoryZone[];
+}
+
+export interface MemoryRun {
+  id: string;
+  instance: string;
+  repo: string;
+  source: MemoryRunSource;
+  kind: MemoryRunKind;
+  status: MemoryRunStatus;
+  originTaskId: string | null;
+  externalLabel: string | null;
+  sha: string | null;
+  zoneCount: number | null;
+  error: string | null;
+  sessionPath: string | null;
+  startedAt: string;
+  completedAt: string | null;
 }
