@@ -115,3 +115,23 @@ export interface StageSession {
   stage: StageName;
   entries: FileEntry[];
 }
+
+// --- Memory ---
+
+export interface MemoryZone {
+  name: string;
+  path: string;
+  summary: string;
+}
+
+export type MemoryStatusKind = "fresh" | "stale" | "missing";
+
+export interface MemoryStatus {
+  repo: string;
+  status: MemoryStatusKind;
+  lastIndexedSha: string | null;
+  lastIndexedAt: string | null;
+  fileCount: number;
+  totalBytes: number;
+  zones: MemoryZone[];
+}
