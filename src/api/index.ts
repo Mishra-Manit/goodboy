@@ -12,7 +12,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { subscribe } from "../shared/events.js";
 import * as queries from "../db/repository.js";
-import { listRepos, buildPrUrl } from "../shared/repos.js";
+import { listRepos, buildPrUrl, getRepo } from "../shared/repos.js";
+import { memoryStatus, currentHeadSha } from "../core/memory.js";
 import { config } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
 import { TASK_STATUSES, TASK_KINDS } from "../shared/types.js";
@@ -126,6 +127,35 @@ export function createApi(): Hono {
   // --- Repos ---
 
   app.get("/api/repos", (c) => c.json(listRepos()));
+
+  // --- Memory ---
+
+  app.get("/api/memory/:repo", async (c) => {
+    const name = c.req.param("repo");
+    const repo = getRepo(name);
+    if (!repo) return c.json({ error: "unknown repo" }, 404);
+
+    const { state, fileCount, totalBytes } = await memoryStatus(name);
+    if (!state) {
+      return c.json({
+        repo: name, status: "missing",
+        lastIndexedSha: null, lastIndexedAt: null,
+        fileCount: 0, totalBytes: 0, zones: [],
+      });
+    }
+
+    let live: string | null = null;
+    try { live = await currentHeadSha(repo.localPath); } catch { /* unreachable */ }
+
+    return c.json({
+      repo: name,
+      status: live && live === state.lastIndexedSha ? "fresh" : "stale",
+      lastIndexedSha: state.lastIndexedSha,
+      lastIndexedAt: state.lastIndexedAt,
+      fileCount, totalBytes,
+      zones: state.zones.map((z) => ({ name: z.name, path: z.path, summary: z.summary })),
+    });
+  });
 
   // --- PRs ---
 
