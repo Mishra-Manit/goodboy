@@ -17,6 +17,7 @@
 import { mkdir, readdir } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
 import { loadEnv } from "../../shared/config.js";
+import type { MemoryRunKind, MemoryRunSource } from "../../shared/types.js";
 import { subagentCapability } from "../../core/subagents/index.js";
 import { runStage, type SendTelegram } from "../../core/stage.js";
 import { taskSessionPath } from "../../core/pi/session-file.js";
@@ -46,14 +47,11 @@ const WARM_TIMEOUT_MS = 5 * 60 * 1000;
 
 // --- Public API ---
 
-type MemoryRunSource = "task" | "manual_test";
-type MemoryRunKind = "cold" | "warm" | "skip" | "noop";
-
 interface RunMemoryOptions {
   taskId: string;
   repo: string;
   repoPath: string;
-  source?: MemoryRunSource;
+  source: MemoryRunSource;
   sendTelegram: SendTelegram;
   chatId: string | null;
 }
@@ -330,14 +328,9 @@ async function recordMemoryRunComplete(
 }
 
 function memoryRunIdentity(opts: RunMemoryOptions) {
-  const source = opts.source ?? inferRunSource();
-  return source === "task"
+  return opts.source === "task"
     ? { source: "task" as const, originTaskId: opts.taskId, externalLabel: null }
     : { source: "manual_test" as const, originTaskId: null, externalLabel: opts.taskId };
-}
-
-function inferRunSource(): MemoryRunSource {
-  return loadEnv().INSTANCE_ID.startsWith("TEST-") ? "manual_test" : "task";
 }
 
 function modelForMemory(): string {

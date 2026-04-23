@@ -46,6 +46,7 @@ await runMemory({
   taskId: `${testLabel}-cold`,
   repo: repoName,
   repoPath: repo.localPath,
+  source: "manual_test",
   sendTelegram: noopTelegram,
   chatId: null,
 });

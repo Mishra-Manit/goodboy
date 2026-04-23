@@ -107,7 +107,12 @@ async function runCodingPipelineInner(
 
   // Run the memory stage before planning. Soft-fail: never throws to caller.
   await runMemory({
-    taskId, repo: task.repo, repoPath: repo.localPath, sendTelegram, chatId,
+    taskId,
+    repo: task.repo,
+    repoPath: repo.localPath,
+    source: "task",
+    sendTelegram,
+    chatId,
   });
 
   const branch = await generateBranchName(taskId, task.description);
