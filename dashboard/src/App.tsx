@@ -8,6 +8,7 @@ import { PullRequests } from "@dashboard/pages/PullRequests";
 import { PrSessionDetail } from "@dashboard/pages/PrSessionDetail";
 import { Repos } from "@dashboard/pages/Repos";
 import { Memory } from "@dashboard/pages/Memory";
+import { MemoryDetail } from "@dashboard/pages/MemoryDetail";
 
 export function App() {
   return (
@@ -20,6 +21,7 @@ export function App() {
         <Route path="/prs/:id" element={<PrSessionDetail />} />
         <Route path="/repos" element={<Repos />} />
         <Route path="/memory" element={<Memory />} />
+        <Route path="/memory/:id" element={<MemoryDetail />} />
       </Route>
     </Routes>
   );

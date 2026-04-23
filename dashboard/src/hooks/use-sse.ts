@@ -18,6 +18,7 @@ const EVENT_TYPES: SSEEvent["type"][] = [
   "stage_update",
   "pr_update",
   "pr_session_update",
+  "memory_run_update",
   "session_entry",
 ];
 
