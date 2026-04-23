@@ -37,3 +37,14 @@ export async function deleteMemoryTests(): Promise<{
 }> {
   return request("/api/memory/tests", { method: "DELETE" });
 }
+
+export async function deleteMemoryRepo(repo: string): Promise<{
+  repo: string;
+  deletedWorktree: boolean;
+  deletedMemoryDir: boolean;
+  deactivatedRuns: number;
+}> {
+  return request(`/api/memory/repo/${encodeURIComponent(repo)}`, {
+    method: "DELETE",
+  });
+}

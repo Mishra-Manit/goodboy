@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  deleteMemoryRepo,
   deleteMemoryTests,
   fetchMemoryRuns,
   fetchMemoryStatus,
@@ -47,6 +48,7 @@ export function Memory() {
   const [kind, setKind] = useState<KindFilter>("all");
   const [runsVersion, setRunsVersion] = useState(0);
   const [cleaning, setCleaning] = useState(false);
+  const [deletingRepo, setDeletingRepo] = useState<string | null>(null);
 
   const query = useQuery(
     () => loadMemoryPage({ hideTests, kind }),
@@ -67,6 +69,28 @@ export function Memory() {
   }
 
   const openRun = (run: MemoryRun) => navigate(`/memory/${run.id}`);
+
+  async function handleDeleteRepo(repo: string): Promise<void> {
+    const confirmed = window.confirm(
+      `Completely delete memory for ${repo}?\n\nThis removes the memory checkout, all saved memory files, and hides prior memory runs for this repo. The next memory build will be a cold start.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingRepo(repo);
+    try {
+      await deleteMemoryRepo(repo);
+      setRunsVersion((value) => value + 1);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("API 409")) {
+        window.alert("Memory delete is blocked because a memory run is currently active for this repo.");
+        return;
+      }
+      window.alert(message);
+    } finally {
+      setDeletingRepo((current) => (current === repo ? null : current));
+    }
+  }
 
   return (
     <div>
@@ -127,7 +151,13 @@ export function Memory() {
                   <SectionDivider label="repos" detail={`${repoEntries.length}`} />
                   <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {repoEntries.map((entry) => (
-                      <RepoSummaryCard key={entry.repo} entry={entry} now={now} />
+                      <RepoSummaryCard
+                        key={entry.repo}
+                        entry={entry}
+                        now={now}
+                        deleting={deletingRepo === entry.repo}
+                        onDelete={handleDeleteRepo}
+                      />
                     ))}
                   </div>
                 </section>
@@ -224,9 +254,11 @@ interface RepoEntry {
 interface RepoSummaryCardProps {
   entry: RepoEntry;
   now: number;
+  deleting: boolean;
+  onDelete: (repo: string) => Promise<void>;
 }
 
-function RepoSummaryCard({ entry, now }: RepoSummaryCardProps) {
+function RepoSummaryCard({ entry, now, deleting, onDelete }: RepoSummaryCardProps) {
   const { repo, registered, status, runCount } = entry;
   const sha = status?.lastIndexedSha?.slice(0, 8);
   const indexedAt = status?.lastIndexedAt ? timeAgo(status.lastIndexedAt, now) : null;
@@ -245,6 +277,15 @@ function RepoSummaryCard({ entry, now }: RepoSummaryCardProps) {
         <span className="ml-auto shrink-0 font-mono text-[10px] text-text-void">
           {runCount} run{runCount === 1 ? "" : "s"}
         </span>
+        {registered && (
+          <button
+            onClick={() => void onDelete(repo)}
+            disabled={deleting}
+            className="shrink-0 rounded-full px-2 py-0.5 font-mono text-[9px] tracking-wide text-text-ghost transition-colors hover:text-fail disabled:cursor-not-allowed disabled:text-text-void"
+          >
+            {deleting ? "deleting..." : "delete memory"}
+          </button>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] text-text-ghost">
         {registered && status ? (

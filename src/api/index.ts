@@ -13,8 +13,14 @@ import path from "node:path";
 import { subscribe } from "../shared/events.js";
 import * as queries from "../db/repository.js";
 import { listRepos, buildPrUrl, getRepo } from "../shared/repos.js";
-import { memoryStatus, currentHeadSha } from "../core/memory/index.js";
+import {
+  memoryStatus,
+  currentHeadSha,
+  tryAcquireLock,
+  releaseLock,
+} from "../core/memory/index.js";
 import { cleanupTestMemoryRuns } from "../core/memory/cleanup.js";
+import { deleteRepoMemoryArtifacts } from "../core/memory/delete.js";
 import { config } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
 import { TASK_STATUSES, TASK_KINDS, MEMORY_RUN_KINDS } from "../shared/types.js";
@@ -164,9 +170,10 @@ export function createApi(): Hono {
     const repo = c.req.query("repo");
     const limit = parseLimit(c.req.query("limit"));
     const includeTests = c.req.query("includeTests") !== "false";
+    const includeInactive = c.req.query("includeInactive") === "true";
     const kind = oneOf(c.req.query("kind"), MEMORY_RUN_KINDS);
 
-    const runs = await queries.listMemoryRuns({ repo, limit, includeTests, kind });
+    const runs = await queries.listMemoryRuns({ repo, limit, includeTests, includeInactive, kind });
     return c.json(runs);
   });
 
@@ -229,6 +236,35 @@ export function createApi(): Hono {
   app.delete("/api/memory/tests", async (c) => {
     const result = await cleanupTestMemoryRuns();
     return c.json(result);
+  });
+
+  app.delete("/api/memory/repo/:repo", async (c) => {
+    const name = c.req.param("repo");
+    const repo = getRepo(name);
+    if (!repo) return c.json({ error: "unknown repo" }, 404);
+
+    const lockTaskId = `memory-delete-${name}-${Date.now()}`;
+    const acquired = await tryAcquireLock(name, lockTaskId);
+    if (!acquired) return c.json({ error: "memory delete blocked by active run" }, 409);
+
+    try {
+      try {
+        const result = await deleteRepoMemoryArtifacts(name, repo.localPath);
+        const deactivatedRuns = await queries.deactivateMemoryRunsForRepo(name);
+        return c.json({
+          repo: name,
+          deletedWorktree: result.deletedWorktree,
+          deletedMemoryDir: result.deletedMemoryDir,
+          deactivatedRuns,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(`Memory delete failed for ${name}`, err);
+        return c.json({ error: message }, 500);
+      }
+    } finally {
+      await releaseLock(name);
+    }
   });
 
   // --- PRs ---

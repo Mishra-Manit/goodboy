@@ -268,11 +268,15 @@ export async function getRunsForPrSession(prSessionId: string): Promise<PrSessio
 
 // --- Memory Runs ---
 
-function memoryRunsVisible() {
-  return or(
+function memoryRunsVisible(includeInactive = false) {
+  const instanceVisible = or(
     eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID),
     like(schema.memoryRuns.instance, "TEST-%"),
   );
+
+  return includeInactive
+    ? instanceVisible
+    : and(instanceVisible, eq(schema.memoryRuns.active, "TRUE"));
 }
 
 export async function createMemoryRun(data: {
@@ -319,10 +323,14 @@ export async function listMemoryRuns(filters: {
   limit?: number;
   kind?: MemoryRunKind;
   includeTests?: boolean;
+  includeInactive?: boolean;
 } = {}): Promise<MemoryRun[]> {
-  const visibility = filters.includeTests === false
+  const instanceVisibility = filters.includeTests === false
     ? eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID)
-    : memoryRunsVisible();
+    : memoryRunsVisible(true);
+  const visibility = filters.includeInactive
+    ? instanceVisibility
+    : and(instanceVisibility, eq(schema.memoryRuns.active, "TRUE"));
 
   const db = getDb();
   const query = db
@@ -338,14 +346,32 @@ export async function listMemoryRuns(filters: {
   return filters.limit === undefined ? query : query.limit(filters.limit);
 }
 
-export async function getMemoryRun(id: string): Promise<MemoryRun | undefined> {
+export async function getMemoryRun(
+  id: string,
+  options: { includeInactive?: boolean } = {},
+): Promise<MemoryRun | undefined> {
   const db = getDb();
   const [run] = await db
     .select()
     .from(schema.memoryRuns)
-    .where(and(eq(schema.memoryRuns.id, id), memoryRunsVisible()))
+    .where(and(eq(schema.memoryRuns.id, id), memoryRunsVisible(options.includeInactive)))
     .limit(1);
   return run;
+}
+
+export async function deactivateMemoryRunsForRepo(repo: string): Promise<number> {
+  const db = getDb();
+  const rows = await db
+    .update(schema.memoryRuns)
+    .set({ active: "FALSE" })
+    .where(and(
+      eq(schema.memoryRuns.repo, repo),
+      eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID),
+      eq(schema.memoryRuns.active, "TRUE"),
+    ))
+    .returning({ id: schema.memoryRuns.id });
+
+  return rows.length;
 }
 
 export async function deleteTestMemoryRuns(): Promise<Array<Pick<MemoryRun, "id" | "sessionPath">>> {

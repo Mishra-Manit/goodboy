@@ -148,6 +148,8 @@ export interface MemoryStatus {
   zones: MemoryZone[];
 }
 
+export type MemoryRunActive = "TRUE" | "FALSE";
+
 export interface MemoryRun {
   id: string;
   instance: string;
@@ -155,6 +157,7 @@ export interface MemoryRun {
   source: MemoryRunSource;
   kind: MemoryRunKind;
   status: MemoryRunStatus;
+  active: MemoryRunActive;
   originTaskId: string | null;
   externalLabel: string | null;
   sha: string | null;

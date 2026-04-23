@@ -34,6 +34,9 @@ export const memoryRunStatusEnum = pgEnum("memory_run_status", [
 export const memoryRunSourceEnum = pgEnum("memory_run_source", [
   "task", "manual_test",
 ]);
+export const memoryRunActiveEnum = pgEnum("memory_run_active", [
+  "TRUE", "FALSE",
+]);
 
 export const tasks = pgTable("tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -105,6 +108,7 @@ export const memoryRuns = pgTable("memory_runs", {
   source: memoryRunSourceEnum("source").notNull(),
   kind: memoryRunKindEnum("kind").notNull(),
   status: memoryRunStatusEnum("status").notNull().default("running"),
+  active: memoryRunActiveEnum("active").notNull().default("TRUE"),
   originTaskId: uuid("origin_task_id").references(() => tasks.id),
   externalLabel: text("external_label"),
   sha: text("sha"),
@@ -117,6 +121,7 @@ export const memoryRuns = pgTable("memory_runs", {
   repoStartedAtIdx: index("memory_runs_repo_started_at_idx").on(table.repo, table.startedAt),
   instanceStartedAtIdx: index("memory_runs_instance_started_at_idx").on(table.instance, table.startedAt),
   repoKindStartedAtIdx: index("memory_runs_repo_kind_started_at_idx").on(table.repo, table.kind, table.startedAt),
+  repoActiveStartedAtIdx: index("memory_runs_repo_active_started_at_idx").on(table.repo, table.active, table.startedAt),
 }));
 
 export type Task = typeof tasks.$inferSelect;
