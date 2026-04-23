@@ -26,6 +26,8 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 // --- Stage names (union across all kinds) ---
 
 export const STAGE_NAMES = [
+  // runs before every coding_task / codebase_question / pr_review
+  "memory",
   // coding_task
   "planner",
   "implementer",
@@ -40,7 +42,7 @@ export const STAGE_NAMES = [
 
 export type StageName = (typeof STAGE_NAMES)[number];
 
-export const STAGE_STATUSES = ["running", "complete", "failed"] as const;
+export const STAGE_STATUSES = ["running", "complete", "failed", "skipped"] as const;
 
 export type StageStatus = (typeof STAGE_STATUSES)[number];
 

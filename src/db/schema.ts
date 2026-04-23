@@ -14,9 +14,10 @@ export const taskStatusEnum = pgEnum("task_status", [
   "queued", "running", "complete", "failed", "cancelled",
 ]);
 export const stageStatusEnum = pgEnum("stage_status", [
-  "running", "complete", "failed",
+  "running", "complete", "failed", "skipped",
 ]);
 export const stageNameEnum = pgEnum("stage_name", [
+  "memory",
   "planner", "implementer", "reviewer", "pr_creator", "revision",
   "answering", "pr_reviewing",
 ]);
