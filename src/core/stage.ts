@@ -108,6 +108,14 @@ interface RunStageOptions {
   envOverrides?: Record<string, string>;
   /** Override the default 30-minute stage timeout. */
   timeoutMs?: number;
+  /**
+   * Runs after pi exits cleanly, before the stage row is marked complete
+   * and before the terminal SSE emit. If it returns `{ valid: false }`,
+   * the stage is persisted as failed with `error: reason` and exactly one
+   * `stage_update: failed` is emitted (no prior `complete`). Throws from
+   * postValidate bubble up and are handled like a pi-side failure.
+   */
+  postValidate?: () => Promise<{ valid: boolean; reason?: string }>;
 }
 
 /**
@@ -159,6 +167,18 @@ export async function runStage(options: RunStageOptions): Promise<void> {
 
       try {
         await withTimeout(session.waitForCompletion(), timeoutMs ?? STAGE_TIMEOUT_MS, `Stage ${stage}`);
+        if (options.postValidate) {
+          const result = await options.postValidate();
+          if (!result.valid) {
+            const reason = result.reason ?? "postValidate failed";
+            await queries.updateTaskStage(stageRecord.id, {
+              status: "failed", completedAt: new Date(), error: reason,
+            }).catch(() => {});
+            emit({ type: "stage_update", taskId, stage, status: "failed" });
+            log.warn(`Stage ${stage} failed postValidate for task ${taskId}: ${reason}`);
+            return;
+          }
+        }
         await queries.updateTaskStage(stageRecord.id, { status: "complete", completedAt: new Date() });
         emit({ type: "stage_update", taskId, stage, status: "complete" });
         await notifyTelegram(sendTelegram, chatId, `Stage complete: ${stageLabel}.`);
