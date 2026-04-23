@@ -68,8 +68,9 @@ import type { FileEntry } from "./session.js";
  * Wire format for every server-sent event the dashboard consumes.
  *
  * `session_entry` carries a line freshly appended to a pi session file.
- * `scope` + `id` (+ optional `stage`) identify which file the line belongs
- * to so the dashboard can route it to the right view.
+ * `scope` + `id` identify which file the line belongs to; task-scoped memory
+ * stage entries also carry `memoryRunId` so `/memory/:id` can subscribe
+ * directly without first resolving the underlying task/manual-test label.
  */
 export type SSEEvent =
   | { type: "task_update"; taskId: string; status: TaskStatus; kind?: TaskKind }
@@ -87,8 +88,16 @@ export type SSEEvent =
     }
   | {
       type: "session_entry";
-      scope: "task" | "pr_session";
+      scope: "task";
       id: string;
       stage?: StageName;
+      /** Present when this task-scoped stream belongs to a memory run row. */
+      memoryRunId?: string;
+      entry: FileEntry;
+    }
+  | {
+      type: "session_entry";
+      scope: "pr_session";
+      id: string;
       entry: FileEntry;
     };

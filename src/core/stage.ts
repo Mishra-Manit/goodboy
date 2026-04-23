@@ -117,6 +117,10 @@ interface RunStageOptions {
   envOverrides?: Record<string, string>;
   /** Override the default 30-minute stage timeout. */
   timeoutMs?: number;
+  /** Extra metadata attached to live `session_entry` SSE events for this stage. */
+  sessionEventMeta?: {
+    memoryRunId?: string;
+  };
   /**
    * Runs after pi exits cleanly, before the stage row is marked complete
    * and before the terminal SSE emit. If it returns `{ valid: false }`,
@@ -164,7 +168,12 @@ export async function runStage(options: RunStageOptions): Promise<void> {
       await notifyTelegram(sendTelegram, chatId, `Stage started: ${stageLabel}.`);
 
       await ensureSessionDir(sessionPath);
-      const stopBroadcast = broadcastSessionFile(sessionPath, { scope: "task", taskId, stage });
+      const stopBroadcast = broadcastSessionFile(sessionPath, {
+        scope: "task",
+        taskId,
+        stage,
+        memoryRunId: options.sessionEventMeta?.memoryRunId,
+      });
       const stopBridge = bridgeSessionToOtel({
         sessionPath,
         stageSpan,

@@ -23,6 +23,7 @@ import {
   readSessionFile,
   taskSessionPath,
   prSessionPath,
+  watchSessionFile,
 } from "../core/pi/session-file.js";
 import { STAGE_NAMES } from "../shared/types.js";
 import { cancelTask as cancelRunningTask, type SendTelegram } from "../core/stage.js";
@@ -34,6 +35,7 @@ import { dismissTask } from "../core/cleanup.js";
 const log = createLogger("api");
 
 const SSE_PING_INTERVAL_MS = 30_000;
+const MEMORY_RUN_STATUS_POLL_MS = 1_000;
 const UUID_PATTERN = /^[0-9a-f-]{36}$/;
 const ARTIFACT_NAME_PATTERN = /^[\w.-]+$/;
 
@@ -186,6 +188,42 @@ export function createApi(): Hono {
       log.warn(`Failed to read session ${run.sessionPath}`, err);
       return c.json({ entries: [] });
     }
+  });
+
+  app.get("/api/memory/runs/:id/events", async (c) => {
+    const run = await queries.getMemoryRun(c.req.param("id"));
+    if (!run) return notFound(c);
+
+    return streamSSE(c, async (stream) => {
+      let currentStatus = run.status;
+      const stopWatch = run.sessionPath
+        ? watchSessionFile(run.sessionPath, (entry) => {
+            stream.writeSSE({ data: JSON.stringify({ entry }), event: "session_entry" }).catch(() => {});
+          })
+        : () => {};
+      const keepAlive = setInterval(() => {
+        stream.writeSSE({ data: "", event: "ping" }).catch(() => {});
+      }, SSE_PING_INTERVAL_MS);
+      const statusPoll = setInterval(() => {
+        void queries.getMemoryRun(run.id).then((latest) => {
+          if (!latest) return;
+          if (latest.status === currentStatus) return;
+          currentStatus = latest.status;
+          stream.writeSSE({
+            data: JSON.stringify({ status: latest.status }),
+            event: "memory_run_update",
+          }).catch(() => {});
+          if (latest.status !== "running") clearInterval(statusPoll);
+        }).catch(() => {});
+      }, MEMORY_RUN_STATUS_POLL_MS);
+
+      stream.onAbort(() => {
+        stopWatch();
+        clearInterval(keepAlive);
+        clearInterval(statusPoll);
+      });
+      await new Promise(() => {});
+    });
   });
 
   app.delete("/api/memory/tests", async (c) => {

@@ -12,6 +12,7 @@ interface TaskTarget {
   scope: "task";
   taskId: string;
   stage: StageName;
+  memoryRunId?: string;
 }
 
 interface PrSessionTarget {
@@ -25,7 +26,14 @@ export type BroadcastTarget = TaskTarget | PrSessionTarget;
 export function broadcastSessionFile(filePath: string, target: BroadcastTarget): () => void {
   return watchSessionFile(filePath, (entry) => {
     if (target.scope === "task") {
-      emit({ type: "session_entry", scope: "task", id: target.taskId, stage: target.stage, entry });
+      emit({
+        type: "session_entry",
+        scope: "task",
+        id: target.taskId,
+        stage: target.stage,
+        memoryRunId: target.memoryRunId,
+        entry,
+      });
     } else {
       emit({ type: "session_entry", scope: "pr_session", id: target.prSessionId, entry });
     }

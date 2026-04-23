@@ -165,6 +165,7 @@ async function runCold(
       extensions: cap.extensions,
       envOverrides: cap.envOverrides,
       timeoutMs: COLD_TIMEOUT_MS,
+      sessionEventMeta: runId ? { memoryRunId: runId } : undefined,
       postValidate: async () => {
         const zones = await readZonesSidecar(opts.repo);
         if (zones === null) return { valid: false, reason: ".zones.json missing or invalid" };
@@ -233,6 +234,7 @@ async function runWarm(
       extensions: cap.extensions,
       envOverrides: cap.envOverrides,
       timeoutMs: WARM_TIMEOUT_MS,
+      sessionEventMeta: runId ? { memoryRunId: runId } : undefined,
       postValidate: async () => {
         const stateHashAfter = await stateFileHash(opts.repo);
         if (stateHashBefore !== stateHashAfter) {
