@@ -83,8 +83,10 @@ export async function runMemory(opts: RunMemoryOptions): Promise<void> {
         if (changed.length === 0) {
           log.info(`Memory up-to-date for ${repo} @ ${headSha.slice(0, 8)}`);
           await writeState(repo, headSha, state.zones);
-          const stage = await queries.createTaskStage({ taskId, stage: "memory" });
-          await queries.updateTaskStage(stage.id, { status: "complete", completedAt: new Date() });
+          const stage = await createBestEffortMemoryStage(taskId);
+          if (stage) {
+            await queries.updateTaskStage(stage.id, { status: "complete", completedAt: new Date() });
+          }
           emit({ type: "stage_update", taskId, stage: "memory", status: "complete" });
           return;
         }
@@ -213,9 +215,15 @@ async function listZoneDirs(repo: string): Promise<string[]> {
 
 async function markSkipped(taskId: string, repo: string): Promise<void> {
   log.info(`Memory lock held for ${repo}; skipping for task ${taskId}`);
-  const stage = await queries.createTaskStage({ taskId, stage: "memory" });
-  await queries.updateTaskStage(stage.id, { status: "skipped", completedAt: new Date() });
+  const stage = await createBestEffortMemoryStage(taskId);
+  if (stage) {
+    await queries.updateTaskStage(stage.id, { status: "skipped", completedAt: new Date() });
+  }
   emit({ type: "stage_update", taskId, stage: "memory", status: "skipped" });
+}
+
+async function createBestEffortMemoryStage(taskId: string) {
+  return queries.createTaskStage({ taskId, stage: "memory" }).catch(() => null);
 }
 
 function modelForMemory(): string {

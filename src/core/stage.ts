@@ -136,10 +136,15 @@ export async function runStage(options: RunStageOptions): Promise<void> {
   await withStageSpan(
     { taskId, stage, model, stageLabel, piSessionPath: sessionPath },
     async (stageSpan) => {
-      await queries.updateTask(taskId, { status: "running" });
+      await queries.updateTask(taskId, { status: "running" }).catch((err) => {
+        log.warn(`updateTask failed for task ${taskId} (no matching tasks row?)`, err);
+      });
       emit({ type: "task_update", taskId, status: "running" });
 
-      const stageRecord = await queries.createTaskStage({ taskId, stage });
+      const stageRecord = await queries.createTaskStage({ taskId, stage }).catch((err) => {
+        log.warn(`createTaskStage failed for task ${taskId} stage ${stage} (no matching tasks row?)`, err);
+        return null;
+      });
       emit({ type: "stage_update", taskId, stage, status: "running" });
       log.info(`Starting stage ${stage} for task ${taskId}`);
       await notifyTelegram(sendTelegram, chatId, `Stage started: ${stageLabel}.`);
@@ -171,20 +176,26 @@ export async function runStage(options: RunStageOptions): Promise<void> {
           const result = await options.postValidate();
           if (!result.valid) {
             const reason = result.reason ?? "postValidate failed";
-            await queries.updateTaskStage(stageRecord.id, {
-              status: "failed", completedAt: new Date(), error: reason,
-            }).catch(() => {});
+            if (stageRecord) {
+              await queries.updateTaskStage(stageRecord.id, {
+                status: "failed", completedAt: new Date(), error: reason,
+              }).catch(() => {});
+            }
             emit({ type: "stage_update", taskId, stage, status: "failed" });
             log.warn(`Stage ${stage} failed postValidate for task ${taskId}: ${reason}`);
             return;
           }
         }
-        await queries.updateTaskStage(stageRecord.id, { status: "complete", completedAt: new Date() });
+        if (stageRecord) {
+          await queries.updateTaskStage(stageRecord.id, { status: "complete", completedAt: new Date() });
+        }
         emit({ type: "stage_update", taskId, stage, status: "complete" });
         await notifyTelegram(sendTelegram, chatId, `Stage complete: ${stageLabel}.`);
         log.info(`Stage ${stage} complete for task ${taskId}`);
       } catch (err) {
-        await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
+        if (stageRecord) {
+          await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
+        }
         emit({ type: "stage_update", taskId, stage, status: "failed" });
         throw err;
       } finally {
