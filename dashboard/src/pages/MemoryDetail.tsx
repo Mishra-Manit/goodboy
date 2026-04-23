@@ -8,8 +8,7 @@ import {
   type MemoryRun,
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
-import { useSSERefresh } from "@dashboard/hooks/use-sse";
-import { useLiveSession } from "@dashboard/hooks/use-live-session";
+import { useMemoryRunStream } from "@dashboard/hooks/use-memory-run-stream";
 import { useNow } from "@dashboard/hooks/use-now";
 import { BackLink } from "@dashboard/components/BackLink";
 import { PageState } from "@dashboard/components/PageState";
@@ -19,8 +18,6 @@ import { LogViewer } from "@dashboard/components/log-viewer";
 import { dedupeById } from "@dashboard/components/log-viewer/helpers";
 import { formatDuration, timeAgo } from "@dashboard/lib/format";
 import { cn, shortId } from "@dashboard/lib/utils";
-
-const LIVE_KEY = "entries";
 
 const KIND_TONE: Record<MemoryRun["kind"], string> = {
   cold: "text-accent",
@@ -48,27 +45,18 @@ export function MemoryDetail() {
     [runId],
   );
 
-  useSSERefresh(
-    () => { refetch(); refetchSession(); },
-    (event) => event.type === "memory_run_update" && event.runId === runId,
-  );
-
-  const sessionTaskId = run ? run.originTaskId ?? run.externalLabel : null;
-
-  const liveBuckets = useLiveSession({
-    match: (event) =>
-      event.type === "session_entry"
-        && event.scope === "task"
-        && event.stage === "memory"
-        && sessionTaskId !== null
-        && event.id === sessionTaskId
-        ? { key: LIVE_KEY, entry: event.entry }
-        : null,
+  const liveEntries = useMemoryRunStream({
+    runId,
+    enabled: Boolean(run?.sessionPath),
+    onRunUpdate: () => {
+      refetch();
+      refetchSession();
+    },
   });
 
   const mergedEntries = useMemo(
-    () => dedupeById([...(sessionData?.entries ?? []), ...(liveBuckets.get(LIVE_KEY) ?? [])]),
-    [sessionData, liveBuckets],
+    () => dedupeById([...(sessionData?.entries ?? []), ...liveEntries]),
+    [sessionData, liveEntries],
   );
 
   return (
