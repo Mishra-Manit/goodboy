@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { to: "/", label: "Tasks" },
   { to: "/prs", label: "PRs" },
   { to: "/repos", label: "Repos" },
+  { to: "/memory", label: "Memory" },
 ] as const;
 
 export function Layout() {
