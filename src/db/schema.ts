@@ -5,7 +5,7 @@
  * in `shared/types.ts` and must stay in sync with the arrays below.
  */
 
-import { pgTable, text, timestamp, integer, uuid, pgEnum, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, uuid, pgEnum, jsonb, index } from "drizzle-orm/pg-core";
 
 export const taskKindEnum = pgEnum("task_kind", [
   "coding_task", "codebase_question", "pr_review",
@@ -24,6 +24,15 @@ export const stageNameEnum = pgEnum("stage_name", [
 
 export const prSessionStatusEnum = pgEnum("pr_session_status", [
   "active", "closed",
+]);
+export const memoryRunKindEnum = pgEnum("memory_run_kind", [
+  "cold", "warm", "skip", "noop",
+]);
+export const memoryRunStatusEnum = pgEnum("memory_run_status", [
+  "running", "complete", "failed",
+]);
+export const memoryRunSourceEnum = pgEnum("memory_run_source", [
+  "task", "manual_test",
 ]);
 
 export const tasks = pgTable("tasks", {
@@ -89,7 +98,29 @@ export const prSessionRuns = pgTable("pr_session_runs", {
   completedAt: timestamp("completed_at"),
 });
 
+export const memoryRuns = pgTable("memory_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  instance: text("instance").notNull(),
+  repo: text("repo").notNull(),
+  source: memoryRunSourceEnum("source").notNull(),
+  kind: memoryRunKindEnum("kind").notNull(),
+  status: memoryRunStatusEnum("status").notNull().default("running"),
+  originTaskId: uuid("origin_task_id").references(() => tasks.id),
+  externalLabel: text("external_label"),
+  sha: text("sha"),
+  zoneCount: integer("zone_count"),
+  error: text("error"),
+  sessionPath: text("session_path"),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => ({
+  repoStartedAtIdx: index("memory_runs_repo_started_at_idx").on(table.repo, table.startedAt),
+  instanceStartedAtIdx: index("memory_runs_instance_started_at_idx").on(table.instance, table.startedAt),
+  repoKindStartedAtIdx: index("memory_runs_repo_kind_started_at_idx").on(table.repo, table.kind, table.startedAt),
+}));
+
 export type Task = typeof tasks.$inferSelect;
 export type TaskStage = typeof taskStages.$inferSelect;
 export type PrSession = typeof prSessions.$inferSelect;
 export type PrSessionRun = typeof prSessionRuns.$inferSelect;
+export type MemoryRun = typeof memoryRuns.$inferSelect;
