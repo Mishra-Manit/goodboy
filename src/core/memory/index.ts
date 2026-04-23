@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import { z } from "zod";
 import { createLogger } from "../../shared/logger.js";
 import { config, loadEnv } from "../../shared/config.js";
+import { stageSubagentAssets } from "../subagents/index.js";
 
 const exec = promisify(execFile);
 const log = createLogger("memory");
@@ -353,12 +354,13 @@ export async function ensureMemoryWorktree(
     await exec("git", ["worktree", "add", "-f", "--detach", wt, "origin/main"], {
       cwd: mainRepoPath,
     });
-    return wt;
+  } else {
+    await exec("git", ["fetch", "origin", "main", "--quiet"], { cwd: wt });
+    await exec("git", ["reset", "--hard", "origin/main"], { cwd: wt });
+    await exec("git", ["clean", "-fdx"], { cwd: wt });
   }
 
-  await exec("git", ["fetch", "origin", "main", "--quiet"], { cwd: wt });
-  await exec("git", ["reset", "--hard", "origin/main"], { cwd: wt });
-  await exec("git", ["clean", "-fdx"], { cwd: wt });
+  await stageSubagentAssets(wt);
   return wt;
 }
 
