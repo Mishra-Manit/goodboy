@@ -28,6 +28,7 @@ import {
   type WorktreeEnv,
 } from "./prompts.js";
 import { startPrSession } from "../pr-session/session.js";
+import { runMemory } from "../memory/pipeline.js";
 
 const log = createLogger("coding");
 
@@ -104,6 +105,11 @@ async function runCodingPipelineInner(
     return;
   }
 
+  // Run the memory stage before planning. Soft-fail: never throws to caller.
+  await runMemory({
+    taskId, repo: task.repo, repoPath: repo.localPath, sendTelegram, chatId,
+  });
+
   const branch = await generateBranchName(taskId, task.description);
   let worktreePath: string;
   try {
@@ -152,7 +158,7 @@ async function runCodingPipelineInner(
 
 interface StageContext {
   taskId: string;
-  task: { telegramChatId: string | null; description: string };
+  task: { telegramChatId: string | null; description: string; repo: string };
   worktreePath: string;
   artifactsDir: string;
   worktreeEnv: WorktreeEnv;
@@ -162,7 +168,9 @@ interface StageContext {
 async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<void> {
   const absArtifacts = path.resolve(ctx.artifactsDir);
   const spec = STAGES[stage];
-  const { systemPrompt, initialPrompt } = codingPrompts(stage, absArtifacts, ctx.worktreeEnv, ctx.task.description);
+  const { systemPrompt, initialPrompt } = await codingPrompts(
+    stage, ctx.task.repo, absArtifacts, ctx.worktreeEnv, ctx.task.description,
+  );
 
   // Only the planner delegates to subagents. Other stages stay on
   // --no-extensions for reproducibility.

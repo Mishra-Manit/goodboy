@@ -1,14 +1,15 @@
 /** System prompts for each stage of the coding pipeline (planner, implementer, reviewer). */
 
 import path from "node:path";
-import { SHARED_RULES, worktreeBlock, type WorktreeEnv } from "../../shared/agent-prompts.js";
+import { SHARED_RULES, worktreeBlock, memoryBlock, type WorktreeEnv } from "../../shared/agent-prompts.js";
 
 export type { WorktreeEnv };
 
 export type CodingStage = "planner" | "implementer" | "reviewer";
 
-export function plannerPrompt(taskDescription: string, artifactsDir: string, env?: WorktreeEnv): string {
-  return `You are the Planner stage of an autonomous coding pipeline.
+export async function plannerPrompt(repo: string, taskDescription: string, artifactsDir: string, env?: WorktreeEnv): Promise<string> {
+  const memory = await memoryBlock(repo);
+  return `${memory}You are the Planner stage of an autonomous coding pipeline.
 ${SHARED_RULES}
 ${worktreeBlock(env)}
 
@@ -66,8 +67,9 @@ After writing plan.md, end your output with:
 IMPORTANT: You MUST write the file ${artifactsDir}/plan.md before outputting the status marker. The next stage depends on this file existing.`;
 }
 
-export function implementerPrompt(planPath: string, artifactsDir: string, env?: WorktreeEnv): string {
-  return `You are the Implementer stage of an autonomous coding pipeline.
+export async function implementerPrompt(repo: string, planPath: string, artifactsDir: string, env?: WorktreeEnv): Promise<string> {
+  const memory = await memoryBlock(repo);
+  return `${memory}You are the Implementer stage of an autonomous coding pipeline.
 ${SHARED_RULES}
 ${worktreeBlock(env)}
 YOUR ONLY JOB:
@@ -93,8 +95,9 @@ After writing the summary file, end your output with:
 IMPORTANT: You MUST make at least one git commit AND write ${artifactsDir}/implementation-summary.md before outputting the status marker.`;
 }
 
-export function reviewerPrompt(planPath: string, summaryPath: string, artifactsDir: string, env?: WorktreeEnv): string {
-  return `You are the Reviewer stage of an autonomous coding pipeline.
+export async function reviewerPrompt(repo: string, planPath: string, summaryPath: string, artifactsDir: string, env?: WorktreeEnv): Promise<string> {
+  const memory = await memoryBlock(repo);
+  return `${memory}You are the Reviewer stage of an autonomous coding pipeline.
 ${SHARED_RULES}
 ${worktreeBlock(env)}
 YOUR ONLY JOB:
@@ -145,28 +148,29 @@ After pushing, end your output with:
 // --- Stage routing ---
 
 /** Returns both system and initial prompts for a coding stage in one call. */
-export function codingPrompts(
+export async function codingPrompts(
   stage: CodingStage,
+  repo: string,
   absArtifacts: string,
   env: WorktreeEnv,
   description: string,
-): { systemPrompt: string; initialPrompt: string } {
+): Promise<{ systemPrompt: string; initialPrompt: string }> {
   const planPath = path.join(absArtifacts, "plan.md");
   const summaryPath = path.join(absArtifacts, "implementation-summary.md");
   switch (stage) {
     case "planner":
       return {
-        systemPrompt: plannerPrompt(description, absArtifacts, env),
+        systemPrompt: await plannerPrompt(repo, description, absArtifacts, env),
         initialPrompt: `Here is the task:\n\n${description}\n\nStart by exploring the codebase structure, then write the plan to ${absArtifacts}/plan.md. Do not stop until the file is written.`,
       };
     case "implementer":
       return {
-        systemPrompt: implementerPrompt(planPath, absArtifacts, env),
+        systemPrompt: await implementerPrompt(repo, planPath, absArtifacts, env),
         initialPrompt: `Read the plan at ${planPath}, then implement every step. Make git commits as you go. When all code is written and committed, write the summary to ${absArtifacts}/implementation-summary.md. Do not stop until both the code is committed and the summary file is written.`,
       };
     case "reviewer":
       return {
-        systemPrompt: reviewerPrompt(planPath, summaryPath, absArtifacts, env),
+        systemPrompt: await reviewerPrompt(repo, planPath, summaryPath, absArtifacts, env),
         initialPrompt: `Read the plan at ${planPath} and the summary at ${summaryPath}. Run git diff main to see all changes. Review the code, fix any issues, then write your review to ${absArtifacts}/review.md. Do not stop until the review file is written.`,
       };
   }
