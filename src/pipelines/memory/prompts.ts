@@ -132,7 +132,7 @@ markdown. Dispatch many in one call:
         { "agent": "codebase-explorer", "task": "<specific scoped question>" },
         ...
       ] }
-Up to 5 tool call per batch. Pass only 'tasks'.
+Up to 10 tool call per batch. Pass only 'tasks'.
 `;
 
 // --- Cold ---
