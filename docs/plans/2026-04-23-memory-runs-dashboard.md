@@ -1,8 +1,8 @@
 # Memory Runs Table + Dedicated `/memory` Dashboard Page Implementation Plan
 
-**Goal:** Surface every memory run (cold, warm, skip, noop) — including runs triggered by the manual test runners — as first-class entities on a new `/memory` dashboard page, and render the existing `memory` stage as the first dot in every task's pipeline.
+**Goal:** Surface every memory run (cold, warm, skip, noop) — including runs triggered by the manual test runners — as first-class entities on a new `/memory` dashboard page. Keep this history separate from task execution details so the existing task views stay task-centric while memory gets its own operational history.
 
-**Approach:** Introduce a `memory_runs` table owning each run's kind / status / sha / session-file path. The memory pipeline writes a row on every branch; test-runner runs (which never create a `tasks` row) survive a now-best-effort `task_stages` insert inside `runStage`. The prod dashboard filter is relaxed for `memory_runs` only: `WHERE instance = :current OR instance LIKE 'TEST-%'`, which naturally surfaces test runs without adding an `isTest` / `env` column. Test runs are identified solely by `instance LIKE 'TEST-%'` (the convention already established in `tests/scripts/run-memory-cold.ts`) and carry the `instance` string as a visible tag in the UI.
+**Approach:** Introduce a dedicated `memory_runs` table that records each run's source, kind, status, repo, sha, zone count, and session transcript path. `task_stages` continues to represent the per-task pipeline timeline; `memory_runs` becomes the durable per-memory-execution history. The dashboard gets a new `/memory` page that groups all visible runs by repo, shows registered-repo memory status when available, and expands each run into its transcript. Test-runner runs remain separate from `tasks`: they are identified by `instance LIKE 'TEST-%'`, stored in `memory_runs`, and surfaced only on `/memory`.
 
 **Stack:** TypeScript · Drizzle · Hono · React + react-router · existing pi session log viewer.
 
@@ -10,38 +10,52 @@
 
 ## Locked design decisions
 
-1. **No new enum for environment.** `INSTANCE_ID` (stored in every table's `instance` column) already encodes identity. `TEST-<hex>` prefix defines test runs.
-2. **No stub `tasks` rows for test runs.** Test runs live only in `memory_runs`. They never appear in the Tasks list or PipelineProgress.
-3. **`runStage` becomes best-effort on `createTaskStage`.** When there's no matching `tasks` row (test runners), the FK insert fails; we catch, warn, and continue with `stageRecord = null`. All follow-up `updateTaskStage` calls guard on null.
-4. **Memory page is the exclusive view for test runs.** They won't show in `TaskDetail`.
-5. **Four run kinds recorded:** `cold` · `warm` · `skip` (lock held) · `noop` (up-to-date fast path). All four surface on the Memory page with a visible badge.
-6. **Instance filter rule for `memory_runs`:** `WHERE instance = :current OR instance LIKE 'TEST-%'`. Writes are not filtered — every row carries its own `instance`.
+1. **No new environment enum.** `INSTANCE_ID` already carries environment identity. Test runs are identified solely by the `TEST-<hex>` prefix in `instance`.
+2. **No stub `tasks` rows for test runs.** Manual memory tests live only in `memory_runs`; they never appear in the Tasks list or task detail pages.
+3. **`task_stages` stays task-only.** A best-effort insert is used anywhere memory code tries to write a `task_stages` row for a non-task-backed run.
+4. **Task pipeline and memory history remain separate views.** `TaskDetail` keeps showing the task pipeline; `/memory` shows the memory run history.
+5. **Four run kinds are recorded:** `cold` · `warm` · `skip` · `noop`.
+6. **Three run statuses are recorded:** `running` · `complete` · `failed`.
+7. **Visibility rule for `memory_runs`:** `WHERE instance = :current OR instance LIKE 'TEST-%'`.
+8. **Avoid route conflicts.** The existing per-repo memory status endpoint moves from `/api/memory/:repo` to `/api/memory/status/:repo` before adding `/api/memory/runs...` routes.
+9. **Preserve referential integrity for real tasks.** `memory_runs` uses `originTaskId uuid references tasks(id)` for real task-backed runs, and `externalLabel text` for manual test runs.
+10. **Memory page should show all visible runs.** It groups rows by repo from `memory_runs`, then overlays registered-repo status when the repo still exists in `REGISTERED_REPOS`.
+11. **Test cleanup is end-to-end.** Clearing test runs removes DB rows, `memory-TEST-*` directories, and transcript artifact directories referenced by deleted rows.
+12. **Shared enums stay shared.** `MEMORY_RUN_*` enums live in `src/shared/types.ts` and are re-exported through `dashboard/src/shared.ts`; the dashboard does not hand-duplicate them.
+13. **Add indexes up front.** `memory_runs` is an operational log table and should be indexed for repo + recency queries.
 
 ---
 
 ## Final file layout
 
-```
+```text
 src/
-  shared/types.ts                         # MODIFIED: MEMORY_RUN_KINDS, MEMORY_RUN_STATUSES
+  shared/types.ts                         # MODIFIED: MEMORY_RUN_KINDS / STATUSES / SOURCES
   shared/task-kinds.ts                    # MODIFIED: prepend "memory" to every kind
-  db/schema.ts                            # MODIFIED: memory_run_kind + memory_run_status enums, memory_runs table
-  db/repository.ts                        # MODIFIED: createMemoryRun, updateMemoryRun, list*, deleteTestMemoryRuns
+  db/schema.ts                            # MODIFIED: memory run enums, table, indexes
+  db/repository.ts                        # MODIFIED: memory run CRUD/list/delete methods
   core/stage.ts                           # MODIFIED: best-effort createTaskStage
+  core/memory-cleanup.ts                  # NEW: delete TEST rows + transcript dirs + memory dirs
   pipelines/memory/pipeline.ts            # MODIFIED: persist every run to memory_runs
-  api/index.ts                            # MODIFIED: GET/DELETE memory run endpoints + session endpoint
-drizzle/0005_memory_runs.sql              # NEW: generated
+  api/index.ts                            # MODIFIED: /api/memory/status/:repo + run endpoints + cleanup
+  index.ts                                # UNCHANGED BEHAVIOR; serves new route tree via Hono app
+
+drizzle/0005_memory_runs.sql              # NEW: generated additive migration
+
 dashboard/src/
-  lib/api/types.ts                        # MODIFIED: MemoryRun, MemoryRunKind, MemoryRunStatus
+  shared.ts                               # MODIFIED: re-export MEMORY_RUN_* enums/types
+  lib/api/types.ts                        # MODIFIED: MemoryRun interface only; enum types from shared
+  lib/api/repos.ts                        # MODIFIED: fetchMemoryStatus uses /api/memory/status/:repo
   lib/api/memory.ts                       # NEW: fetchMemoryRuns, fetchMemoryRun, fetchMemoryRunSession, deleteMemoryTests
   lib/api/index.ts                        # MODIFIED: barrel export
   components/PipelineProgress.tsx         # MODIFIED: handle "skipped" status
   components/Layout.tsx                   # MODIFIED: add "Memory" nav item
   components/rows/MemoryRunRow.tsx        # NEW: one run, expandable into a transcript
-  pages/Memory.tsx                        # NEW: /memory page
+  pages/Memory.tsx                        # NEW: /memory page showing all visible runs grouped by repo
   App.tsx                                 # MODIFIED: /memory route
+
 tests/scripts/
-  clean-memory-tests.ts                   # NEW: CLI cleanup
+  clean-memory-tests.ts                   # NEW: CLI cleanup wrapper around core cleanup helper
 package.json                              # MODIFIED: test:memory:clean script
 ```
 
@@ -77,7 +91,7 @@ export const TASK_KIND_CONFIG: Record<TaskKind, TaskKindConfig> = {
 };
 ```
 
-In `dashboard/src/components/PipelineProgress.tsx`, widen `DisplayStatus` and the two maps to include `"skipped"`, and update `displayStatus`:
+In `dashboard/src/components/PipelineProgress.tsx`, widen `DisplayStatus` and the style maps to include `"skipped"`:
 
 ```ts
 type DisplayStatus = "pending" | "active" | "complete" | "failed" | "skipped";
@@ -99,22 +113,23 @@ const LABEL: Record<DisplayStatus, string> = {
 };
 ```
 
-`displayStatus` is already correct — `return stage.status` will now safely return `"skipped"` since the maps accept it.
+`displayStatus()` can continue returning `stage.status`; the maps now accept `"skipped"`.
 
-**Verify:** `npm run build`. Submit a task; memory dot renders first; if memory is skipped (lock held), the dot is muted grey.
+**Verify:** `npm run build`. Submit a task; memory dot renders first. If memory is skipped, the first dot is muted grey.
 
 **Commit:** `feat(pipeline): render memory as first pipeline stage with skipped status`
 
 ---
 
-## Task 2: `MEMORY_RUN_KINDS` / `MEMORY_RUN_STATUSES` in `shared/types.ts`
+## Task 2: Shared `MEMORY_RUN_*` enums and dashboard re-exports
 
 **Files:**
 - Modify: `src/shared/types.ts`
+- Modify: `dashboard/src/shared.ts`
 
 **Implementation:**
 
-Append two new enum arrays to the existing `// --- Task kinds ---` / `// --- Task statuses ---` style:
+Append new shared enum arrays to `src/shared/types.ts`:
 
 ```ts
 // --- Memory run kinds ---
@@ -126,22 +141,29 @@ export type MemoryRunKind = (typeof MEMORY_RUN_KINDS)[number];
 
 export const MEMORY_RUN_STATUSES = ["running", "complete", "failed"] as const;
 export type MemoryRunStatus = (typeof MEMORY_RUN_STATUSES)[number];
+
+// --- Memory run sources ---
+
+export const MEMORY_RUN_SOURCES = ["task", "manual_test"] as const;
+export type MemoryRunSource = (typeof MEMORY_RUN_SOURCES)[number];
 ```
+
+In `dashboard/src/shared.ts`, re-export the new shared enums and types so dashboard code imports them from `@dashboard/shared` rather than re-declaring unions.
 
 **Verify:** `npm run build`.
 
-**Commit:** `feat(shared): memory run kinds and statuses`
+**Commit:** `feat(shared): add memory run enums and dashboard re-exports`
 
 ---
 
-## Task 3: `memory_runs` table + enums in Drizzle schema
+## Task 3: `memory_runs` table + enums + indexes in Drizzle schema
 
 **Files:**
 - Modify: `src/db/schema.ts`
 
 **Implementation:**
 
-After `prSessionStatusEnum`, add:
+Add enums after `prSessionStatusEnum`:
 
 ```ts
 export const memoryRunKindEnum = pgEnum("memory_run_kind", [
@@ -150,45 +172,60 @@ export const memoryRunKindEnum = pgEnum("memory_run_kind", [
 export const memoryRunStatusEnum = pgEnum("memory_run_status", [
   "running", "complete", "failed",
 ]);
+export const memoryRunSourceEnum = pgEnum("memory_run_source", [
+  "task", "manual_test",
+]);
 ```
 
-After `prSessionRuns`, add the table:
+Add the table after `prSessionRuns`:
 
 ```ts
 export const memoryRuns = pgTable("memory_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
   instance: text("instance").notNull(),
   repo: text("repo").notNull(),
+  source: memoryRunSourceEnum("source").notNull(),
   kind: memoryRunKindEnum("kind").notNull(),
   status: memoryRunStatusEnum("status").notNull().default("running"),
-  /** Canonical task id (uuid string) or test label (e.g. "my-test-cold"). Not an FK. */
-  taskId: text("task_id"),
+  originTaskId: uuid("origin_task_id").references(() => tasks.id),
+  /** Manual label for runs that do not belong to a tasks row. */
+  externalLabel: text("external_label"),
   sha: text("sha"),
   zoneCount: integer("zone_count"),
   error: text("error"),
-  /** Absolute path to the pi session JSONL, or null for skip/noop (no pi spawn). */
+  /** Absolute path to the pi session JSONL, or null for skip/noop. */
   sessionPath: text("session_path"),
   startedAt: timestamp("started_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => ({
+  repoStartedAtIdx: index("memory_runs_repo_started_at_idx").on(table.repo, table.startedAt),
+  instanceStartedAtIdx: index("memory_runs_instance_started_at_idx").on(table.instance, table.startedAt),
+  repoKindStartedAtIdx: index("memory_runs_repo_kind_started_at_idx").on(table.repo, table.kind, table.startedAt),
+}));
 ```
 
-Append to the exports at the bottom of the file:
+Append to the exports at the bottom:
 
 ```ts
 export type MemoryRun = typeof memoryRuns.$inferSelect;
 ```
 
+**Notes:**
+- Real tasks use `source = "task"` and `originTaskId`.
+- Manual tests use `source = "manual_test"` and `externalLabel`.
+- `sessionPath` remains pragmatic storage for same-host transcript reads.
+
 **Verify:** `npm run build`.
 
-**Commit:** `feat(db): memory_runs table and enums`
+**Commit:** `feat(db): memory_runs table, enums, and indexes`
 
 ---
 
-## Task 4: Generate + rename the Drizzle migration
+## Task 4: Generate and review the migration
 
 **Files:**
 - Create: `drizzle/0005_memory_runs.sql`
+- Modify: `drizzle/meta/_journal.json`
 
 **Commands:**
 
@@ -198,7 +235,18 @@ npm run db:generate
 # update drizzle/meta/_journal.json to match the renamed tag
 ```
 
-The resulting SQL should be purely additive: two `CREATE TYPE` statements + one `CREATE TABLE`. Human operator applies from laptop with `npm run db:migrate` **after review** of the generated file, **before** Task 5 merges.
+The SQL should be purely additive:
+- `CREATE TYPE memory_run_kind`
+- `CREATE TYPE memory_run_status`
+- `CREATE TYPE memory_run_source`
+- `CREATE TABLE memory_runs`
+- index creation statements
+
+Human operator reviews the generated SQL, then applies it from the laptop with:
+
+```bash
+npm run db:migrate
+```
 
 **Commit:** `feat: drizzle migration for memory_runs`
 
@@ -211,24 +259,44 @@ The resulting SQL should be purely additive: two `CREATE TYPE` statements + one 
 
 **Implementation:**
 
-Add a new section at the bottom of the file with four methods. The list methods use the special filter `instance = :current OR instance LIKE 'TEST-%'`.
+Add memory-run repository methods near the bottom. Import any additional Drizzle helpers needed, including `or`, `like`, and `indexable` predicates.
+
+```ts
+import { eq, desc, and, or, like } from "drizzle-orm";
+import type {
+  MemoryRunKind,
+  MemoryRunStatus,
+  MemoryRunSource,
+} from "../shared/types.js";
+import type { MemoryRun } from "./schema.js";
+```
+
+Add helpers and methods:
 
 ```ts
 // --- Memory runs ---
 
-import { sql, desc, and, or, eq, like } from "drizzle-orm";
-import type { MemoryRunKind, MemoryRunStatus } from "../shared/types.js";
+/** Visible-to-dashboard predicate: current instance OR any TEST instance. */
+function memoryRunsVisible() {
+  return or(
+    eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID),
+    like(schema.memoryRuns.instance, "TEST-%"),
+  );
+}
 
 export async function createMemoryRun(data: {
   instance: string;
   repo: string;
+  source: MemoryRunSource;
   kind: MemoryRunKind;
-  taskId: string | null;
+  originTaskId: string | null;
+  externalLabel: string | null;
   sessionPath: string | null;
-}): Promise<schema.MemoryRun> {
+}): Promise<MemoryRun> {
   const db = getDb();
   const [row] = await db.insert(schema.memoryRuns).values({
-    ...data, status: "running",
+    ...data,
+    status: "running",
   }).returning();
   return row;
 }
@@ -242,58 +310,60 @@ export async function updateMemoryRun(
     error: string | null;
     completedAt: Date | null;
   }>,
-): Promise<schema.MemoryRun | undefined> {
+): Promise<MemoryRun | undefined> {
   const db = getDb();
   const [row] = await db.update(schema.memoryRuns)
-    .set(patch).where(eq(schema.memoryRuns.id, id)).returning();
+    .set(patch)
+    .where(eq(schema.memoryRuns.id, id))
+    .returning();
   return row;
 }
 
-/** Visible-to-dashboard predicate: this instance OR any test instance. */
-function memoryRunsVisible() {
-  return or(
-    eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID),
-    like(schema.memoryRuns.instance, "TEST-%"),
-  );
-}
+export async function listMemoryRuns(opts: {
+  repo?: string;
+  limit?: number;
+  kind?: MemoryRunKind;
+  includeTests?: boolean;
+} = {}): Promise<MemoryRun[]> {
+  const { repo, limit = 100, kind, includeTests = true } = opts;
+  const visibility = includeTests
+    ? memoryRunsVisible()
+    : eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID);
 
-export async function listMemoryRunsForRepo(
-  repo: string,
-  opts: { limit?: number; kind?: MemoryRunKind; includeTests?: boolean } = {},
-): Promise<schema.MemoryRun[]> {
-  const { limit = 50, kind, includeTests = true } = opts;
-  const db = getDb();
   const filters = [
-    eq(schema.memoryRuns.repo, repo),
-    includeTests
-      ? memoryRunsVisible()
-      : eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID),
+    visibility,
+    repo ? eq(schema.memoryRuns.repo, repo) : undefined,
+    kind ? eq(schema.memoryRuns.kind, kind) : undefined,
   ];
-  if (kind) filters.push(eq(schema.memoryRuns.kind, kind));
+
+  const db = getDb();
   return db.select().from(schema.memoryRuns)
     .where(and(...filters))
     .orderBy(desc(schema.memoryRuns.startedAt))
     .limit(limit);
 }
 
-export async function getMemoryRun(id: string): Promise<schema.MemoryRun | undefined> {
+export async function getMemoryRun(id: string): Promise<MemoryRun | undefined> {
   const db = getDb();
   const [row] = await db.select().from(schema.memoryRuns)
-    .where(and(eq(schema.memoryRuns.id, id), memoryRunsVisible())).limit(1);
+    .where(and(eq(schema.memoryRuns.id, id), memoryRunsVisible()))
+    .limit(1);
   return row;
 }
 
-/** Delete every run whose instance begins with `TEST-`. Returns the count. */
-export async function deleteTestMemoryRuns(): Promise<number> {
+/**
+ * Delete every TEST run and return deleted rows so callers can clean up files.
+ */
+export async function deleteTestMemoryRuns(): Promise<Array<Pick<MemoryRun, "id" | "sessionPath">>> {
   const db = getDb();
-  const deleted = await db.delete(schema.memoryRuns)
+  return db.delete(schema.memoryRuns)
     .where(like(schema.memoryRuns.instance, "TEST-%"))
-    .returning({ id: schema.memoryRuns.id });
-  return deleted.length;
+    .returning({
+      id: schema.memoryRuns.id,
+      sessionPath: schema.memoryRuns.sessionPath,
+    });
 }
 ```
-
-`loadEnv` is already imported at the top of `repository.ts` — if not, add it from `../shared/config.js`.
 
 **Verify:** `npm run build`.
 
@@ -301,66 +371,54 @@ export async function deleteTestMemoryRuns(): Promise<number> {
 
 ---
 
-## Task 6: Best-effort `createTaskStage` in `runStage`
+## Task 6: Best-effort `task_stages` writes everywhere memory may run without a task row
 
 **Files:**
 - Modify: `src/core/stage.ts`
+- Modify: `src/pipelines/memory/pipeline.ts`
 
 **Implementation:**
 
-Change the success path so a failing `createTaskStage` (FK violation for test-run taskIds) no longer kills the stage. `stageRecord` becomes `TaskStage | null`; every subsequent write guards on null.
+### In `src/core/stage.ts`
+
+Make `createTaskStage` best-effort so manual test runs do not fail when there is no matching `tasks` row.
 
 ```ts
-// inside runStage, inside withStageSpan:
-
-await queries.updateTask(taskId, { status: "running" }).catch(() => {});
-emit({ type: "task_update", taskId, status: "running" });
-
 let stageRecord: Awaited<ReturnType<typeof queries.createTaskStage>> | null = null;
 try {
   stageRecord = await queries.createTaskStage({ taskId, stage });
 } catch (err) {
   log.warn(`createTaskStage failed for task ${taskId} stage ${stage} (no matching tasks row?)`, err);
 }
+```
 
-emit({ type: "stage_update", taskId, stage, status: "running" });
-// ... rest unchanged until the status writes:
+Guard all later `updateTaskStage` writes behind `if (stageRecord) { ... }`.
 
-if (options.postValidate) {
-  const result = await options.postValidate();
-  if (!result.valid) {
-    const reason = result.reason ?? "postValidate failed";
-    if (stageRecord) {
-      await queries.updateTaskStage(stageRecord.id, {
-        status: "failed", completedAt: new Date(), error: reason,
-      }).catch(() => {});
-    }
-    emit({ type: "stage_update", taskId, stage, status: "failed" });
-    log.warn(`Stage ${stage} failed postValidate for task ${taskId}: ${reason}`);
-    return;
-  }
-}
+Also make the initial `updateTask(taskId, { status: "running" })` best-effort because manual test runs do not have a `tasks` row.
 
-if (stageRecord) {
-  await queries.updateTaskStage(stageRecord.id, { status: "complete", completedAt: new Date() });
-}
-emit({ type: "stage_update", taskId, stage, status: "complete" });
-await notifyTelegram(sendTelegram, chatId, `Stage complete: ${stageLabel}.`);
-log.info(`Stage ${stage} complete for task ${taskId}`);
+### In `src/pipelines/memory/pipeline.ts`
 
-// and in the catch branch, the existing updateTaskStage also needs the guard:
-} catch (err) {
-  if (stageRecord) {
-    await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
-  }
-  emit({ type: "stage_update", taskId, stage, status: "failed" });
-  throw err;
+Any stage writes outside `runStage()` must also be best-effort:
+- noop fast path
+- skip path
+- helper used by `markSkipped`
+
+Add a small helper:
+
+```ts
+async function createBestEffortMemoryStage(taskId: string) {
+  return queries.createTaskStage({ taskId, stage: "memory" }).catch(() => null);
 }
 ```
 
-**Verify:** `npm run build`. Manual: trigger a memory run via the test runners (Task 9's pre-existing `run-memory-cold.ts`) — the pi session must complete instead of crashing on FK. The warning should appear once in stdout.
+Use it anywhere the memory pipeline writes a `task_stages` row directly.
 
-**Commit:** `fix(core/stage): tolerate missing task rows so test-runner memory runs survive`
+**Verify:**
+- `npm run build`
+- run a manual cold test; it should complete instead of failing on FK insertion
+- force a skip path and verify it also survives without a `tasks` row
+
+**Commit:** `fix(memory): tolerate non-task-backed stage writes for manual test runs`
 
 ---
 
@@ -371,159 +429,129 @@ log.info(`Stage ${stage} complete for task ${taskId}`);
 
 **Implementation:**
 
-Every branch of `runMemory` writes one row. Skip and noop write a single `complete` row directly (no pi spawn). Cold and warm insert a `running` row before `runStage`, then update after.
-
-Add imports:
+Refine `RunMemoryOptions` so the call site states whether a run belongs to a real task or a manual test. Keep `taskId` as the session/artifact key used by existing helpers; add explicit source metadata for DB persistence.
 
 ```ts
-import * as queries from "../../db/repository.js";
-import { taskSessionPath } from "../../core/pi/session-file.js";
-// loadEnv already imported
-```
-
-(`queries` is already imported — reuse.)
-
-In `runMemory`, after `tryAcquireLock` fails:
-
-```ts
-if (!acquired) {
-  await recordSkip(taskId, repo);
-  await markSkipped(taskId, repo);
-  return;
+interface RunMemoryOptions {
+  taskId: string;              // real task UUID, or manual test session key
+  repo: string;
+  repoPath: string;
+  source: "task" | "manual_test";
+  sendTelegram: SendTelegram;
+  chatId: string | null;
 }
 ```
 
-In the noop branch (after `changed.length === 0`):
+### Call-site rules
+- Coding/question pipelines call `runMemory({ ..., source: "task" })`.
+- Manual test scripts call `runMemory({ ..., source: "manual_test" })`.
+
+### Memory-run persistence rules
+- `cold` / `warm`: insert `status = running` before `runStage()`, finalize with `complete` or `failed`
+- `skip`: insert + immediately finalize `complete`
+- `noop`: insert + immediately finalize `complete`
+
+### DB identity mapping
+- For `source = "task"`: `originTaskId = taskId`, `externalLabel = null`
+- For `source = "manual_test"`: `originTaskId = null`, `externalLabel = taskId`
+
+Add a helper that builds the common create payload:
 
 ```ts
-if (changed.length === 0) {
-  log.info(`Memory up-to-date for ${repo} @ ${headSha.slice(0, 8)}`);
-  await writeState(repo, headSha, state.zones);
-  await recordNoop(taskId, repo, headSha, state.zones.length);
-  // existing stage-row creation stays — it succeeds when taskId is a real task uuid.
-  const stage = await queries.createTaskStage({ taskId, stage: "memory" }).catch(() => null);
-  if (stage) await queries.updateTaskStage(stage.id, { status: "complete", completedAt: new Date() });
-  emit({ type: "stage_update", taskId, stage: "memory", status: "complete" });
-  return;
+function memoryRunIdentity(opts: RunMemoryOptions) {
+  return opts.source === "task"
+    ? { source: "task" as const, originTaskId: opts.taskId, externalLabel: null }
+    : { source: "manual_test" as const, originTaskId: null, externalLabel: opts.taskId };
 }
 ```
 
-Refactor `runCold` and `runWarm` to wrap their `runStage` calls with a `memory_runs` row:
+Use `taskSessionPath(opts.taskId, "memory")` for cold/warm transcript paths, and `null` for skip/noop.
 
-```ts
-async function runCold(opts, worktree, headSha) {
-  const run = await queries.createMemoryRun({
-    instance: loadEnv().INSTANCE_ID,
-    repo: opts.repo,
-    kind: "cold",
-    taskId: opts.taskId,
-    sessionPath: taskSessionPath(opts.taskId, "memory"),
-  });
-
-  let validatedZones: readonly Zone[] | null = null;
-  let runFailed: string | null = null;
-
-  try {
-    const cap = subagentCapability();
-    const manifest = await buildFileManifest(worktree);
-
-    await runStage({
-      // ... existing options unchanged ...
-      postValidate: async () => {
-        const zones = await readZonesSidecar(opts.repo);
-        if (zones === null) { runFailed = ".zones.json missing or invalid"; return { valid: false, reason: runFailed }; }
-        const fileCheck = memoryFilesValid(opts.repo, zones);
-        if (!fileCheck.valid) { runFailed = fileCheck.reason ?? "invalid memory files"; return { valid: false, reason: runFailed }; }
-        const clean = await assertMemoryWorktreeClean(opts.repo);
-        if (!clean.clean) {
-          runFailed = `memory worktree dirty after cold: ${clean.dirty.slice(0, 5).join(", ")}`;
-          return { valid: false, reason: runFailed };
-        }
-        validatedZones = zones;
-        return { valid: true };
-      },
-    });
-  } catch (err) {
-    runFailed = err instanceof Error ? err.message : String(err);
-    throw err;
-  } finally {
-    if (validatedZones) {
-      await writeState(opts.repo, headSha, validatedZones);
-      await queries.updateMemoryRun(run.id, {
-        status: "complete", sha: headSha, zoneCount: validatedZones.length,
-        completedAt: new Date(),
-      });
-    } else {
-      await queries.updateMemoryRun(run.id, {
-        status: "failed", error: runFailed ?? "unknown cold failure",
-        completedAt: new Date(),
-      });
-    }
-  }
-}
-```
-
-Mirror the change in `runWarm`: create a `memory_runs` row with `kind: "warm"`, finalize with `status: "complete"` + `sha: headSha` + `zoneCount: state.zones.length` when `structurallyValid`, else `status: "failed"` with the captured reason.
-
-Add two helpers near the bottom:
-
-```ts
-async function recordSkip(taskId: string, repo: string): Promise<void> {
-  await queries.createMemoryRun({
-    instance: loadEnv().INSTANCE_ID, repo, kind: "skip",
-    taskId, sessionPath: null,
-  }).then((run) => queries.updateMemoryRun(run.id, {
-    status: "complete", completedAt: new Date(),
-  })).catch((err) => log.warn(`Failed to record skip memory_run for ${repo}`, err));
-}
-
-async function recordNoop(
-  taskId: string, repo: string, sha: string, zoneCount: number,
-): Promise<void> {
-  await queries.createMemoryRun({
-    instance: loadEnv().INSTANCE_ID, repo, kind: "noop",
-    taskId, sessionPath: null,
-  }).then((run) => queries.updateMemoryRun(run.id, {
-    status: "complete", sha, zoneCount, completedAt: new Date(),
-  })).catch((err) => log.warn(`Failed to record noop memory_run for ${repo}`, err));
-}
-```
+**Important:** Any failure to write `memory_runs` should log a warning but must not bring down the pipeline.
 
 **Verify:**
-- `npm run build`.
-- `npm run test:memory:cold -- v1 <repo>`: one `cold` row appears in `memory_runs` with `status=complete`, non-null `sha` + `zoneCount` + `sessionPath`.
-- Submit two real tasks back-to-back: first records `cold` (or `warm`), second records `skip` (lock held).
-- Submit a task against an up-to-date repo: one `noop` row.
+- `npm run build`
+- `npm run test:memory:cold -- v1 <repo>` creates one `manual_test / cold / complete` row
+- a real task creates a `task / cold|warm / complete` row with `originTaskId`
+- lock contention creates a `skip` row
+- up-to-date repo creates a `noop` row
 
-**Commit:** `feat(pipelines/memory): persist every run to memory_runs (cold/warm/skip/noop)`
+**Commit:** `feat(memory): persist every run to memory_runs`
 
 ---
 
-## Task 8: API endpoints
+## Task 8: Memory cleanup helper for API + CLI
+
+**Files:**
+- Create: `src/core/memory-cleanup.ts`
+
+**Implementation:**
+
+Create a reusable server-side cleanup helper that:
+1. deletes all TEST rows via `deleteTestMemoryRuns()`
+2. removes parent artifact directories for any returned `sessionPath`
+3. removes every `artifacts/memory-TEST-*` directory
+4. returns a summary object for API/CLI output
+
+Suggested return shape:
+
+```ts
+interface MemoryTestCleanupResult {
+  deletedRows: number;
+  deletedTranscriptDirs: number;
+  deletedMemoryDirs: number;
+}
+```
+
+This keeps cleanup logic in one place so the dashboard button and CLI script do the same thing.
+
+**Verify:** `npm run build`.
+
+**Commit:** `feat(memory): reusable TEST cleanup helper`
+
+---
+
+## Task 9: API endpoints and route normalization
 
 **Files:**
 - Modify: `src/api/index.ts`
 
 **Implementation:**
 
-Add under a new `// --- Memory runs ---` section, after the existing memory block:
+### Rename the existing status route
+
+Change:
 
 ```ts
-import {
-  readSessionFile,    // already imported for tasks
-} from "../core/pi/session-file.js";
+app.get("/api/memory/:repo", ...)
+```
+
+to:
+
+```ts
+app.get("/api/memory/status/:repo", ...)
+```
+
+This prevents `/api/memory/runs` from being swallowed by the status route.
+
+### Add memory run routes
+
+```ts
 import { MEMORY_RUN_KINDS, type MemoryRunKind } from "../shared/types.js";
+import { readSessionFile } from "../core/pi/session-file.js";
+import { cleanupTestMemoryRuns } from "../core/memory-cleanup.js";
 
 app.get("/api/memory/runs", async (c) => {
   const repo = c.req.query("repo");
   const kindParam = c.req.query("kind");
   const includeTests = c.req.query("includeTests") !== "false";
-  const limit = Number(c.req.query("limit") ?? 50);
-  if (!repo) return c.json({ error: "repo query param required" }, 400);
+  const limit = Number(c.req.query("limit") ?? 100);
+
   const kind = MEMORY_RUN_KINDS.includes(kindParam as MemoryRunKind)
     ? (kindParam as MemoryRunKind)
     : undefined;
-  const runs = await queries.listMemoryRunsForRepo(repo, { kind, includeTests, limit });
+
+  const runs = await queries.listMemoryRuns({ repo, kind, includeTests, limit });
   return c.json(runs);
 });
 
@@ -547,44 +575,57 @@ app.get("/api/memory/runs/:id/session", async (c) => {
 });
 
 app.delete("/api/memory/tests", async (c) => {
-  const count = await queries.deleteTestMemoryRuns();
-  return c.json({ deleted: count });
+  const result = await cleanupTestMemoryRuns();
+  return c.json(result);
 });
 ```
 
 **Verify:**
+
 ```bash
-curl 'http://localhost:3000/api/memory/runs?repo=goodboy' | jq
-curl 'http://localhost:3000/api/memory/runs/<id>/session' | jq
-curl -X DELETE http://localhost:3000/api/memory/tests
+curl "http://localhost:${PORT:-3333}/api/memory/status/goodboy" | jq
+curl "http://localhost:${PORT:-3333}/api/memory/runs?limit=50" | jq
+curl "http://localhost:${PORT:-3333}/api/memory/runs/<id>/session" | jq
+curl -X DELETE "http://localhost:${PORT:-3333}/api/memory/tests" | jq
 ```
 
-**Commit:** `feat(api): memory run listing, detail, transcript, and test cleanup`
+**Commit:** `feat(api): memory run routes, status route rename, and cleanup endpoint`
 
 ---
 
-## Task 9: Dashboard wire types + fetchers
+## Task 10: Dashboard wire types + fetchers
 
 **Files:**
 - Modify: `dashboard/src/lib/api/types.ts`
+- Modify: `dashboard/src/lib/api/repos.ts`
 - Create: `dashboard/src/lib/api/memory.ts`
 - Modify: `dashboard/src/lib/api/index.ts`
 
 **Implementation:**
 
-In `types.ts`, after the `// --- Memory ---` section, add:
+In `dashboard/src/lib/api/types.ts`, import memory-run enum types from `@dashboard/shared` and add only the `MemoryRun` interface:
 
 ```ts
-export type MemoryRunKind = "cold" | "warm" | "skip" | "noop";
-export type MemoryRunStatus = "running" | "complete" | "failed";
+import type {
+  FileEntry,
+  TaskKind,
+  TaskStatus,
+  StageStatus,
+  StageName,
+  MemoryRunKind,
+  MemoryRunStatus,
+  MemoryRunSource,
+} from "@dashboard/shared";
 
 export interface MemoryRun {
   id: string;
   instance: string;
   repo: string;
+  source: MemoryRunSource;
   kind: MemoryRunKind;
   status: MemoryRunStatus;
-  taskId: string | null;
+  originTaskId: string | null;
+  externalLabel: string | null;
   sha: string | null;
   zoneCount: number | null;
   error: string | null;
@@ -594,27 +635,29 @@ export interface MemoryRun {
 }
 ```
 
-Create `memory.ts`:
+In `dashboard/src/lib/api/repos.ts`, update `fetchMemoryStatus()` to call `/api/memory/status/:repo`.
+
+Create `dashboard/src/lib/api/memory.ts`:
 
 ```ts
-/** Memory run listing, transcript, and test cleanup. */
-
 import { request } from "./client.js";
-import type { MemoryRun, MemoryRunKind, FileEntry } from "./types.js";
+import type { FileEntry, MemoryRun, MemoryRunKind } from "./types.js";
 
 export interface MemoryRunsQuery {
-  repo: string;
+  repo?: string;
   kind?: MemoryRunKind;
   includeTests?: boolean;
   limit?: number;
 }
 
-export async function fetchMemoryRuns(q: MemoryRunsQuery): Promise<MemoryRun[]> {
-  const params = new URLSearchParams({ repo: q.repo });
+export async function fetchMemoryRuns(q: MemoryRunsQuery = {}): Promise<MemoryRun[]> {
+  const params = new URLSearchParams();
+  if (q.repo) params.set("repo", q.repo);
   if (q.kind) params.set("kind", q.kind);
   if (q.includeTests === false) params.set("includeTests", "false");
   if (q.limit) params.set("limit", String(q.limit));
-  return request(`/api/memory/runs?${params.toString()}`);
+  const qs = params.toString();
+  return request(`/api/memory/runs${qs ? `?${qs}` : ""}`);
 }
 
 export async function fetchMemoryRun(id: string): Promise<MemoryRun> {
@@ -625,12 +668,16 @@ export async function fetchMemoryRunSession(id: string): Promise<{ entries: File
   return request(`/api/memory/runs/${id}/session`);
 }
 
-export async function deleteMemoryTests(): Promise<{ deleted: number }> {
+export async function deleteMemoryTests(): Promise<{
+  deletedRows: number;
+  deletedTranscriptDirs: number;
+  deletedMemoryDirs: number;
+}> {
   return request(`/api/memory/tests`, { method: "DELETE" });
 }
 ```
 
-Append to `index.ts`:
+Append to `dashboard/src/lib/api/index.ts`:
 
 ```ts
 export * from "./memory.js";
@@ -638,85 +685,39 @@ export * from "./memory.js";
 
 **Verify:** `npm run build`.
 
-**Commit:** `feat(dashboard): memory run wire types and fetchers`
+**Commit:** `feat(dashboard): memory run types and fetchers`
 
 ---
 
-## Task 10: `MemoryRunRow` component
+## Task 11: `MemoryRunRow` component
 
 **Files:**
 - Create: `dashboard/src/components/rows/MemoryRunRow.tsx`
 
 **Implementation:**
 
-One expandable row. Collapsed: kind badge, status, instance tag, sha, relative age, zone count. Expanded: `LogViewer` with the run's session entries.
+Build one expandable row per memory run.
 
-```tsx
-/** One memory_runs row. Click to expand into the pi session transcript. */
+Collapsed row shows:
+- kind badge
+- status
+- source (`task` or `manual_test`)
+- TEST badge when `instance.startsWith("TEST-")`
+- instance string
+- sha short hash
+- zone count
+- relative age + duration
+- external label or origin-task hint when relevant
+- error summary when present
 
-import { useState } from "react";
-import { fetchMemoryRunSession } from "@dashboard/lib/api";
-import type { MemoryRun, MemoryRunKind, MemoryRunStatus, FileEntry } from "@dashboard/lib/api";
-import { useQuery } from "@dashboard/hooks/use-query";
-import { timeAgo, formatDuration } from "@dashboard/lib/format";
-import { cn } from "@dashboard/lib/utils";
-import { LogViewer } from "@dashboard/components/log-viewer";
+Expanded row shows:
+- `LogViewer` for transcript when `sessionPath` exists
+- clear empty-state copy for skip/noop runs with no transcript
 
-const KIND_TONE: Record<MemoryRunKind, string> = {
-  cold: "text-accent",
-  warm: "text-ok",
-  skip: "text-text-void",
-  noop: "text-text-dim",
-};
-
-const STATUS_TONE: Record<MemoryRunStatus, string> = {
-  running: "text-accent",
-  complete: "text-ok",
-  failed: "text-fail",
-};
-
-export function MemoryRunRow({ run }: { run: MemoryRun }) {
-  const [open, setOpen] = useState(false);
-  const isTest = run.instance.startsWith("TEST-");
-
-  return (
-    <div className="rounded-lg bg-glass px-3 py-2 font-mono text-[10px]">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 text-left"
-      >
-        <span className={cn("uppercase tracking-wider", KIND_TONE[run.kind])}>{run.kind}</span>
-        <span className={STATUS_TONE[run.status]}>{run.status}</span>
-        {isTest && <span className="rounded bg-fail/20 px-1 text-fail">TEST</span>}
-        <span className="text-text-ghost">{run.instance}</span>
-        {run.sha && <span className="text-text-void">{run.sha.slice(0, 8)}</span>}
-        {run.zoneCount !== null && (
-          <span className="text-text-void">
-            {run.zoneCount} zone{run.zoneCount === 1 ? "" : "s"}
-          </span>
-        )}
-        <span className="text-text-ghost">{timeAgo(run.startedAt)}</span>
-        {run.completedAt && (
-          <span className="text-text-void">{formatDuration(run.startedAt, run.completedAt)}</span>
-        )}
-        {run.error && <span className="ml-auto truncate text-fail">{run.error}</span>}
-      </button>
-      {open && <RunTranscript runId={run.id} hasSession={!!run.sessionPath} />}
-    </div>
-  );
-}
-
-function RunTranscript({ runId, hasSession }: { runId: string; hasSession: boolean }) {
-  const { data, loading, error } = useQuery(() => fetchMemoryRunSession(runId), [runId]);
-  if (!hasSession) return <p className="mt-2 text-text-ghost">No transcript (skip / noop did not spawn pi).</p>;
-  if (loading) return <p className="mt-2 text-text-ghost">Loading transcript...</p>;
-  if (error) return <p className="mt-2 text-fail">{error}</p>;
-  const entries: FileEntry[] = data?.entries ?? [];
-  if (entries.length === 0) return <p className="mt-2 text-text-ghost">Transcript is empty.</p>;
-  return <div className="mt-2"><LogViewer entries={entries} /></div>;
-}
-```
+Follow dashboard style rules:
+- named props interface above component
+- `cn()` for conditional classes
+- no inline styles
 
 **Verify:** `npm run build`.
 
@@ -724,7 +725,7 @@ function RunTranscript({ runId, hasSession }: { runId: string; hasSession: boole
 
 ---
 
-## Task 11: `/memory` page + nav + route
+## Task 12: `/memory` page + nav + route
 
 **Files:**
 - Create: `dashboard/src/pages/Memory.tsx`
@@ -733,179 +734,71 @@ function RunTranscript({ runId, hasSession }: { runId: string; hasSession: boole
 
 **Implementation:**
 
-`Memory.tsx`:
+### Page data model
+
+The page should show **all visible runs**, not just runs for currently registered repos.
+
+Fetch:
+1. `fetchRepos()` for the registered-repo list
+2. `fetchMemoryRuns({ includeTests: !hideTests, kind, limit: 200 })` for the visible run log
+3. `fetchMemoryStatus(repo)` only for repos that are still registered
+
+Group `memory_runs` by repo and render the union of:
+- repos present in the run log
+- registered repos with zero runs yet
+
+For repos not in `REGISTERED_REPOS`, render the section without memory status and label it as unregistered.
+
+### Refresh behavior
+
+Use a `runsVersion` state number on the page. Increment it after test cleanup so child queries refetch. Do not rely on the repos query alone to refresh run lists.
 
 ```tsx
-/** Memory page: per-repo memory state + recent-runs log. */
+const [runsVersion, setRunsVersion] = useState(0);
 
-import { useMemo, useState } from "react";
-import {
-  fetchRepos, fetchMemoryStatus, fetchMemoryRuns, deleteMemoryTests,
-} from "@dashboard/lib/api";
-import type { Repo, MemoryRun, MemoryRunKind } from "@dashboard/lib/api";
-import { useQuery } from "@dashboard/hooks/use-query";
-import { PageState } from "@dashboard/components/PageState";
-import { EmptyState } from "@dashboard/components/EmptyState";
-import { SectionDivider } from "@dashboard/components/SectionDivider";
-import { MemoryRunRow } from "@dashboard/components/rows/MemoryRunRow";
-import { cn } from "@dashboard/lib/utils";
-
-export function Memory() {
-  const { data: repos, loading, error, refetch } = useQuery(() => fetchRepos());
-  const [kindFilter, setKindFilter] = useState<MemoryRunKind | "all">("all");
-  const [hideTests, setHideTests] = useState(false);
-  const [cleaning, setCleaning] = useState(false);
-
-  async function handleCleanTests() {
-    if (!confirm("Delete all TEST- memory runs from the database?")) return;
-    setCleaning(true);
-    try { await deleteMemoryTests(); refetch(); }
-    finally { setCleaning(false); }
+async function handleCleanTests() {
+  if (!confirm("Delete all TEST memory runs and their local artifacts?")) return;
+  setCleaning(true);
+  try {
+    await deleteMemoryTests();
+    setRunsVersion((v) => v + 1);
+  } finally {
+    setCleaning(false);
   }
-
-  return (
-    <div>
-      <header className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-lg font-semibold tracking-tight text-text">Memory</h1>
-          <p className="mt-1 font-mono text-[11px] text-text-ghost">
-            per-repo agent memory + run history
-          </p>
-        </div>
-        <div className="flex items-center gap-3 font-mono text-[10px]">
-          <KindFilter value={kindFilter} onChange={setKindFilter} />
-          <label className="flex items-center gap-1 text-text-ghost">
-            <input type="checkbox" checked={hideTests} onChange={(e) => setHideTests(e.target.checked)} />
-            hide tests
-          </label>
-          <button
-            type="button"
-            onClick={handleCleanTests}
-            disabled={cleaning}
-            className="rounded bg-fail/15 px-2 py-0.5 text-fail hover:bg-fail/25 disabled:opacity-40"
-          >
-            clear tests
-          </button>
-        </div>
-      </header>
-
-      <PageState
-        data={repos}
-        loading={loading}
-        error={error}
-        onRetry={refetch}
-        isEmpty={(r) => r.length === 0}
-        empty={<EmptyState title="No repos registered" description="Add repos to REGISTERED_REPOS" />}
-      >
-        {(repos) => (
-          <div className="space-y-10">
-            {repos.map((repo) => (
-              <RepoMemorySection
-                key={repo.name}
-                repo={repo}
-                kindFilter={kindFilter}
-                hideTests={hideTests}
-              />
-            ))}
-          </div>
-        )}
-      </PageState>
-    </div>
-  );
-}
-
-// --- Per-repo section ---
-
-function RepoMemorySection({
-  repo, kindFilter, hideTests,
-}: {
-  repo: Repo;
-  kindFilter: MemoryRunKind | "all";
-  hideTests: boolean;
-}) {
-  const { data: status } = useQuery(() => fetchMemoryStatus(repo.name), [repo.name]);
-  const { data: runs } = useQuery(
-    () => fetchMemoryRuns({
-      repo: repo.name,
-      kind: kindFilter === "all" ? undefined : kindFilter,
-      includeTests: !hideTests,
-      limit: 100,
-    }),
-    [repo.name, kindFilter, hideTests],
-  );
-
-  const filteredRuns = useMemo<MemoryRun[]>(() => runs ?? [], [runs]);
-
-  return (
-    <section>
-      <SectionDivider label={repo.name} detail={status ? status.status : "..."} />
-      <div className="mt-3 space-y-1.5">
-        {filteredRuns.length === 0 ? (
-          <p className="font-mono text-[10px] text-text-ghost">No runs yet.</p>
-        ) : (
-          filteredRuns.map((run) => <MemoryRunRow key={run.id} run={run} />)
-        )}
-      </div>
-    </section>
-  );
-}
-
-// --- Kind filter ---
-
-const KINDS: readonly (MemoryRunKind | "all")[] = ["all", "cold", "warm", "skip", "noop"];
-
-function KindFilter({
-  value, onChange,
-}: { value: MemoryRunKind | "all"; onChange: (v: MemoryRunKind | "all") => void }) {
-  return (
-    <div className="flex items-center gap-1">
-      {KINDS.map((k) => (
-        <button
-          key={k}
-          type="button"
-          onClick={() => onChange(k)}
-          className={cn(
-            "rounded px-1.5 py-0.5",
-            value === k ? "bg-accent/20 text-accent" : "text-text-ghost hover:text-text-dim",
-          )}
-        >
-          {k}
-        </button>
-      ))}
-    </div>
-  );
 }
 ```
 
-In `App.tsx`, add the route and import:
+Include `runsVersion` in the dependencies for any query that should refetch after cleanup.
+
+### Route + nav
+
+In `dashboard/src/App.tsx`:
 
 ```tsx
 import { Memory } from "@dashboard/pages/Memory";
 
-// inside <Routes>:
 <Route path="/memory" element={<Memory />} />
 ```
 
-In `Layout.tsx`, add one entry to `NAV_ITEMS`:
+In `dashboard/src/components/Layout.tsx` add:
 
 ```ts
-const NAV_ITEMS = [
-  { to: "/", label: "Tasks" },
-  { to: "/prs", label: "PRs" },
-  { to: "/repos", label: "Repos" },
-  { to: "/memory", label: "Memory" },
-] as const;
+{ to: "/memory", label: "Memory" }
 ```
 
 **Verify:**
-- `npm run build`.
-- `npm run dev`, navigate to `/memory`. Each registered repo has a section. Kind filter chips work. Hide-tests toggle works. Clicking a run expands the transcript. "clear tests" button deletes test rows.
+- `npm run build`
+- `/memory` shows grouped runs across repos
+- registered repos with no runs still render a section
+- unregistered repos with historical runs still show their run history
+- hide-tests toggle works
+- clear-tests refreshes the page immediately without manual reload
 
-**Commit:** `feat(dashboard): /memory page with run history, kind filter, transcript, and test cleanup`
+**Commit:** `feat(dashboard): /memory page with grouped run history and cleanup refresh`
 
 ---
 
-## Task 12: `test:memory:clean` CLI script
+## Task 13: `test:memory:clean` CLI wrapper
 
 **Files:**
 - Create: `tests/scripts/clean-memory-tests.ts`
@@ -913,37 +806,19 @@ const NAV_ITEMS = [
 
 **Implementation:**
 
+The script should reuse `cleanupTestMemoryRuns()` from `src/core/memory-cleanup.ts` so the CLI and dashboard button behave the same way.
+
 ```ts
-/**
- * Manual cleanup for memory test runs. Deletes every memory_runs row with
- * instance matching TEST-%, and removes every artifacts/memory-TEST-*
- * directory on disk.
- *
- * Usage: npm run test:memory:clean
- */
+/** Manual cleanup for memory test runs. */
 
 import "dotenv/config";
-import { rm, readdir } from "node:fs/promises";
-import path from "node:path";
 
-const { config } = await import("../../src/shared/config.js");
-const { deleteTestMemoryRuns } = await import("../../src/db/repository.js");
+const { cleanupTestMemoryRuns } = await import("../../src/core/memory-cleanup.js");
 
-const deleted = await deleteTestMemoryRuns();
-console.log(`Deleted ${deleted} memory_runs rows (instance LIKE 'TEST-%').`);
-
-let wiped = 0;
-try {
-  const entries = await readdir(config.artifactsDir);
-  for (const e of entries) {
-    if (!e.startsWith("memory-TEST-")) continue;
-    await rm(path.join(config.artifactsDir, e), { recursive: true, force: true });
-    wiped += 1;
-  }
-} catch (err) {
-  console.warn("Failed to scan artifactsDir:", err);
-}
-console.log(`Removed ${wiped} artifacts/memory-TEST-* directories.`);
+const result = await cleanupTestMemoryRuns();
+console.log(`Deleted ${result.deletedRows} TEST memory_runs rows.`);
+console.log(`Removed ${result.deletedTranscriptDirs} transcript directories.`);
+console.log(`Removed ${result.deletedMemoryDirs} memory-TEST-* directories.`);
 ```
 
 In `package.json`:
@@ -953,36 +828,96 @@ In `package.json`:
 ```
 
 **Verify:**
+
 ```bash
-npm run test:memory:cold -- scratch <repo>   # produces one TEST- row + dir
-npm run test:memory:clean                     # should report 1 deleted, 1 wiped
+npm run test:memory:cold -- scratch <repo>
+npm run test:memory:clean
 ```
 
-**Commit:** `feat(tests): test:memory:clean script removes TEST rows and dirs`
+Expected result:
+- TEST rows removed from DB
+- transcript artifact dirs removed
+- `memory-TEST-*` dirs removed
+
+**Commit:** `feat(tests): test memory cleanup wrapper`
 
 ---
 
-## Task 13: E2E verification
+## Task 14: Manual test scripts pass explicit source metadata
 
-1. Trigger a real task against a repo with cold memory. Dashboard `/memory` shows one `cold complete` run.
-2. Trigger a second task immediately. `/memory` shows a `skip complete` row.
-3. After a trivial commit, trigger another task. Page shows `warm complete`.
-4. `npm run test:memory:cold -- v1 <repo>`; `/memory` shows a new `cold complete` with `TEST` badge and `TEST-<hex>` instance tag. `hide tests` toggle removes it.
-5. `curl -X DELETE /api/memory/tests`. `/memory` loses the TEST row.
-6. Memory dot is the first stage on `/tasks/:id`; if skipped, the dot is muted grey.
+**Files:**
+- Modify: `tests/scripts/run-memory-cold.ts`
+- Modify: `tests/scripts/run-memory-warm.ts`
+- Modify: `src/pipelines/coding/pipeline.ts`
+- Modify: `src/pipelines/question/pipeline.ts`
+- Modify: `src/pipelines/pr-review/pipeline.ts` (comment or future hook only)
 
-**Commit:** verification only; fix-forwards use `fix:`.
+**Implementation:**
+
+Update real pipelines to call:
+
+```ts
+await runMemory({
+  taskId,
+  repo: task.repo,
+  repoPath: repo.localPath,
+  source: "task",
+  sendTelegram,
+  chatId,
+});
+```
+
+Update manual test scripts to call:
+
+```ts
+await runMemory({
+  taskId: `${testLabel}-cold`,
+  repo: repoName,
+  repoPath: repo.localPath,
+  source: "manual_test",
+  sendTelegram: noopTelegram,
+  chatId: null,
+});
+```
+
+This removes implicit UUID guessing and makes the persistence rules explicit.
+
+**Verify:** `npm run build`.
+
+**Commit:** `refactor(memory): make run source explicit at call sites`
+
+---
+
+## Task 15: End-to-end verification
+
+1. Trigger a real task against a repo with no memory state. `/memory` shows one `task / cold / complete` run.
+2. Trigger a second task immediately. `/memory` shows a `task / skip / complete` run.
+3. Trigger a task against an up-to-date repo. `/memory` shows a `task / noop / complete` run.
+4. Make a commit in the repo and trigger another task. `/memory` shows a `task / warm / complete` run.
+5. Run `npm run test:memory:cold -- v1 <repo>`. `/memory` shows a `manual_test / cold / complete` run with a `TEST` badge and visible `TEST-<hex>` instance.
+6. Expand a cold or warm run. Transcript loads from the stored session file.
+7. Click `clear tests` on `/memory` or run `npm run test:memory:clean`. DB rows, transcript dirs, and `memory-TEST-*` dirs are all removed.
+8. Memory dot appears first on task detail pages. If memory skipped, the first dot is muted grey.
+9. `/api/memory/status/:repo` still returns the expected per-repo status payload.
+10. `/api/memory/runs` does not conflict with the status route.
+
+**Commit:** verification only; any fixes use `fix:`.
 
 ---
 
 ## Post-plan checklist
 
-- [ ] Task 4 migration applied from laptop (`npm run db:migrate`) before Task 5 merges
+- [ ] Shared `MEMORY_RUN_*` enums added once in `src/shared/types.ts` and re-exported through `dashboard/src/shared.ts`
+- [ ] `memory` appears first in every task kind's stage list
+- [ ] `PipelineProgress` supports `skipped`
+- [ ] `memory_runs` table created with `originTaskId`, `externalLabel`, and indexes
+- [ ] Migration reviewed and applied from laptop with `npm run db:migrate`
+- [ ] `runStage()` and all direct memory stage writes are best-effort for non-task-backed runs
+- [ ] Cold / warm / skip / noop each create a visible `memory_runs` row
+- [ ] `/api/memory/status/:repo` replaces `/api/memory/:repo`
+- [ ] `/api/memory/runs` lists visible runs without route conflicts
+- [ ] `/memory` page shows all visible runs grouped by repo, including unregistered historical repos
+- [ ] Dashboard clear-tests action removes DB rows and on-disk TEST artifacts end-to-end
+- [ ] `npm run test:memory:clean` reuses the same cleanup helper as the API
 - [ ] `npm run build` clean
-- [ ] `/memory` renders for every registered repo
-- [ ] Cold / warm / skip / noop rows all appear with correct kind badge
-- [ ] Test runs visible with `TEST` badge + `TEST-<hex>` instance tag; `hide tests` hides them
-- [ ] "clear tests" button deletes test rows end-to-end
-- [ ] `npm run test:memory:clean` deletes DB rows + disk dirs
-- [ ] Memory dot appears first in `PipelineProgress` across all three kinds
-- [ ] `skipped` status renders without crashing
+- [ ] `npm test` clean
