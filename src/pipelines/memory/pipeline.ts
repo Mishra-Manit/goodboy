@@ -15,14 +15,17 @@
  */
 
 import { mkdir, readdir } from "node:fs/promises";
+import { trace, type Span } from "@opentelemetry/api";
 import { createLogger } from "../../shared/logger.js";
 import { loadEnv } from "../../shared/config.js";
 import type { MemoryRunKind, MemoryRunSource } from "../../shared/types.js";
 import { subagentCapability } from "../../core/subagents/index.js";
-import { runStage, type SendTelegram } from "../../core/stage.js";
+import { runStage, isPersistedTaskId, type SendTelegram } from "../../core/stage.js";
 import { taskSessionPath } from "../../core/pi/session-file.js";
 import * as queries from "../../db/repository.js";
 import { emit } from "../../shared/events.js";
+import { withPipelineSpan } from "../../observability/index.js";
+import { Goodboy } from "../../observability/attributes.js";
 import {
   memoryDir,
   tryAcquireLock, releaseLock,
@@ -58,11 +61,26 @@ interface RunMemoryOptions {
 
 /** Run the memory stage for a task. Soft-fail: never throws to the caller. */
 export async function runMemory(opts: RunMemoryOptions): Promise<void> {
+  return withPipelineSpan(
+    { taskId: opts.taskId, kind: "memory", repo: opts.repo },
+    async (pipelineSpan) => {
+      pipelineSpan.setAttribute(Goodboy.MemorySource, opts.source);
+      await runMemoryInner(opts, pipelineSpan);
+    },
+  );
+}
+
+async function runMemoryInner(opts: RunMemoryOptions, pipelineSpan: Span): Promise<void> {
   const { taskId, repo, repoPath } = opts;
 
   try {
     const acquired = await tryAcquireLock(repo, taskId);
-    if (!acquired) { await markSkipped(opts); return; }
+    if (!acquired) {
+      pipelineSpan.setAttribute(Goodboy.MemoryKind, "skip");
+      pipelineSpan.setAttribute(Goodboy.MemorySkipReason, "lock_held");
+      await markSkipped(opts);
+      return;
+    }
 
     try {
       await mkdir(memoryDir(repo), { recursive: true });
@@ -70,20 +88,26 @@ export async function runMemory(opts: RunMemoryOptions): Promise<void> {
 
       try {
         const headSha = await currentHeadSha(worktree);
+        pipelineSpan.setAttribute(Goodboy.MemorySha, headSha);
         const state = await readState(repo);
 
         if (!state) {
+          pipelineSpan.setAttribute(Goodboy.MemoryKind, "cold");
           await runCold(opts, worktree, headSha);
           return;
         }
 
         const changed = await gitDiffFiles(worktree, state.lastIndexedSha, headSha);
         if (changed === null) {
+          pipelineSpan.setAttribute(Goodboy.MemoryKind, "cold");
+          pipelineSpan.setAttribute(Goodboy.MemorySkipReason, "sha_unreachable");
           log.info(`Stored SHA ${state.lastIndexedSha.slice(0, 8)} unreachable; rebuilding cold for ${repo}`);
           await runCold(opts, worktree, headSha);
           return;
         }
         if (changed.length === 0) {
+          pipelineSpan.setAttribute(Goodboy.MemoryKind, "noop");
+          pipelineSpan.setAttribute(Goodboy.MemoryZoneCount, state.zones.length);
           log.info(`Memory up-to-date for ${repo} @ ${headSha.slice(0, 8)}`);
           await writeState(repo, headSha, state.zones);
           const stage = await createBestEffortMemoryStage(taskId);
@@ -98,6 +122,9 @@ export async function runMemory(opts: RunMemoryOptions): Promise<void> {
           return;
         }
 
+        pipelineSpan.setAttribute(Goodboy.MemoryKind, "warm");
+        pipelineSpan.setAttribute(Goodboy.MemoryChangedFiles, changed.length);
+        pipelineSpan.setAttribute(Goodboy.MemoryZoneCount, state.zones.length);
         await runWarm(opts, worktree, state, changed, headSha);
       } finally {
         // Always reset the worktree — even on success. It's a view, not storage.
@@ -121,6 +148,7 @@ async function runCold(
   const manifest = await buildFileManifest(worktree);
   const sessionPath = taskSessionPath(opts.taskId, "memory");
   const runId = await createMemoryRunRecord(opts, "cold", sessionPath);
+  if (runId) trace.getActiveSpan()?.setAttribute(Goodboy.MemoryRunId, runId);
   let validatedZones: readonly Zone[] | null = null;
 
   try {
@@ -185,6 +213,7 @@ async function runWarm(
   const zoneDirsBefore = await listZoneDirs(opts.repo);
   const sessionPath = taskSessionPath(opts.taskId, "memory");
   const runId = await createMemoryRunRecord(opts, "warm", sessionPath);
+  if (runId) trace.getActiveSpan()?.setAttribute(Goodboy.MemoryRunId, runId);
   let structurallyValid = false;
 
   try {
@@ -264,6 +293,7 @@ async function markSkipped(opts: RunMemoryOptions): Promise<void> {
 }
 
 async function createBestEffortMemoryStage(taskId: string) {
+  if (!isPersistedTaskId(taskId)) return null;
   return queries.createTaskStage({ taskId, stage: "memory" }).catch(() => null);
 }
 
@@ -280,6 +310,7 @@ async function createMemoryRunRecord(
       sessionPath,
       ...memoryRunIdentity(opts),
     });
+    emitMemoryRunUpdate(run.id, opts, kind, "running");
     return run.id;
   } catch (err) {
     log.warn(`Failed to create memory_runs row for ${opts.repo}`, err);
@@ -293,12 +324,13 @@ async function completeMemoryRunRecord(
 ): Promise<void> {
   if (!runId) return;
   try {
-    await queries.updateMemoryRun(runId, {
+    const updated = await queries.updateMemoryRun(runId, {
       status: "complete",
       sha: data.sha ?? null,
       zoneCount: data.zoneCount ?? null,
       completedAt: new Date(),
     });
+    emitMemoryRunUpdateFromRow(updated);
   } catch (err) {
     log.warn(`Failed to complete memory_runs row ${runId}`, err);
   }
@@ -308,11 +340,12 @@ async function failMemoryRunRecord(runId: string | null, err: unknown): Promise<
   if (!runId) return;
   const error = err instanceof Error ? err.message : String(err);
   try {
-    await queries.updateMemoryRun(runId, {
+    const updated = await queries.updateMemoryRun(runId, {
       status: "failed",
       error,
       completedAt: new Date(),
     });
+    emitMemoryRunUpdateFromRow(updated);
   } catch (updateErr) {
     log.warn(`Failed to fail memory_runs row ${runId}`, updateErr);
   }
@@ -325,6 +358,38 @@ async function recordMemoryRunComplete(
 ): Promise<void> {
   const runId = await createMemoryRunRecord(opts, kind, null);
   await completeMemoryRunRecord(runId, data);
+}
+
+function emitMemoryRunUpdate(
+  runId: string,
+  opts: RunMemoryOptions,
+  kind: MemoryRunKind,
+  status: "running" | "complete" | "failed",
+): void {
+  emit({
+    type: "memory_run_update",
+    runId,
+    repo: opts.repo,
+    kind,
+    status,
+    sessionTaskId: opts.taskId,
+  });
+}
+
+function emitMemoryRunUpdateFromRow(
+  row: { id: string; repo: string; kind: MemoryRunKind; status: "running" | "complete" | "failed"; originTaskId: string | null; externalLabel: string | null } | null | undefined,
+): void {
+  if (!row) return;
+  const sessionTaskId = row.originTaskId ?? row.externalLabel;
+  if (!sessionTaskId) return;
+  emit({
+    type: "memory_run_update",
+    runId: row.id,
+    repo: row.repo,
+    kind: row.kind,
+    status: row.status,
+    sessionTaskId,
+  });
 }
 
 function memoryRunIdentity(opts: RunMemoryOptions) {

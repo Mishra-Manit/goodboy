@@ -25,6 +25,11 @@ process.env["INSTANCE_ID"] = instanceId;
 const { getRepo } = await import("../../src/shared/repos.js");
 const { runMemory } = await import("../../src/pipelines/memory/pipeline.js");
 const { memoryDir, memoryStatePath } = await import("../../src/core/memory/index.js");
+const { initObservability, shutdownObservability } = await import(
+  "../../src/observability/index.js"
+);
+
+initObservability();
 
 const repo = getRepo(repoName);
 if (!repo) {
@@ -42,14 +47,18 @@ console.log(`memoryDir  : ${memoryDir(repoName)}`);
 console.log(`repoPath   : ${repo.localPath}`);
 console.log(`\nRunning cold memory stage...\n`);
 
-await runMemory({
-  taskId: `${testLabel}-cold`,
-  repo: repoName,
-  repoPath: repo.localPath,
-  source: "manual_test",
-  sendTelegram: noopTelegram,
-  chatId: null,
-});
+try {
+  await runMemory({
+    taskId: `${testLabel}-cold`,
+    repo: repoName,
+    repoPath: repo.localPath,
+    source: "manual_test",
+    sendTelegram: noopTelegram,
+    chatId: null,
+  });
+} finally {
+  await shutdownObservability();
+}
 
 try {
   const state = JSON.parse(await readFile(memoryStatePath(repoName), "utf8"));

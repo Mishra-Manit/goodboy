@@ -39,6 +39,13 @@ export const Goodboy = {
   ToolIsError: "goodboy.tool.is_error",
   StopReason: "goodboy.stop_reason",
   PiSessionPath: "goodboy.pi_session_path",
+  MemoryRunId: "goodboy.memory.run_id",
+  MemoryKind: "goodboy.memory.kind",
+  MemorySource: "goodboy.memory.source",
+  MemorySha: "goodboy.memory.sha",
+  MemoryZoneCount: "goodboy.memory.zone_count",
+  MemoryChangedFiles: "goodboy.memory.changed_files",
+  MemorySkipReason: "goodboy.memory.skip_reason",
 } as const;
 
 /** 8 KiB truncation budget per attribute to keep span payloads small. */

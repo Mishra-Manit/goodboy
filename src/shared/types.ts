@@ -77,6 +77,15 @@ export type SSEEvent =
   | { type: "pr_update"; taskId: string; prUrl: string }
   | { type: "pr_session_update"; prSessionId: string; running: boolean }
   | {
+      type: "memory_run_update";
+      runId: string;
+      repo: string;
+      kind: MemoryRunKind;
+      status: MemoryRunStatus;
+      /** taskId used for the underlying stage session (originTaskId or externalLabel). */
+      sessionTaskId: string;
+    }
+  | {
       type: "session_entry";
       scope: "task" | "pr_session";
       id: string;

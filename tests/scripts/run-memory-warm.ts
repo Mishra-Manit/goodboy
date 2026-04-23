@@ -27,6 +27,11 @@ process.env["INSTANCE_ID"] = instanceId;
 const { getRepo } = await import("../../src/shared/repos.js");
 const { runMemory } = await import("../../src/pipelines/memory/pipeline.js");
 const { memoryDir, memoryStatePath, zonesSidecarPath } = await import("../../src/core/memory/index.js");
+const { initObservability, shutdownObservability } = await import(
+  "../../src/observability/index.js"
+);
+
+initObservability();
 
 const repo = getRepo(repoName);
 if (!repo) {
@@ -62,14 +67,18 @@ console.log(`sha-before : ${parsedBefore.lastIndexedSha?.slice(0, 12)}`);
 console.log(`\nRunning warm memory stage...\n`);
 
 const noopTelegram = async () => {};
-await runMemory({
-  taskId: `${testLabel}-warm`,
-  repo: repoName,
-  repoPath: repo.localPath,
-  source: "manual_test",
-  sendTelegram: noopTelegram,
-  chatId: null,
-});
+try {
+  await runMemory({
+    taskId: `${testLabel}-warm`,
+    repo: repoName,
+    repoPath: repo.localPath,
+    source: "manual_test",
+    sendTelegram: noopTelegram,
+    chatId: null,
+  });
+} finally {
+  await shutdownObservability();
+}
 
 try {
   const stateAfter = await readFile(statePath, "utf8");

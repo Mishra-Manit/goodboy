@@ -25,7 +25,8 @@ export type PipelineKind =
   | "coding_task"
   | "codebase_question"
   | "pr_review"
-  | "pr_session";
+  | "pr_session"
+  | "memory";
 
 export interface PipelineSpanContext {
   taskId: string;
