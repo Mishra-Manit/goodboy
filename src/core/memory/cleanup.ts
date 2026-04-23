@@ -12,6 +12,7 @@ import * as queries from "../../db/repository.js";
 const log = createLogger("memory-cleanup");
 
 const TEST_MEMORY_DIR_PREFIX = "memory-TEST-";
+const TEST_TRANSCRIPT_DIR_RE = /^TEST-[0-9a-f]+-(cold|warm)$/;
 
 // --- Public API ---
 
@@ -24,7 +25,9 @@ export interface MemoryTestCleanupResult {
 /** Delete TEST memory runs plus any local transcript and memory directories they reference. */
 export async function cleanupTestMemoryRuns(): Promise<MemoryTestCleanupResult> {
   const deletedRows = await queries.deleteTestMemoryRuns();
-  const transcriptDirs = uniqueTranscriptDirs(deletedRows.map((row) => row.sessionPath));
+  const transcriptDirsFromRows = uniqueTranscriptDirs(deletedRows.map((row) => row.sessionPath));
+  const transcriptDirsByName = await listOrphanTranscriptDirs();
+  const transcriptDirs = dedupe([...transcriptDirsFromRows, ...transcriptDirsByName]);
   const memoryDirs = await listTestMemoryDirs();
 
   const deletedTranscriptDirs = await deleteDirs(transcriptDirs);
@@ -72,6 +75,35 @@ async function listTestMemoryDirs(): Promise<string[]> {
     log.warn(`Failed to list TEST memory dirs under ${config.artifactsDir}`, err);
     return [];
   }
+}
+
+/**
+ * Transcript dirs produced by the manual test drivers follow the
+ * `TEST-<hex>-(cold|warm)` shape. Catch orphans from runs that crashed
+ * before a memory_runs row was written, so repeated test runs don't
+ * accumulate stale session JSONL on disk.
+ */
+async function listOrphanTranscriptDirs(): Promise<string[]> {
+  try {
+    const entries = await readdir(config.artifactsDir, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isDirectory() && TEST_TRANSCRIPT_DIR_RE.test(entry.name))
+      .map((entry) => path.join(config.artifactsDir, entry.name));
+  } catch (err) {
+    log.warn(`Failed to list TEST transcript dirs under ${config.artifactsDir}`, err);
+    return [];
+  }
+}
+
+function dedupe(paths: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of paths) {
+    if (seen.has(p)) continue;
+    seen.add(p);
+    out.push(p);
+  }
+  return out;
 }
 
 async function deleteDirs(dirs: string[]): Promise<number> {
