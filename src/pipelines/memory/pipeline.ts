@@ -19,6 +19,7 @@ import { createLogger } from "../../shared/logger.js";
 import { loadEnv } from "../../shared/config.js";
 import { subagentCapability } from "../../core/subagents/index.js";
 import { runStage, type SendTelegram } from "../../core/stage.js";
+import { taskSessionPath } from "../../core/pi/session-file.js";
 import * as queries from "../../db/repository.js";
 import { emit } from "../../shared/events.js";
 import {
@@ -45,10 +46,14 @@ const WARM_TIMEOUT_MS = 5 * 60 * 1000;
 
 // --- Public API ---
 
+type MemoryRunSource = "task" | "manual_test";
+type MemoryRunKind = "cold" | "warm" | "skip" | "noop";
+
 interface RunMemoryOptions {
   taskId: string;
   repo: string;
   repoPath: string;
+  source?: MemoryRunSource;
   sendTelegram: SendTelegram;
   chatId: string | null;
 }
@@ -59,7 +64,7 @@ export async function runMemory(opts: RunMemoryOptions): Promise<void> {
 
   try {
     const acquired = await tryAcquireLock(repo, taskId);
-    if (!acquired) { await markSkipped(taskId, repo); return; }
+    if (!acquired) { await markSkipped(opts); return; }
 
     try {
       await mkdir(memoryDir(repo), { recursive: true });
@@ -87,6 +92,10 @@ export async function runMemory(opts: RunMemoryOptions): Promise<void> {
           if (stage) {
             await queries.updateTaskStage(stage.id, { status: "complete", completedAt: new Date() });
           }
+          await recordMemoryRunComplete(opts, "noop", {
+            sha: headSha,
+            zoneCount: state.zones.length,
+          });
           emit({ type: "stage_update", taskId, stage: "memory", status: "complete" });
           return;
         }
@@ -112,36 +121,53 @@ async function runCold(
 ): Promise<void> {
   const cap = subagentCapability();
   const manifest = await buildFileManifest(worktree);
+  const sessionPath = taskSessionPath(opts.taskId, "memory");
+  const runId = await createMemoryRunRecord(opts, "cold", sessionPath);
   let validatedZones: readonly Zone[] | null = null;
 
-  await runStage({
-    taskId: opts.taskId,
-    stage: "memory",
-    cwd: worktree,
-    systemPrompt: coldSystemPrompt(opts.repo, memoryDir(opts.repo), worktree, manifest),
-    initialPrompt: coldInitialPrompt(opts.repo, memoryDir(opts.repo)),
-    model: modelForMemory(),
-    sendTelegram: opts.sendTelegram,
-    chatId: opts.chatId,
-    stageLabel: "Memory (cold)",
-    extensions: cap.extensions,
-    envOverrides: cap.envOverrides,
-    timeoutMs: COLD_TIMEOUT_MS,
-    postValidate: async () => {
-      const zones = await readZonesSidecar(opts.repo);
-      if (zones === null) return { valid: false, reason: ".zones.json missing or invalid" };
-      const fileCheck = memoryFilesValid(opts.repo, zones);
-      if (!fileCheck.valid) return { valid: false, reason: fileCheck.reason };
-      const clean = await assertMemoryWorktreeClean(opts.repo);
-      if (!clean.clean) {
-        return { valid: false, reason: `memory worktree dirty after cold: ${clean.dirty.slice(0, 5).join(", ")}` };
-      }
-      validatedZones = zones;
-      return { valid: true };
-    },
-  });
+  try {
+    await runStage({
+      taskId: opts.taskId,
+      stage: "memory",
+      cwd: worktree,
+      systemPrompt: coldSystemPrompt(opts.repo, memoryDir(opts.repo), worktree, manifest),
+      initialPrompt: coldInitialPrompt(opts.repo, memoryDir(opts.repo)),
+      model: modelForMemory(),
+      sendTelegram: opts.sendTelegram,
+      chatId: opts.chatId,
+      stageLabel: "Memory (cold)",
+      extensions: cap.extensions,
+      envOverrides: cap.envOverrides,
+      timeoutMs: COLD_TIMEOUT_MS,
+      postValidate: async () => {
+        const zones = await readZonesSidecar(opts.repo);
+        if (zones === null) return { valid: false, reason: ".zones.json missing or invalid" };
+        const fileCheck = memoryFilesValid(opts.repo, zones);
+        if (!fileCheck.valid) return { valid: false, reason: fileCheck.reason };
+        const clean = await assertMemoryWorktreeClean(opts.repo);
+        if (!clean.clean) {
+          return { valid: false, reason: `memory worktree dirty after cold: ${clean.dirty.slice(0, 5).join(", ")}` };
+        }
+        validatedZones = zones;
+        return { valid: true };
+      },
+    });
+  } catch (err) {
+    await failMemoryRunRecord(runId, err);
+    throw err;
+  }
 
-  if (validatedZones) await writeState(opts.repo, headSha, validatedZones);
+  if (!validatedZones) {
+    await failMemoryRunRecord(runId, "cold validation failed");
+    return;
+  }
+
+  const zones: readonly Zone[] = validatedZones;
+  await writeState(opts.repo, headSha, zones);
+  await completeMemoryRunRecord(runId, {
+    sha: headSha,
+    zoneCount: zones.length,
+  });
 }
 
 // --- Warm ---
@@ -159,46 +185,62 @@ async function runWarm(
   const hints = findUnzonedSubtrees(changedFiles, state.zones);
   const stateHashBefore = await stateFileHash(opts.repo);
   const zoneDirsBefore = await listZoneDirs(opts.repo);
+  const sessionPath = taskSessionPath(opts.taskId, "memory");
+  const runId = await createMemoryRunRecord(opts, "warm", sessionPath);
   let structurallyValid = false;
 
-  await runStage({
-    taskId: opts.taskId,
-    stage: "memory",
-    cwd: worktree,
-    systemPrompt: warmSystemPrompt(
-      opts.repo, memoryDir(opts.repo), worktree,
-      state.zones, snapshot, bucketed, hints,
-    ),
-    initialPrompt: warmInitialPrompt(opts.repo, memoryDir(opts.repo)),
-    model: modelForMemory(),
-    sendTelegram: opts.sendTelegram,
-    chatId: opts.chatId,
-    stageLabel: "Memory (warm)",
-    extensions: cap.extensions,
-    envOverrides: cap.envOverrides,
-    timeoutMs: WARM_TIMEOUT_MS,
-    postValidate: async () => {
-      const stateHashAfter = await stateFileHash(opts.repo);
-      if (stateHashBefore !== stateHashAfter) {
-        return { valid: false, reason: "warm illegally modified .state.json" };
-      }
-      const zoneDirsAfter = await listZoneDirs(opts.repo);
-      const added = zoneDirsAfter.filter((d) => !zoneDirsBefore.includes(d));
-      if (added.length > 0) {
-        return { valid: false, reason: `warm created unauthorized zones: ${added.join(", ")}` };
-      }
-      const fileCheck = memoryFilesValid(opts.repo, state.zones);
-      if (!fileCheck.valid) return { valid: false, reason: fileCheck.reason };
-      const clean = await assertMemoryWorktreeClean(opts.repo);
-      if (!clean.clean) {
-        return { valid: false, reason: `memory worktree dirty after warm: ${clean.dirty.slice(0, 5).join(", ")}` };
-      }
-      structurallyValid = true;
-      return { valid: true };
-    },
-  });
+  try {
+    await runStage({
+      taskId: opts.taskId,
+      stage: "memory",
+      cwd: worktree,
+      systemPrompt: warmSystemPrompt(
+        opts.repo, memoryDir(opts.repo), worktree,
+        state.zones, snapshot, bucketed, hints,
+      ),
+      initialPrompt: warmInitialPrompt(opts.repo, memoryDir(opts.repo)),
+      model: modelForMemory(),
+      sendTelegram: opts.sendTelegram,
+      chatId: opts.chatId,
+      stageLabel: "Memory (warm)",
+      extensions: cap.extensions,
+      envOverrides: cap.envOverrides,
+      timeoutMs: WARM_TIMEOUT_MS,
+      postValidate: async () => {
+        const stateHashAfter = await stateFileHash(opts.repo);
+        if (stateHashBefore !== stateHashAfter) {
+          return { valid: false, reason: "warm illegally modified .state.json" };
+        }
+        const zoneDirsAfter = await listZoneDirs(opts.repo);
+        const added = zoneDirsAfter.filter((d) => !zoneDirsBefore.includes(d));
+        if (added.length > 0) {
+          return { valid: false, reason: `warm created unauthorized zones: ${added.join(", ")}` };
+        }
+        const fileCheck = memoryFilesValid(opts.repo, state.zones);
+        if (!fileCheck.valid) return { valid: false, reason: fileCheck.reason };
+        const clean = await assertMemoryWorktreeClean(opts.repo);
+        if (!clean.clean) {
+          return { valid: false, reason: `memory worktree dirty after warm: ${clean.dirty.slice(0, 5).join(", ")}` };
+        }
+        structurallyValid = true;
+        return { valid: true };
+      },
+    });
+  } catch (err) {
+    await failMemoryRunRecord(runId, err);
+    throw err;
+  }
 
-  if (structurallyValid) await writeState(opts.repo, headSha, state.zones);
+  if (!structurallyValid) {
+    await failMemoryRunRecord(runId, "warm validation failed");
+    return;
+  }
+
+  await writeState(opts.repo, headSha, state.zones);
+  await completeMemoryRunRecord(runId, {
+    sha: headSha,
+    zoneCount: state.zones.length,
+  });
 }
 
 // --- Helpers ---
@@ -213,17 +255,89 @@ async function listZoneDirs(repo: string): Promise<string[]> {
   } catch { return []; }
 }
 
-async function markSkipped(taskId: string, repo: string): Promise<void> {
-  log.info(`Memory lock held for ${repo}; skipping for task ${taskId}`);
-  const stage = await createBestEffortMemoryStage(taskId);
+async function markSkipped(opts: RunMemoryOptions): Promise<void> {
+  log.info(`Memory lock held for ${opts.repo}; skipping for task ${opts.taskId}`);
+  const stage = await createBestEffortMemoryStage(opts.taskId);
   if (stage) {
     await queries.updateTaskStage(stage.id, { status: "skipped", completedAt: new Date() });
   }
-  emit({ type: "stage_update", taskId, stage: "memory", status: "skipped" });
+  await recordMemoryRunComplete(opts, "skip");
+  emit({ type: "stage_update", taskId: opts.taskId, stage: "memory", status: "skipped" });
 }
 
 async function createBestEffortMemoryStage(taskId: string) {
   return queries.createTaskStage({ taskId, stage: "memory" }).catch(() => null);
+}
+
+async function createMemoryRunRecord(
+  opts: RunMemoryOptions,
+  kind: MemoryRunKind,
+  sessionPath: string | null,
+): Promise<string | null> {
+  try {
+    const run = await queries.createMemoryRun({
+      instance: loadEnv().INSTANCE_ID,
+      repo: opts.repo,
+      kind,
+      sessionPath,
+      ...memoryRunIdentity(opts),
+    });
+    return run.id;
+  } catch (err) {
+    log.warn(`Failed to create memory_runs row for ${opts.repo}`, err);
+    return null;
+  }
+}
+
+async function completeMemoryRunRecord(
+  runId: string | null,
+  data: { sha?: string; zoneCount?: number } = {},
+): Promise<void> {
+  if (!runId) return;
+  try {
+    await queries.updateMemoryRun(runId, {
+      status: "complete",
+      sha: data.sha ?? null,
+      zoneCount: data.zoneCount ?? null,
+      completedAt: new Date(),
+    });
+  } catch (err) {
+    log.warn(`Failed to complete memory_runs row ${runId}`, err);
+  }
+}
+
+async function failMemoryRunRecord(runId: string | null, err: unknown): Promise<void> {
+  if (!runId) return;
+  const error = err instanceof Error ? err.message : String(err);
+  try {
+    await queries.updateMemoryRun(runId, {
+      status: "failed",
+      error,
+      completedAt: new Date(),
+    });
+  } catch (updateErr) {
+    log.warn(`Failed to fail memory_runs row ${runId}`, updateErr);
+  }
+}
+
+async function recordMemoryRunComplete(
+  opts: RunMemoryOptions,
+  kind: MemoryRunKind,
+  data: { sha?: string; zoneCount?: number } = {},
+): Promise<void> {
+  const runId = await createMemoryRunRecord(opts, kind, null);
+  await completeMemoryRunRecord(runId, data);
+}
+
+function memoryRunIdentity(opts: RunMemoryOptions) {
+  const source = opts.source ?? inferRunSource();
+  return source === "task"
+    ? { source: "task" as const, originTaskId: opts.taskId, externalLabel: null }
+    : { source: "manual_test" as const, originTaskId: null, externalLabel: opts.taskId };
+}
+
+function inferRunSource(): MemoryRunSource {
+  return loadEnv().INSTANCE_ID.startsWith("TEST-") ? "manual_test" : "task";
 }
 
 function modelForMemory(): string {
