@@ -1509,6 +1509,248 @@ for (const o of orphans) {
 
 ---
 
+
+## Task 15: Manual test runners for cold + warm
+
+**Files:**
+- Create: `tests/scripts/run-memory-cold.ts`
+- Create: `tests/scripts/run-memory-warm.ts`
+- Modify: `package.json` (two new script entries)
+
+These are not vitest tests. They are standalone `tsx`-runnable CLI scripts for manually exercising the memory pipeline end-to-end in a fully isolated test instance. They live in `tests/scripts/` to stay out of the vitest discovery tree (vitest only scans `tests/unit/**` and `tests/integration/**`).
+
+### Naming convention
+
+The generated instance ID is always `TEST-<8 hex chars>`. The resulting memory dir becomes `artifacts/memory-TEST-<hex>-<repo>/`. The `TEST-` prefix makes these trivially distinguishable from production memory — easy to spot in logs, easy to clean with `rm -rf artifacts/memory-TEST-*`, and intentionally flagged as orphans by the startup scanner (since `INSTANCE_ID` in production will never start with `TEST-`).
+
+---
+
+### `tests/scripts/run-memory-cold.ts`
+
+Accepts two positional CLI arguments:
+1. `<test-memory>` — a label for this test run (used only for log output; lets the operator tag multiple parallel test runs).
+2. `<repo-name>` — a repo slug registered in `REGISTERED_REPOS` (e.g. `goodboy`).
+
+Behaviour:
+1. Load `.env` (via `dotenv`).
+2. Generate instance ID: `TEST-${randomBytes(4).toString("hex")}`.
+3. Override `process.env.INSTANCE_ID` with the generated ID **before** importing anything that calls `loadEnv()`.
+4. Resolve `repoPath` from the repo's `localPath` in `shared/repos.ts`.
+5. Call `runMemory({ taskId: "<test-memory>-cold", repo, repoPath, sendTelegram: noopTelegram, chatId: null })`.
+6. On completion, print the instance ID, memory dir path, `.state.json` content, and zone count so the warm script can be invoked immediately.
+7. Exit non-zero on any uncaught error.
+
+```ts
+/**
+ * Manual cold-start test driver for the memory pipeline.
+ * Usage: npx tsx tests/scripts/run-memory-cold.ts <test-label> <repo-name>
+ *
+ * Generates a TEST-prefixed instance ID so artifacts are clearly isolated
+ * from production memory. Prints the instance ID at the end for use with
+ * run-memory-warm.ts.
+ */
+
+import "dotenv/config";
+import { randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
+
+const [, , testLabel, repoName] = process.argv;
+if (!testLabel || !repoName) {
+  console.error("Usage: npx tsx tests/scripts/run-memory-cold.ts <test-label> <repo-name>");
+  process.exit(1);
+}
+
+// Set BEFORE any loadEnv() call so the generated ID is picked up everywhere.
+const instanceId = `TEST-${randomBytes(4).toString("hex")}`;
+process.env["INSTANCE_ID"] = instanceId;
+
+// Dynamic imports so the env override lands first.
+const { getRepo } = await import("../../src/shared/repos.js");
+const { runMemory } = await import("../../src/pipelines/memory/pipeline.js");
+const { memoryDir, memoryStatePath } = await import("../../src/core/memory.js");
+
+const repo = getRepo(repoName);
+if (!repo) {
+  console.error(`Unknown repo: ${repoName}. Check REGISTERED_REPOS.`);
+  process.exit(1);
+}
+
+const noopTelegram = async () => {};
+
+console.log(`\n=== MEMORY COLD-START TEST ===`);
+console.log(`label      : ${testLabel}`);
+console.log(`repo       : ${repoName}`);
+console.log(`instanceId : ${instanceId}`);
+console.log(`memoryDir  : ${memoryDir(repoName)}`);
+console.log(`repoPath   : ${repo.localPath}`);
+console.log(`\nRunning cold memory stage...\n`);
+
+await runMemory({
+  taskId: `${testLabel}-cold`,
+  repo: repoName,
+  repoPath: repo.localPath,
+  sendTelegram: noopTelegram,
+  chatId: null,
+});
+
+try {
+  const state = JSON.parse(await readFile(memoryStatePath(repoName), "utf8"));
+  console.log(`\n=== RESULT ===`);
+  console.log(`zones      : ${state.zones?.length ?? 0}`);
+  console.log(`sha        : ${state.lastIndexedSha?.slice(0, 12)}`);
+  console.log(`indexedAt  : ${state.lastIndexedAt}`);
+} catch {
+  console.error(`No .state.json found — cold run may have failed.`);
+}
+
+console.log(`\nTo test warm, run:`);
+console.log(`  npm run test:memory:warm -- ${testLabel} ${repoName} ${instanceId}\n`);
+```
+
+---
+
+### `tests/scripts/run-memory-warm.ts`
+
+Accepts three positional CLI arguments:
+1. `<test-memory>` — same label used in the cold run.
+2. `<repo-name>` — same repo slug.
+3. `<instance-id>` — the `TEST-<hex>` value printed by the cold runner.
+
+Behaviour:
+1. Load `.env`.
+2. Validate `<instance-id>` starts with `TEST-`; exit early with a clear error if not.
+3. Set `process.env.INSTANCE_ID` to the provided `<instance-id>`.
+4. Read the existing `.state.json` to confirm cold memory is present; exit early with a helpful copy-paste message if missing.
+5. Snapshot `.zones.json` hash before the run.
+6. Call `runMemory({ taskId: "<test-memory>-warm", repo, repoPath, sendTelegram: noopTelegram, chatId: null })`.
+7. After completion, compare `.state.json` SHA before/after and compare `.zones.json` hash (must be identical — warm is forbidden from touching it).
+
+```ts
+/**
+ * Manual warm-patch test driver for the memory pipeline.
+ * Usage: npx tsx tests/scripts/run-memory-warm.ts <test-label> <repo-name> <TEST-instance-id>
+ *
+ * Reuses the memory directory created by run-memory-cold.ts. The instance ID
+ * must be the TEST-prefixed value printed by the cold runner.
+ */
+
+import "dotenv/config";
+import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+
+const [, , testLabel, repoName, instanceId] = process.argv;
+if (!testLabel || !repoName || !instanceId) {
+  console.error(
+    "Usage: npx tsx tests/scripts/run-memory-warm.ts <test-label> <repo-name> <TEST-instance-id>",
+  );
+  process.exit(1);
+}
+if (!instanceId.startsWith("TEST-")) {
+  console.error(`instance-id must start with TEST-. Got: ${instanceId}`);
+  process.exit(1);
+}
+
+process.env["INSTANCE_ID"] = instanceId;
+
+const { getRepo } = await import("../../src/shared/repos.js");
+const { runMemory } = await import("../../src/pipelines/memory/pipeline.js");
+const { memoryDir, memoryStatePath, zonesSidecarPath } = await import("../../src/core/memory.js");
+
+const repo = getRepo(repoName);
+if (!repo) {
+  console.error(`Unknown repo: ${repoName}. Check REGISTERED_REPOS.`);
+  process.exit(1);
+}
+
+const statePath = memoryStatePath(repoName);
+let stateBefore: string;
+try {
+  stateBefore = await readFile(statePath, "utf8");
+} catch {
+  console.error(
+    `No .state.json found at ${statePath}.\nRun the cold script first:\n  npm run test:memory:cold -- ${testLabel} ${repoName}`,
+  );
+  process.exit(1);
+}
+
+const zonesPath = zonesSidecarPath(repoName);
+const zonesHashBefore = await readFile(zonesPath, "utf8")
+  .then((c) => createHash("sha256").update(c).digest("hex"))
+  .catch(() => null);
+
+const parsedBefore = JSON.parse(stateBefore);
+
+console.log(`\n=== MEMORY WARM-PATCH TEST ===`);
+console.log(`label      : ${testLabel}`);
+console.log(`repo       : ${repoName}`);
+console.log(`instanceId : ${instanceId}`);
+console.log(`memoryDir  : ${memoryDir(repoName)}`);
+console.log(`repoPath   : ${repo.localPath}`);
+console.log(`sha-before : ${parsedBefore.lastIndexedSha?.slice(0, 12)}`);
+console.log(`\nRunning warm memory stage...\n`);
+
+const noopTelegram = async () => {};
+await runMemory({
+  taskId: `${testLabel}-warm`,
+  repo: repoName,
+  repoPath: repo.localPath,
+  sendTelegram: noopTelegram,
+  chatId: null,
+});
+
+try {
+  const stateAfter = await readFile(statePath, "utf8");
+  const parsedAfter = JSON.parse(stateAfter);
+  const zonesHashAfter = await readFile(zonesPath, "utf8")
+    .then((c) => createHash("sha256").update(c).digest("hex"))
+    .catch(() => null);
+
+  console.log(`\n=== RESULT ===`);
+  console.log(`zones      : ${parsedAfter.zones?.length ?? 0}`);
+  console.log(`sha-before : ${parsedBefore.lastIndexedSha?.slice(0, 12)}`);
+  console.log(`sha-after  : ${parsedAfter.lastIndexedSha?.slice(0, 12)}`);
+  console.log(`indexedAt  : ${parsedAfter.lastIndexedAt}`);
+  console.log(
+    `.zones.json: ${zonesHashBefore === zonesHashAfter ? "untouched (correct)" : "MODIFIED — invariant violation"}`,
+  );
+} catch {
+  console.error(`Could not read .state.json after warm run — warm run may have failed.`);
+}
+```
+
+---
+
+### `package.json` additions
+
+```json
+"test:memory:cold": "tsx tests/scripts/run-memory-cold.ts",
+"test:memory:warm":  "tsx tests/scripts/run-memory-warm.ts"
+```
+
+Invoked as:
+
+```bash
+# Cold — generates a fresh TEST-<hex> instance ID and prints it.
+npm run test:memory:cold -- my-test goodboy
+
+# Warm — pass the exact instance ID printed by the cold run.
+npm run test:memory:warm -- my-test goodboy TEST-a1b2c3d4
+```
+
+The cold script always outputs the complete `npm run test:memory:warm` invocation as a copy-pasteable line, so the operator never has to transcribe the hex ID by hand.
+
+---
+
+**Verify:**
+- `npm run build` clean (scripts are `tsx`-only; tsc does not type-check `tests/scripts/`, but imports from `src/` must resolve).
+- Run cold against a registered repo; confirm `artifacts/memory-TEST-*-<repo>/` is created with valid `.state.json`.
+- Run warm with the printed instance ID; confirm `.zones.json` hash is unchanged, and `.state.json` SHA advances (or matches HEAD if no new commits have landed — fast-path still rewrites the file).
+- Confirm that on the next production server start, the `TEST-` dirs appear in the orphan warning log (expected and intentional — clean them with `rm -rf artifacts/memory-TEST-*`).
+
+**Commit:** `feat(tests): manual cold + warm memory test runners with TEST-prefixed isolation`
+
+---
+
 ## Post-plan checklist
 
 - [ ] Task 2 migration applied from laptop (`npm run db:migrate`)
