@@ -14,6 +14,11 @@ const log = createLogger("pr-review");
 
 const NOT_IMPLEMENTED = "PR review is not implemented yet.";
 
+// TODO when pr-review is implemented:
+//   after syncRepo, before createPrWorktree:
+//     await runMemory({ taskId, repo: task.repo, repoPath: repo.localPath, sendTelegram, chatId });
+//   then inject memoryBlock(task.repo) into the pr_reviewing system prompt.
+
 export async function runPrReview(
   taskId: string,
   sendTelegram: SendTelegram,

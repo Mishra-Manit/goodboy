@@ -23,6 +23,7 @@ import { createPrWorktree } from "../../core/git/worktree.js";
 import { getRepo } from "../../shared/repos.js";
 import * as queries from "../../db/repository.js";
 import { prSessionPrompt, formatCommentsPrompt, prCreationPrompt, externalReviewPrompt } from "./prompts.js";
+import { memoryBlock } from "../../shared/agent-prompts.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import type { Env } from "../../shared/config.js";
 import { parseNwo, parsePrNumberFromUrl, type PrComment } from "../../core/git/github.js";
@@ -122,12 +123,14 @@ export async function resumePrSession(options: {
       `Found ${comments.length} new comment${pluralS} on PR #${prNumber}. Addressing now...`);
   }
 
+  const memory = await memoryBlock(repo);
+
   try {
     await runSessionTurn({
       prSessionId,
       labelSuffix: "resume",
       cwd: worktreePath,
-      systemPrompt: prSessionPrompt({
+      systemPrompt: memory + prSessionPrompt({
         mode: originTaskId ? "own" : "review",
         repo,
         branch: branch ?? "",
