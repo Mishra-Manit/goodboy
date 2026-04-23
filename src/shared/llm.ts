@@ -12,7 +12,7 @@ const log = createLogger("llm");
 
 const FIREWORKS_URL = "https://api.fireworks.ai/inference/v1/chat/completions";
 const DEFAULT_MODEL = "accounts/fireworks/models/kimi-k2p6";
-export const LIGHT_MODEL = "accounts/fireworks/models/gpt-oss-120b";
+export const LIGHT_MODEL = "accounts/fireworks/models/qwen3-vl-30b-a3b-instruct";
 
 interface ChatMessage {
   readonly role: "system" | "user" | "assistant";

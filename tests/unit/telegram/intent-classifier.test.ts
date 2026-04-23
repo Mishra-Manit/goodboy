@@ -19,7 +19,10 @@ vi.mock("@src/shared/llm.js", () => ({
   },
 }));
 
-import { classifyMessage } from "@src/telegram/intent-classifier.js";
+import {
+  classifyMessage,
+  classifyMessageWithModel,
+} from "@src/telegram/intent-classifier.js";
 
 beforeEach(() => {
   llmHandler.calls.length = 0;
@@ -69,5 +72,12 @@ describe("classifyMessage", () => {
     const callArg = llmHandler.calls[0] as { system: string };
     expect(callArg.system).toContain("alpha");
     expect(callArg.system).toContain("beta");
+  });
+
+  it("passes an explicit model override into structuredOutput", async () => {
+    llmHandler.impl = async () => ({ type: "unknown", rawText: "x" });
+    await classifyMessageWithModel("x", ["alpha"], "accounts/fireworks/models/test-model");
+    const callArg = llmHandler.calls[0] as { model: string };
+    expect(callArg.model).toBe("accounts/fireworks/models/test-model");
   });
 });

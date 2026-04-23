@@ -29,18 +29,28 @@ export type Intent = z.infer<typeof intentSchema>;
 
 // --- Public API ---
 
-/** Classify a user message into an `Intent`. Never throws; falls back to `unknown` on failure. */
+/** Classify a user message with the default light model. Never throws; falls back to `unknown` on failure. */
 export async function classifyMessage(text: string, repoNames: readonly string[]): Promise<Intent> {
+  return classifyMessageWithModel(text, repoNames, LIGHT_MODEL);
+}
+
+/** Classify a user message with an explicit model override for manual benchmarking. */
+export async function classifyMessageWithModel(
+  text: string,
+  repoNames: readonly string[],
+  model: string,
+): Promise<Intent> {
   try {
     const intent = await structuredOutput({
       system: buildClassifierSystemPrompt(repoNames),
       prompt: text,
       schema: intentSchema,
-      model: LIGHT_MODEL,
+      model,
       temperature: 0,
     });
     log.info(`Classified message as "${intent.type}"`, {
       type: intent.type,
+      model,
       preview: text.slice(0, LOG_PREVIEW_LEN),
     });
     return intent;

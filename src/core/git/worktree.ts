@@ -13,7 +13,7 @@ import { createLogger } from "../../shared/logger.js";
 import { z } from "zod";
 import { LIGHT_MODEL, structuredOutput } from "../../shared/llm.js";
 import { stageSubagentAssets } from "../subagents/index.js";
-import { SLUG_SYSTEM_PROMPT } from "./prompts.js";
+import { buildSlugPrompt, SLUG_SYSTEM_PROMPT } from "./prompts.js";
 
 const exec = promisify(execFile);
 const log = createLogger("worktree");
@@ -105,7 +105,7 @@ export async function generateBranchName(taskId: string, description: string): P
     try {
       const { slug } = await structuredOutput({
         system: SLUG_SYSTEM_PROMPT,
-        prompt: `Task: ${description.trim()}`,
+        prompt: buildSlugPrompt(description),
         schema: slugSchema,
         model: LIGHT_MODEL,
         temperature: attempt === 1 ? 0 : 0.5,
