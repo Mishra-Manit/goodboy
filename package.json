@@ -15,7 +15,9 @@
     "dev:dashboard": "vite build --watch --config dashboard/vite.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:cov": "vitest run --coverage"
+    "test:cov": "vitest run --coverage",
+    "test:memory:cold": "tsx tests/scripts/run-memory-cold.ts",
+    "test:memory:warm": "tsx tests/scripts/run-memory-warm.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
