@@ -19,6 +19,15 @@ import type { StageName } from "../shared/types.js";
 
 const log = createLogger("stage");
 
+// --- Task identity ---
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True when `taskId` is a real `tasks.id` UUID (vs a manual-test label). */
+export function isPersistedTaskId(taskId: string): boolean {
+  return UUID_RE.test(taskId);
+}
+
 // --- Session registry ---
 
 const activeSessions = new Map<string, PiSession>();
@@ -136,15 +145,20 @@ export async function runStage(options: RunStageOptions): Promise<void> {
   await withStageSpan(
     { taskId, stage, model, stageLabel, piSessionPath: sessionPath },
     async (stageSpan) => {
-      await queries.updateTask(taskId, { status: "running" }).catch((err) => {
-        log.warn(`updateTask failed for task ${taskId} (no matching tasks row?)`, err);
-      });
+      const persisted = isPersistedTaskId(taskId);
+      if (persisted) {
+        await queries.updateTask(taskId, { status: "running" }).catch((err) => {
+          log.warn(`updateTask failed for task ${taskId} (no matching tasks row?)`, err);
+        });
+      }
       emit({ type: "task_update", taskId, status: "running" });
 
-      const stageRecord = await queries.createTaskStage({ taskId, stage }).catch((err) => {
-        log.warn(`createTaskStage failed for task ${taskId} stage ${stage} (no matching tasks row?)`, err);
-        return null;
-      });
+      const stageRecord = persisted
+        ? await queries.createTaskStage({ taskId, stage }).catch((err) => {
+            log.warn(`createTaskStage failed for task ${taskId} stage ${stage} (no matching tasks row?)`, err);
+            return null;
+          })
+        : null;
       emit({ type: "stage_update", taskId, stage, status: "running" });
       log.info(`Starting stage ${stage} for task ${taskId}`);
       await notifyTelegram(sendTelegram, chatId, `Stage started: ${stageLabel}.`);
