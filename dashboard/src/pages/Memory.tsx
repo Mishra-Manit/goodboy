@@ -1,4 +1,4 @@
-/** Memory run history page. Live runs pinned on top, history grouped by repo. */
+/** Memory run history page. Repo summary grid, live runs, then a flat chronological history list. */
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -33,6 +33,13 @@ interface MemoryPageData {
 const KIND_FILTERS = ["all", ...MEMORY_RUN_KINDS] as const;
 type KindFilter = (typeof KIND_FILTERS)[number];
 
+const KIND_TONE: Record<MemoryRunKind, string> = {
+  cold: "text-accent",
+  warm: "text-warn",
+  skip: "text-text-void",
+  noop: "text-text-dim",
+};
+
 export function Memory() {
   const navigate = useNavigate();
   const now = useNow();
@@ -46,14 +53,10 @@ export function Memory() {
     [hideTests, kind, runsVersion],
   );
 
-  useSSERefresh(
-    query.refetch,
-    (event) => event.type === "memory_run_update",
-  );
+  useSSERefresh(query.refetch, (event) => event.type === "memory_run_update");
 
   async function handleCleanTests(): Promise<void> {
     if (!window.confirm("Delete all TEST memory runs and their local artifacts?")) return;
-
     setCleaning(true);
     try {
       await deleteMemoryTests();
@@ -74,27 +77,28 @@ export function Memory() {
         </p>
       </header>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="mb-6 flex flex-wrap items-center gap-2">
         <KindFilters value={kind} onChange={setKind} />
-        <button
-          onClick={() => setHideTests((value) => !value)}
-          className={cn(
-            "rounded-full px-3 py-1 font-mono text-[10px] tracking-wide transition-all duration-200",
-            hideTests ? "bg-glass text-text" : "text-text-ghost hover:text-text-dim",
-          )}
-        >
-          {hideTests ? "tests hidden" : "show tests"}
-        </button>
-        <button
-          onClick={() => void handleCleanTests()}
-          disabled={cleaning}
-          className={cn(
-            "rounded-full px-3 py-1 font-mono text-[10px] tracking-wide transition-all duration-200",
-            "text-text-ghost hover:text-fail disabled:cursor-not-allowed disabled:text-text-void",
-          )}
-        >
-          {cleaning ? "clearing tests..." : "clear tests"}
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setHideTests((value) => !value)}
+            className={cn(
+              "rounded-full px-3 py-1 font-mono text-[10px] tracking-wide transition-all duration-200",
+              hideTests
+                ? "border border-glass-border text-text-ghost hover:text-text-dim"
+                : "bg-glass text-text",
+            )}
+          >
+            {hideTests ? "tests hidden" : "tests shown"}
+          </button>
+          <button
+            onClick={() => void handleCleanTests()}
+            disabled={cleaning}
+            className="rounded-full px-3 py-1 font-mono text-[10px] tracking-wide text-text-ghost transition-colors hover:text-fail disabled:cursor-not-allowed disabled:text-text-void"
+          >
+            {cleaning ? "clearing..." : "clear tests"}
+          </button>
+        </div>
       </div>
 
       <PageState
@@ -113,55 +117,57 @@ export function Memory() {
         {(data) => {
           const live = data.runs.filter((run) => run.status === "running");
           const history = data.runs.filter((run) => run.status !== "running");
-          const sections = buildRepoSections(data.repos, history);
+          const runCounts = countRunsByRepo(data.runs);
+          const repoEntries = buildRepoEntries(data.repos, data.runs, data.statusByRepo, runCounts);
 
           return (
             <>
-              <SectionDivider
-                label="live"
-                detail={live.length > 0 ? `${live.length} run${live.length === 1 ? "" : "s"}` : undefined}
-              />
-              {live.length === 0 ? (
-                <p className="py-8 text-center font-mono text-[11px] text-text-ghost">No active memory runs</p>
-              ) : (
-                <div className="mt-4 space-y-3 stagger">
-                  {live.map((run) => (
-                    <LiveMemoryRunCard key={run.id} run={run} now={now} onClick={() => openRun(run)} />
-                  ))}
-                </div>
+              {repoEntries.length > 0 && (
+                <section className="mb-10">
+                  <SectionDivider label="repos" detail={`${repoEntries.length}`} />
+                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {repoEntries.map((entry) => (
+                      <RepoSummaryCard key={entry.repo} entry={entry} now={now} />
+                    ))}
+                  </div>
+                </section>
               )}
 
-              <SectionDivider label="history" className="mt-10" />
-              <div className="space-y-6">
-                {sections.map((section) => (
-                  <div key={section.repo}>
-                    <SectionDivider
-                      label={section.repo}
-                      detail={`${section.runs.length} run${section.runs.length === 1 ? "" : "s"}`}
-                    />
-                    <div className="mt-3 rounded-lg bg-glass px-4 py-3">
-                      <RepoMemorySummary
-                        repo={section.repo}
-                        status={data.statusByRepo[section.repo]}
-                        registered={section.registered}
-                        now={now}
-                      />
-                    </div>
-                    <div className="mt-2 space-y-0.5 stagger">
-                      {section.runs.length > 0 ? (
-                        section.runs.map((run) => (
-                          <MemoryRunRow key={run.id} run={run} onClick={() => openRun(run)} />
-                        ))
-                      ) : (
-                        <EmptyState
-                          title="No runs for this repo"
-                          description="This registered repo has no visible memory history yet."
-                        />
-                      )}
-                    </div>
+              <section className="mb-10">
+                <SectionDivider
+                  label="live"
+                  detail={live.length > 0 ? `${live.length} run${live.length === 1 ? "" : "s"}` : undefined}
+                />
+                {live.length === 0 ? (
+                  <p className="py-6 text-center font-mono text-[10px] text-text-void">
+                    No active memory runs
+                  </p>
+                ) : (
+                  <div className="mt-4 space-y-3 stagger">
+                    {live.map((run) => (
+                      <LiveMemoryRunCard key={run.id} run={run} now={now} onClick={() => openRun(run)} />
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+              </section>
+
+              <section>
+                <SectionDivider
+                  label="history"
+                  detail={`${history.length} run${history.length === 1 ? "" : "s"}`}
+                />
+                {history.length === 0 ? (
+                  <p className="py-6 text-center font-mono text-[10px] text-text-void">
+                    No completed memory runs yet
+                  </p>
+                ) : (
+                  <div className="mt-2 space-y-0.5 stagger">
+                    {history.map((run) => (
+                      <MemoryRunRow key={run.id} run={run} onClick={() => openRun(run)} showRepo />
+                    ))}
+                  </div>
+                )}
+              </section>
             </>
           );
         }}
@@ -170,14 +176,7 @@ export function Memory() {
   );
 }
 
-// --- Live card (mirrors LiveTaskCard in Tasks.tsx) ---
-
-const KIND_TONE: Record<MemoryRun["kind"], string> = {
-  cold: "text-accent",
-  warm: "text-warn",
-  skip: "text-text-void",
-  noop: "text-text-dim",
-};
+// --- Live card ---
 
 interface LiveMemoryRunCardProps {
   run: MemoryRun;
@@ -213,13 +212,72 @@ function LiveMemoryRunCard({ run, now, onClick }: LiveMemoryRunCardProps) {
   );
 }
 
-// --- Helpers ---
+// --- Repo summary card ---
 
-interface RepoSection {
+interface RepoEntry {
   repo: string;
   registered: boolean;
-  runs: MemoryRun[];
+  status: MemoryStatus | undefined;
+  runCount: number;
 }
+
+interface RepoSummaryCardProps {
+  entry: RepoEntry;
+  now: number;
+}
+
+function RepoSummaryCard({ entry, now }: RepoSummaryCardProps) {
+  const { repo, registered, status, runCount } = entry;
+  const sha = status?.lastIndexedSha?.slice(0, 8);
+  const indexedAt = status?.lastIndexedAt ? timeAgo(status.lastIndexedAt, now) : null;
+  const zones = status?.zones.length ?? 0;
+  const files = status?.fileCount ?? 0;
+
+  return (
+    <div className="rounded-lg border border-glass-border bg-glass/40 px-3 py-2.5">
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className="truncate font-mono text-[11px] font-medium text-text">{repo}</span>
+        {!registered && (
+          <span className="shrink-0 rounded-full border border-glass-border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wide text-text-ghost">
+            unregistered
+          </span>
+        )}
+        <span className="ml-auto shrink-0 font-mono text-[10px] text-text-void">
+          {runCount} run{runCount === 1 ? "" : "s"}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] text-text-ghost">
+        {registered && status ? (
+          <>
+            <span className="text-text-dim">{status.status}</span>
+            <span className="text-text-void">·</span>
+            <span>{zones}z</span>
+            <span className="text-text-void">·</span>
+            <span>{files}f</span>
+            {sha && (
+              <>
+                <span className="text-text-void">·</span>
+                <span className="text-text-dim">{sha}</span>
+              </>
+            )}
+            {indexedAt && (
+              <>
+                <span className="text-text-void">·</span>
+                <span>{indexedAt}</span>
+              </>
+            )}
+          </>
+        ) : registered ? (
+          <span className="text-text-void">loading...</span>
+        ) : (
+          <span className="text-text-void">historical runs only</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- Helpers ---
 
 async function loadMemoryPage(filters: {
   hideTests: boolean;
@@ -244,23 +302,40 @@ async function loadMemoryPage(filters: {
   };
 }
 
-function buildRepoSections(repos: Repo[], runs: MemoryRun[]): RepoSection[] {
-  const runsByRepo = new Map<string, MemoryRun[]>();
+function countRunsByRepo(runs: MemoryRun[]): Map<string, number> {
+  const counts = new Map<string, number>();
   for (const run of runs) {
-    const current = runsByRepo.get(run.repo) ?? [];
-    runsByRepo.set(run.repo, [...current, run]);
+    counts.set(run.repo, (counts.get(run.repo) ?? 0) + 1);
   }
+  return counts;
+}
 
-  const registeredRepoNames = repos.map((repo) => repo.name);
-  const unregisteredRepoNames = [...runsByRepo.keys()]
-    .filter((repo) => !registeredRepoNames.includes(repo))
+function buildRepoEntries(
+  repos: Repo[],
+  runs: MemoryRun[],
+  statusByRepo: Record<string, MemoryStatus>,
+  runCounts: Map<string, number>,
+): RepoEntry[] {
+  const registeredNames = repos.map((repo) => repo.name);
+  const unregisteredNames = [...new Set(runs.map((run) => run.repo))]
+    .filter((repo) => !registeredNames.includes(repo))
     .sort();
 
-  return [...registeredRepoNames, ...unregisteredRepoNames].map((repo) => ({
+  const registered = registeredNames.map((repo) => ({
     repo,
-    registered: registeredRepoNames.includes(repo),
-    runs: runsByRepo.get(repo) ?? [],
+    registered: true,
+    status: statusByRepo[repo],
+    runCount: runCounts.get(repo) ?? 0,
   }));
+
+  const unregistered = unregisteredNames.map((repo) => ({
+    repo,
+    registered: false,
+    status: undefined,
+    runCount: runCounts.get(repo) ?? 0,
+  }));
+
+  return [...registered, ...unregistered];
 }
 
 interface KindFiltersProps {
@@ -283,42 +358,6 @@ function KindFilters({ value, onChange }: KindFiltersProps) {
           {filter}
         </button>
       ))}
-    </div>
-  );
-}
-
-interface RepoMemorySummaryProps {
-  repo: string;
-  status: MemoryStatus | undefined;
-  registered: boolean;
-  now: number;
-}
-
-function RepoMemorySummary({ repo, status, registered, now }: RepoMemorySummaryProps) {
-  if (!registered) {
-    return (
-      <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
-        <span className="text-text">{repo}</span>
-        <span className="rounded-full border border-glass-border px-2 py-0.5 text-text-ghost">
-          unregistered
-        </span>
-        <span className="text-text-void">Historical runs only</span>
-      </div>
-    );
-  }
-
-  if (!status) {
-    return <span className="font-mono text-[10px] text-text-ghost">loading memory status...</span>;
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
-      <span className="text-text-ghost">status</span>
-      <span className="text-text">{status.status}</span>
-      {status.lastIndexedSha && <span className="text-text-dim">{status.lastIndexedSha.slice(0, 8)}</span>}
-      {status.lastIndexedAt && <span className="text-text-ghost">{timeAgo(status.lastIndexedAt, now)}</span>}
-      <span className="text-text-void">{status.zones.length} zone{status.zones.length === 1 ? "" : "s"}</span>
-      <span className="text-text-void">{status.fileCount} file{status.fileCount === 1 ? "" : "s"}</span>
     </div>
   );
 }

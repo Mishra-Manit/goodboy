@@ -9,6 +9,8 @@ import { cn, shortId } from "@dashboard/lib/utils";
 interface MemoryRunRowProps {
   run: MemoryRun;
   onClick: () => void;
+  /** Show the repo name as a column. Enable when the list spans multiple repos. */
+  showRepo?: boolean;
 }
 
 const KIND_TONE: Record<MemoryRun["kind"], string> = {
@@ -18,7 +20,7 @@ const KIND_TONE: Record<MemoryRun["kind"], string> = {
   noop: "text-text-dim",
 };
 
-export function MemoryRunRow({ run, onClick }: MemoryRunRowProps) {
+export function MemoryRunRow({ run, onClick, showRepo }: MemoryRunRowProps) {
   const now = useNow();
   const isTest = run.instance.startsWith("TEST-");
   const duration = run.completedAt ? formatDuration(run.startedAt, run.completedAt) : null;
@@ -33,6 +35,9 @@ export function MemoryRunRow({ run, onClick }: MemoryRunRowProps) {
         {run.kind}
       </span>
       <StatusBadge status={run.status} />
+      {showRepo && (
+        <span className="shrink-0 font-mono text-[11px] font-medium text-accent">{run.repo}</span>
+      )}
       {isTest && (
         <span className="shrink-0 rounded-full border border-glass-border px-2 py-0.5 font-mono text-[9px] text-text-ghost">
           TEST
