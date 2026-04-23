@@ -4,13 +4,21 @@
  * so callers never have to issue a second select.
  */
 
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, or, like } from "drizzle-orm";
 import { getDb, schema } from "./index.js";
-import type { Task, TaskStage, PrSession, PrSessionRun } from "./schema.js";
-import type { TaskStatus, TaskKind, StageStatus, StageName } from "../shared/types.js";
+import type { Task, TaskStage, PrSession, PrSessionRun, MemoryRun } from "./schema.js";
+import type {
+  TaskStatus,
+  TaskKind,
+  StageStatus,
+  StageName,
+  MemoryRunKind,
+  MemoryRunStatus,
+  MemoryRunSource,
+} from "../shared/types.js";
 import { loadEnv } from "../shared/config.js";
 
-export type { Task, TaskStage, PrSession, PrSessionRun };
+export type { Task, TaskStage, PrSession, PrSessionRun, MemoryRun };
 
 // --- Tasks ---
 
@@ -256,4 +264,97 @@ export async function getRunsForPrSession(prSessionId: string): Promise<PrSessio
     .from(schema.prSessionRuns)
     .where(eq(schema.prSessionRuns.prSessionId, prSessionId))
     .orderBy(schema.prSessionRuns.startedAt);
+}
+
+// --- Memory Runs ---
+
+function memoryRunsVisible() {
+  return or(
+    eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID),
+    like(schema.memoryRuns.instance, "TEST-%"),
+  );
+}
+
+export async function createMemoryRun(data: {
+  instance: string;
+  repo: string;
+  source: MemoryRunSource;
+  kind: MemoryRunKind;
+  originTaskId: string | null;
+  externalLabel: string | null;
+  sessionPath: string | null;
+}): Promise<MemoryRun> {
+  const db = getDb();
+  const [run] = await db
+    .insert(schema.memoryRuns)
+    .values({
+      ...data,
+      status: "running",
+    })
+    .returning();
+  return run;
+}
+
+export async function updateMemoryRun(
+  id: string,
+  data: Partial<{
+    status: MemoryRunStatus;
+    sha: string | null;
+    zoneCount: number | null;
+    error: string | null;
+    completedAt: Date | null;
+  }>,
+): Promise<MemoryRun | undefined> {
+  const db = getDb();
+  const [run] = await db
+    .update(schema.memoryRuns)
+    .set(data)
+    .where(eq(schema.memoryRuns.id, id))
+    .returning();
+  return run;
+}
+
+export async function listMemoryRuns(filters: {
+  repo?: string;
+  limit?: number;
+  kind?: MemoryRunKind;
+  includeTests?: boolean;
+} = {}): Promise<MemoryRun[]> {
+  const visibility = filters.includeTests === false
+    ? eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID)
+    : memoryRunsVisible();
+
+  const db = getDb();
+  const query = db
+    .select()
+    .from(schema.memoryRuns)
+    .where(and(
+      visibility,
+      filters.repo ? eq(schema.memoryRuns.repo, filters.repo) : undefined,
+      filters.kind ? eq(schema.memoryRuns.kind, filters.kind) : undefined,
+    ))
+    .orderBy(desc(schema.memoryRuns.startedAt));
+
+  return filters.limit === undefined ? query : query.limit(filters.limit);
+}
+
+export async function getMemoryRun(id: string): Promise<MemoryRun | undefined> {
+  const db = getDb();
+  const [run] = await db
+    .select()
+    .from(schema.memoryRuns)
+    .where(and(eq(schema.memoryRuns.id, id), memoryRunsVisible()))
+    .limit(1);
+  return run;
+}
+
+export async function deleteTestMemoryRuns(): Promise<Array<Pick<MemoryRun, "id" | "sessionPath">>> {
+  const db = getDb();
+  return db
+    .delete(schema.memoryRuns)
+    .where(like(schema.memoryRuns.instance, "TEST-%"))
+    .returning({
+      id: schema.memoryRuns.id,
+      sessionPath: schema.memoryRuns.sessionPath,
+    });
 }
