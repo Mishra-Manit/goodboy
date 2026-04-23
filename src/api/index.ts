@@ -14,10 +14,11 @@ import { subscribe } from "../shared/events.js";
 import * as queries from "../db/repository.js";
 import { listRepos, buildPrUrl, getRepo } from "../shared/repos.js";
 import { memoryStatus, currentHeadSha } from "../core/memory/index.js";
+import { cleanupTestMemoryRuns } from "../core/memory/cleanup.js";
 import { config } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
-import { TASK_STATUSES, TASK_KINDS } from "../shared/types.js";
-import type { TaskStatus, TaskKind } from "../shared/types.js";
+import { TASK_STATUSES, TASK_KINDS, MEMORY_RUN_KINDS } from "../shared/types.js";
+import type { TaskKind } from "../shared/types.js";
 import {
   readSessionFile,
   taskSessionPath,
@@ -130,7 +131,7 @@ export function createApi(): Hono {
 
   // --- Memory ---
 
-  app.get("/api/memory/:repo", async (c) => {
+  app.get("/api/memory/status/:repo", async (c) => {
     const name = c.req.param("repo");
     const repo = getRepo(name);
     if (!repo) return c.json({ error: "unknown repo" }, 404);
@@ -155,6 +156,41 @@ export function createApi(): Hono {
       fileCount, totalBytes,
       zones: state.zones.map((z) => ({ name: z.name, path: z.path, summary: z.summary })),
     });
+  });
+
+  app.get("/api/memory/runs", async (c) => {
+    const repo = c.req.query("repo");
+    const limit = parseLimit(c.req.query("limit"));
+    const includeTests = c.req.query("includeTests") !== "false";
+    const kind = oneOf(c.req.query("kind"), MEMORY_RUN_KINDS);
+
+    const runs = await queries.listMemoryRuns({ repo, limit, includeTests, kind });
+    return c.json(runs);
+  });
+
+  app.get("/api/memory/runs/:id", async (c) => {
+    const run = await queries.getMemoryRun(c.req.param("id"));
+    if (!run) return notFound(c);
+    return c.json(run);
+  });
+
+  app.get("/api/memory/runs/:id/session", async (c) => {
+    const run = await queries.getMemoryRun(c.req.param("id"));
+    if (!run) return notFound(c);
+    if (!run.sessionPath) return c.json({ entries: [] });
+
+    try {
+      const entries = await readSessionFile(run.sessionPath);
+      return c.json({ entries });
+    } catch (err) {
+      log.warn(`Failed to read session ${run.sessionPath}`, err);
+      return c.json({ entries: [] });
+    }
+  });
+
+  app.delete("/api/memory/tests", async (c) => {
+    const result = await cleanupTestMemoryRuns();
+    return c.json(result);
   });
 
   // --- PRs ---
@@ -225,6 +261,13 @@ function notFound(c: Context) {
 /** Return `value` if it's one of the allowed literals, else `undefined`. */
 function oneOf<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {
   return value && (allowed as readonly string[]).includes(value) ? (value as T) : undefined;
+}
+
+function parseLimit(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
 }
 
 /**
