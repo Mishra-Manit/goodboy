@@ -46,6 +46,20 @@ export const STAGE_STATUSES = ["running", "complete", "failed", "skipped"] as co
 
 export type StageStatus = (typeof STAGE_STATUSES)[number];
 
+// --- Memory runs ---
+
+export const MEMORY_RUN_KINDS = ["cold", "warm", "skip", "noop"] as const;
+
+export type MemoryRunKind = (typeof MEMORY_RUN_KINDS)[number];
+
+export const MEMORY_RUN_STATUSES = ["running", "complete", "failed"] as const;
+
+export type MemoryRunStatus = (typeof MEMORY_RUN_STATUSES)[number];
+
+export const MEMORY_RUN_SOURCES = ["task", "manual_test"] as const;
+
+export type MemoryRunSource = (typeof MEMORY_RUN_SOURCES)[number];
+
 // --- SSE events ---
 
 import type { FileEntry } from "./session.js";

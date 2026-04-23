@@ -15,7 +15,7 @@ export interface TaskKindConfig {
 export const TASK_KIND_CONFIG: Record<TaskKind, TaskKindConfig> = {
   coding_task: {
     label: "coding task",
-    stages: ["planner", "implementer", "reviewer"],
+    stages: ["memory", "planner", "implementer", "reviewer"],
     artifacts: [
       { key: "plan.md", label: "plan" },
       { key: "implementation-summary.md", label: "summary" },
@@ -24,12 +24,12 @@ export const TASK_KIND_CONFIG: Record<TaskKind, TaskKindConfig> = {
   },
   codebase_question: {
     label: "question",
-    stages: ["answering"],
+    stages: ["memory", "answering"],
     artifacts: [{ key: "answer.md", label: "answer" }],
   },
   pr_review: {
     label: "PR review",
-    stages: ["pr_reviewing"],
+    stages: ["memory", "pr_reviewing"],
     artifacts: [{ key: "pr-review.md", label: "review" }],
   },
 };

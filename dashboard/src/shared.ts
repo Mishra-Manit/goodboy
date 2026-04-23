@@ -5,6 +5,9 @@ export {
   TASK_STATUSES,
   STAGE_STATUSES,
   STAGE_NAMES,
+  MEMORY_RUN_KINDS,
+  MEMORY_RUN_STATUSES,
+  MEMORY_RUN_SOURCES,
 } from "@shared/types.js";
 
 export type {
@@ -12,6 +15,9 @@ export type {
   TaskStatus,
   StageStatus,
   StageName,
+  MemoryRunKind,
+  MemoryRunStatus,
+  MemoryRunSource,
   SSEEvent,
 } from "@shared/types.js";
 

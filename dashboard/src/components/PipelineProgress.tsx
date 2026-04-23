@@ -4,7 +4,7 @@ import { cn } from "@dashboard/lib/utils";
 import { formatDuration } from "@dashboard/lib/format";
 import { TASK_KIND_CONFIG, type TaskKind, type TaskStage } from "@dashboard/lib/api";
 
-type DisplayStatus = "pending" | "active" | "complete" | "failed";
+type DisplayStatus = "pending" | "active" | "complete" | "failed" | "skipped";
 
 interface PipelineProgressProps {
   stages: TaskStage[];
@@ -18,6 +18,7 @@ const DOT: Record<DisplayStatus, string> = {
   active: "bg-accent shadow-[0_0_8px_rgba(212,160,23,0.5)] animate-pulse-soft",
   complete: "bg-ok",
   failed: "bg-fail",
+  skipped: "bg-text-void/50",
 };
 
 const LABEL: Record<DisplayStatus, string> = {
@@ -25,6 +26,7 @@ const LABEL: Record<DisplayStatus, string> = {
   active: "text-accent",
   complete: "text-text-dim",
   failed: "text-fail",
+  skipped: "text-text-void italic",
 };
 
 export function PipelineProgress({ stages, kind, className, mini = false }: PipelineProgressProps) {
