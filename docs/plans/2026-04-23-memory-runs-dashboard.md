@@ -19,7 +19,7 @@
 7. **Visibility rule for `memory_runs`:** `WHERE instance = :current OR instance LIKE 'TEST-%'`.
 8. **Avoid route conflicts.** The existing per-repo memory status endpoint moves from `/api/memory/:repo` to `/api/memory/status/:repo` before adding `/api/memory/runs...` routes.
 9. **Preserve referential integrity for real tasks.** `memory_runs` uses `originTaskId uuid references tasks(id)` for real task-backed runs, and `externalLabel text` for manual test runs.
-10. **Memory page should show all visible runs.** It groups rows by repo from `memory_runs`, then overlays registered-repo status when the repo still exists in `REGISTERED_REPOS`.
+10. **Memory page should show all visible runs.** No product-level cap is applied on the `/memory` page query; if a safety cap is ever added later, it should come with explicit pagination or load-more UX. The page groups rows by repo from `memory_runs`, then overlays registered-repo status when the repo still exists in `REGISTERED_REPOS`.
 11. **Test cleanup is end-to-end.** Clearing test runs removes DB rows, `memory-TEST-*` directories, and transcript artifact directories referenced by deleted rows.
 12. **Shared enums stay shared.** `MEMORY_RUN_*` enums live in `src/shared/types.ts` and are re-exported through `dashboard/src/shared.ts`; the dashboard does not hand-duplicate them.
 13. **Add indexes up front.** `memory_runs` is an operational log table and should be indexed for repo + recency queries.
@@ -325,7 +325,7 @@ export async function listMemoryRuns(opts: {
   kind?: MemoryRunKind;
   includeTests?: boolean;
 } = {}): Promise<MemoryRun[]> {
-  const { repo, limit = 100, kind, includeTests = true } = opts;
+  const { repo, limit, kind, includeTests = true } = opts;
   const visibility = includeTests
     ? memoryRunsVisible()
     : eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID);
@@ -337,10 +337,11 @@ export async function listMemoryRuns(opts: {
   ];
 
   const db = getDb();
-  return db.select().from(schema.memoryRuns)
+  const query = db.select().from(schema.memoryRuns)
     .where(and(...filters))
-    .orderBy(desc(schema.memoryRuns.startedAt))
-    .limit(limit);
+    .orderBy(desc(schema.memoryRuns.startedAt));
+
+  return limit === undefined ? query : query.limit(limit);
 }
 
 export async function getMemoryRun(id: string): Promise<MemoryRun | undefined> {
@@ -545,7 +546,8 @@ app.get("/api/memory/runs", async (c) => {
   const repo = c.req.query("repo");
   const kindParam = c.req.query("kind");
   const includeTests = c.req.query("includeTests") !== "false";
-  const limit = Number(c.req.query("limit") ?? 100);
+  const limitParam = c.req.query("limit");
+  const limit = limitParam ? Number(limitParam) : undefined;
 
   const kind = MEMORY_RUN_KINDS.includes(kindParam as MemoryRunKind)
     ? (kindParam as MemoryRunKind)
@@ -584,7 +586,7 @@ app.delete("/api/memory/tests", async (c) => {
 
 ```bash
 curl "http://localhost:${PORT:-3333}/api/memory/status/goodboy" | jq
-curl "http://localhost:${PORT:-3333}/api/memory/runs?limit=50" | jq
+curl "http://localhost:${PORT:-3333}/api/memory/runs" | jq
 curl "http://localhost:${PORT:-3333}/api/memory/runs/<id>/session" | jq
 curl -X DELETE "http://localhost:${PORT:-3333}/api/memory/tests" | jq
 ```
@@ -740,7 +742,7 @@ The page should show **all visible runs**, not just runs for currently registere
 
 Fetch:
 1. `fetchRepos()` for the registered-repo list
-2. `fetchMemoryRuns({ includeTests: !hideTests, kind, limit: 200 })` for the visible run log
+2. `fetchMemoryRuns({ includeTests: !hideTests, kind })` for the visible run log
 3. `fetchMemoryStatus(repo)` only for repos that are still registered
 
 Group `memory_runs` by repo and render the union of:
@@ -788,7 +790,7 @@ In `dashboard/src/components/Layout.tsx` add:
 
 **Verify:**
 - `npm run build`
-- `/memory` shows grouped runs across repos
+- `/memory` shows all visible runs grouped across repos
 - registered repos with no runs still render a section
 - unregistered repos with historical runs still show their run history
 - hide-tests toggle works
@@ -845,12 +847,14 @@ Expected result:
 
 ## Task 14: Manual test scripts pass explicit source metadata
 
+**Note:** `pr_review` remains stubbed in this plan. Keep the future `runMemory()` hook comment aligned with the new `source: "task"` contract, but do not implement PR review behavior yet.
+
 **Files:**
 - Modify: `tests/scripts/run-memory-cold.ts`
 - Modify: `tests/scripts/run-memory-warm.ts`
 - Modify: `src/pipelines/coding/pipeline.ts`
 - Modify: `src/pipelines/question/pipeline.ts`
-- Modify: `src/pipelines/pr-review/pipeline.ts` (comment or future hook only)
+- Modify: `src/pipelines/pr-review/pipeline.ts` (comment or future hook only; pipeline remains stubbed)
 
 **Implementation:**
 
@@ -916,7 +920,7 @@ This removes implicit UUID guessing and makes the persistence rules explicit.
 - [ ] Cold / warm / skip / noop each create a visible `memory_runs` row
 - [ ] `/api/memory/status/:repo` replaces `/api/memory/:repo`
 - [ ] `/api/memory/runs` lists visible runs without route conflicts
-- [ ] `/memory` page shows all visible runs grouped by repo, including unregistered historical repos
+- [ ] `/memory` page shows all visible runs grouped by repo, including unregistered historical repos, with no product-level cap
 - [ ] Dashboard clear-tests action removes DB rows and on-disk TEST artifacts end-to-end
 - [ ] `npm run test:memory:clean` reuses the same cleanup helper as the API
 - [ ] `npm run build` clean
