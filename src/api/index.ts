@@ -13,7 +13,7 @@ import path from "node:path";
 import { subscribe } from "../shared/events.js";
 import * as queries from "../db/repository.js";
 import { listRepos, buildPrUrl, getRepo } from "../shared/repos.js";
-import { memoryStatus, currentHeadSha } from "../core/memory.js";
+import { memoryStatus, currentHeadSha } from "../core/memory/index.js";
 import { config } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
 import { TASK_STATUSES, TASK_KINDS } from "../shared/types.js";

@@ -26,7 +26,7 @@ process.env["INSTANCE_ID"] = instanceId;
 
 const { getRepo } = await import("../../src/shared/repos.js");
 const { runMemory } = await import("../../src/pipelines/memory/pipeline.js");
-const { memoryDir, memoryStatePath, zonesSidecarPath } = await import("../../src/core/memory.js");
+const { memoryDir, memoryStatePath, zonesSidecarPath } = await import("../../src/core/memory/index.js");
 
 const repo = getRepo(repoName);
 if (!repo) {

@@ -16,7 +16,7 @@ import type { SendTelegram } from "./core/stage.js";
 import { loadEnv } from "./shared/config.js";
 import { createLogger } from "./shared/logger.js";
 import { initObservability, shutdownObservability, emitStartupEvent } from "./observability/index.js";
-import { findOrphanedMemoryDirs } from "./core/memory.js";
+import { findOrphanedMemoryDirs } from "./core/memory/index.js";
 import { listRepos, listRepoNames } from "./shared/repos.js";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";

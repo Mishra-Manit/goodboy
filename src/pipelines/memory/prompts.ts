@@ -4,7 +4,7 @@
  * Both share the same citation discipline and section contract.
  */
 
-import { ROOT_MEMORY_FILES, ZONE_MEMORY_FILES, ROOT_DIR, type Zone } from "../../core/memory.js";
+import { ROOT_MEMORY_FILES, ZONE_MEMORY_FILES, ROOT_DIR, type Zone } from "../../core/memory/index.js";
 
 const CITATIONS = `
 CITATIONS ARE MANDATORY. Every concrete claim must cite a source file:

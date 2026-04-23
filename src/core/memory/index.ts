@@ -13,8 +13,8 @@ import { readFile, writeFile, mkdir, readdir, stat, rm, rename } from "node:fs/p
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { createLogger } from "../shared/logger.js";
-import { config, loadEnv } from "../shared/config.js";
+import { createLogger } from "../../shared/logger.js";
+import { config, loadEnv } from "../../shared/config.js";
 
 const exec = promisify(execFile);
 const log = createLogger("memory");

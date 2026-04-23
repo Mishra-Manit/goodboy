@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@src/core/memory.js", () => ({
+vi.mock("@src/core/memory/index.js", () => ({
   ROOT_DIR: "_root",
   ROOT_MEMORY_FILES: [],
   ZONE_MEMORY_FILES: [],

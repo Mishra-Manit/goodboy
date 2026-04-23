@@ -6,7 +6,7 @@
 import {
   readState, readAllMemory,
   ROOT_MEMORY_FILES, ZONE_MEMORY_FILES, ROOT_DIR,
-} from "../core/memory.js";
+} from "../core/memory/index.js";
 
 export const SHARED_RULES = `
 CRITICAL RULES:

@@ -24,7 +24,7 @@ process.env["INSTANCE_ID"] = instanceId;
 // Dynamic imports so the env override lands first.
 const { getRepo } = await import("../../src/shared/repos.js");
 const { runMemory } = await import("../../src/pipelines/memory/pipeline.js");
-const { memoryDir, memoryStatePath } = await import("../../src/core/memory.js");
+const { memoryDir, memoryStatePath } = await import("../../src/core/memory/index.js");
 
 const repo = getRepo(repoName);
 if (!repo) {

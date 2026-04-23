@@ -33,7 +33,7 @@ import {
   bucketPathsByZone, findUnzonedSubtrees,
   ROOT_DIR,
   type Zone, type MemoryState,
-} from "../../core/memory.js";
+} from "../../core/memory/index.js";
 import {
   coldSystemPrompt, coldInitialPrompt,
   warmSystemPrompt, warmInitialPrompt,
