@@ -7,7 +7,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { createLogger } from "../../shared/logger.js";
 import { z } from "zod";
@@ -20,11 +20,17 @@ const log = createLogger("worktree");
 
 const BRANCH_SLUG_MAX_LEN = 50;
 const BRANCH_SLUG_RETRIES = 3;
+const ROOT_AGENTS_PATH = "AGENTS.md";
 const slugSchema = z.object({
   slug: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+){1,5}$/, "must be 2-6 lowercase kebab-case words"),
 });
 
 // --- Public API ---
+
+export interface CodingWorktree {
+  path: string;
+  agentsSuggestion?: string;
+}
 
 /** Fetch origin and hard-reset main so new worktrees branch from up-to-date code. */
 export async function syncRepo(repoPath: string): Promise<void> {
@@ -35,7 +41,7 @@ export async function syncRepo(repoPath: string): Promise<void> {
 }
 
 /** Create a fresh worktree on a new branch for a coding task. Wipes any existing worktree/branch first. */
-export async function createWorktree(repoPath: string, branch: string, taskId: string): Promise<string> {
+export async function createWorktree(repoPath: string, branch: string, taskId: string): Promise<CodingWorktree> {
   const dir = path.join(repoPath, "..", `goodboy-worktree-${taskId.slice(0, 8)}`);
 
   // Start clean so retries can't inherit partial commits from a failed run.
@@ -45,7 +51,8 @@ export async function createWorktree(repoPath: string, branch: string, taskId: s
   await exec("git", ["worktree", "add", "-b", branch, dir], { cwd: repoPath });
   log.info(`Created worktree at ${dir} on branch ${branch}`);
   await stageSubagentAssets(dir);
-  return dir;
+  const agentsSuggestion = await hideAgentsFileInWorktree(repoPath, dir);
+  return { path: dir, agentsSuggestion };
 }
 
 /** Create a worktree checked out to a PR's head ref. */
@@ -125,6 +132,27 @@ async function forceDeleteBranch(repoPath: string, branch: string): Promise<void
     await exec("git", ["branch", "-D", branch], { cwd: repoPath });
     log.info(`Deleted existing branch ${branch}`);
   } catch { /* may not exist */ }
+}
+
+async function hideAgentsFileInWorktree(repoPath: string, worktreePath: string): Promise<string | undefined> {
+  const sourcePath = path.join(repoPath, ROOT_AGENTS_PATH);
+  let suggestion: string | undefined;
+
+  try {
+    suggestion = (await readFile(sourcePath, "utf8")).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+
+  try {
+    await exec("git", ["update-index", "--skip-worktree", "--", ROOT_AGENTS_PATH], { cwd: worktreePath });
+    await rm(path.join(worktreePath, ROOT_AGENTS_PATH), { force: true });
+    log.info(`Hidden ${ROOT_AGENTS_PATH} in coding worktree at ${worktreePath}`);
+  } catch (err) {
+    log.warn(`Failed to hide ${ROOT_AGENTS_PATH} in coding worktree at ${worktreePath}`, err);
+  }
+
+  return suggestion;
 }
 
 function isMissingWorktreeError(err: unknown): boolean {

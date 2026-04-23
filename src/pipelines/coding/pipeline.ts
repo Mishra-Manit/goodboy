@@ -112,15 +112,18 @@ async function runCodingPipelineInner(
 
   const branch = await generateBranchName(taskId, task.description);
   let worktreePath: string;
+  let agentsSuggestion: string | undefined;
   try {
-    worktreePath = await createWorktree(repo.localPath, branch, taskId);
+    const worktree = await createWorktree(repo.localPath, branch, taskId);
+    worktreePath = worktree.path;
+    agentsSuggestion = worktree.agentsSuggestion;
   } catch (err) {
     await failTask(taskId, `Failed to create worktree: ${err}`, sendTelegram, chatId);
     return;
   }
 
   await queries.updateTask(taskId, { branch, worktreePath });
-  const worktreeEnv: WorktreeEnv = { envNotes: repo.envNotes };
+  const worktreeEnv: WorktreeEnv = { envNotes: repo.envNotes, agentsSuggestion };
 
   try {
     for (const stage of STAGE_ORDER) {
