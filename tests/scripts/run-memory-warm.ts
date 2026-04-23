@@ -1,19 +1,21 @@
 /**
  * Manual warm-patch test driver for the memory pipeline.
- * Usage: npx tsx tests/scripts/run-memory-warm.ts <test-label> <repo-name> <TEST-instance-id>
+ * Usage: npx tsx tests/scripts/run-memory-warm.ts <repo-name> <TEST-instance-id>
  *
  * Reuses the memory directory created by run-memory-cold.ts. The instance ID
- * must be the TEST-prefixed value printed by the cold runner.
+ * must be the TEST-prefixed value printed by the cold runner. The task ID
+ * derives from the instance ID so every invocation writes to a fresh session
+ * path (no pi session resume across runs).
  */
 
 import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 
-const [, , testLabel, repoName, instanceId] = process.argv;
-if (!testLabel || !repoName || !instanceId) {
+const [, , repoName, instanceId] = process.argv;
+if (!repoName || !instanceId) {
   console.error(
-    "Usage: npx tsx tests/scripts/run-memory-warm.ts <test-label> <repo-name> <TEST-instance-id>",
+    "Usage: npx tsx tests/scripts/run-memory-warm.ts <repo-name> <TEST-instance-id>",
   );
   process.exit(1);
 }
@@ -22,6 +24,7 @@ if (!instanceId.startsWith("TEST-")) {
   process.exit(1);
 }
 
+const taskId = `${instanceId}-warm`;
 process.env["INSTANCE_ID"] = instanceId;
 
 const { getRepo } = await import("../../src/shared/repos.js");
@@ -45,7 +48,7 @@ try {
   stateBefore = await readFile(statePath, "utf8");
 } catch {
   console.error(
-    `No .state.json found at ${statePath}.\nRun the cold script first:\n  npm run test:memory:cold -- ${testLabel} ${repoName}`,
+    `No .state.json found at ${statePath}.\nRun the cold script first:\n  npm run test:memory:cold -- ${repoName}`,
   );
   process.exit(1);
 }
@@ -58,9 +61,9 @@ const zonesHashBefore = await readFile(zonesPath, "utf8")
 const parsedBefore = JSON.parse(stateBefore);
 
 console.log(`\n=== MEMORY WARM-PATCH TEST ===`);
-console.log(`label      : ${testLabel}`);
 console.log(`repo       : ${repoName}`);
 console.log(`instanceId : ${instanceId}`);
+console.log(`taskId     : ${taskId}`);
 console.log(`memoryDir  : ${memoryDir(repoName)}`);
 console.log(`repoPath   : ${repo.localPath}`);
 console.log(`sha-before : ${parsedBefore.lastIndexedSha?.slice(0, 12)}`);
@@ -69,7 +72,7 @@ console.log(`\nRunning warm memory stage...\n`);
 const noopTelegram = async () => {};
 try {
   await runMemory({
-    taskId: `${testLabel}-warm`,
+    taskId,
     repo: repoName,
     repoPath: repo.localPath,
     source: "manual_test",

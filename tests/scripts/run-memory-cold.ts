@@ -1,24 +1,26 @@
 /**
  * Manual cold-start test driver for the memory pipeline.
- * Usage: npx tsx tests/scripts/run-memory-cold.ts <test-label> <repo-name>
+ * Usage: npx tsx tests/scripts/run-memory-cold.ts <repo-name>
  *
  * Generates a TEST-prefixed instance ID so artifacts are clearly isolated
- * from production memory. Prints the instance ID at the end for use with
- * run-memory-warm.ts.
+ * from production memory. The task ID derives from the instance ID, so
+ * every invocation gets a fresh session path (no pi session resume across
+ * runs). Prints the instance ID at the end for use with run-memory-warm.ts.
  */
 
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
-const [, , testLabel, repoName] = process.argv;
-if (!testLabel || !repoName) {
-  console.error("Usage: npx tsx tests/scripts/run-memory-cold.ts <test-label> <repo-name>");
+const [, , repoName] = process.argv;
+if (!repoName) {
+  console.error("Usage: npx tsx tests/scripts/run-memory-cold.ts <repo-name>");
   process.exit(1);
 }
 
 // Set BEFORE any loadEnv() call so the generated ID is picked up everywhere.
 const instanceId = `TEST-${randomBytes(4).toString("hex")}`;
+const taskId = `${instanceId}-cold`;
 process.env["INSTANCE_ID"] = instanceId;
 
 // Dynamic imports so the env override lands first.
@@ -40,16 +42,16 @@ if (!repo) {
 const noopTelegram = async () => {};
 
 console.log(`\n=== MEMORY COLD-START TEST ===`);
-console.log(`label      : ${testLabel}`);
 console.log(`repo       : ${repoName}`);
 console.log(`instanceId : ${instanceId}`);
+console.log(`taskId     : ${taskId}`);
 console.log(`memoryDir  : ${memoryDir(repoName)}`);
 console.log(`repoPath   : ${repo.localPath}`);
 console.log(`\nRunning cold memory stage...\n`);
 
 try {
   await runMemory({
-    taskId: `${testLabel}-cold`,
+    taskId,
     repo: repoName,
     repoPath: repo.localPath,
     source: "manual_test",
@@ -71,4 +73,4 @@ try {
 }
 
 console.log(`\nTo test warm, run:`);
-console.log(`  npm run test:memory:warm -- ${testLabel} ${repoName} ${instanceId}\n`);
+console.log(`  npm run test:memory:warm -- ${repoName} ${instanceId}\n`);
