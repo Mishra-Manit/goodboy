@@ -18,6 +18,7 @@ import { LogViewer } from "@dashboard/components/log-viewer";
 import { dedupeById } from "@dashboard/components/log-viewer/helpers";
 import { formatDuration, timeAgo } from "@dashboard/lib/format";
 import { KIND_TONE, SOURCE_LABEL } from "@dashboard/lib/memory-ui";
+import { isTestInstance } from "@dashboard/shared";
 import { cn, shortId } from "@dashboard/lib/utils";
 
 export function MemoryDetail() {
@@ -92,7 +93,7 @@ interface MemoryRunHeaderProps {
 }
 
 function MemoryRunHeader({ run, now }: MemoryRunHeaderProps) {
-  const isTest = run.instance.startsWith("TEST-");
+  const isTest = isTestInstance(run.instance);
   const duration = run.completedAt ? formatDuration(run.startedAt, run.completedAt) : null;
   const subtitle = run.externalLabel ?? (run.originTaskId ? `task ${shortId(run.originTaskId)}` : null);
 

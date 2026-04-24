@@ -11,16 +11,17 @@
 import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { TEST_INSTANCE_PREFIX, isTestInstance } from "../../src/shared/test-instance.js";
 
 const [, , repoName, instanceId] = process.argv;
 if (!repoName || !instanceId) {
   console.error(
-    "Usage: npx tsx tests/scripts/run-memory-warm.ts <repo-name> <TEST-instance-id>",
+    `Usage: npx tsx tests/scripts/run-memory-warm.ts <repo-name> <${TEST_INSTANCE_PREFIX}instance-id>`,
   );
   process.exit(1);
 }
-if (!instanceId.startsWith("TEST-")) {
-  console.error(`instance-id must start with TEST-. Got: ${instanceId}`);
+if (!isTestInstance(instanceId)) {
+  console.error(`instance-id must start with ${TEST_INSTANCE_PREFIX}. Got: ${instanceId}`);
   process.exit(1);
 }
 

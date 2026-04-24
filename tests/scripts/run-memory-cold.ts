@@ -11,6 +11,7 @@
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { TEST_INSTANCE_PREFIX } from "../../src/shared/test-instance.js";
 
 const [, , repoName] = process.argv;
 if (!repoName) {
@@ -19,7 +20,7 @@ if (!repoName) {
 }
 
 // Set BEFORE any loadEnv() call so the generated ID is picked up everywhere.
-const instanceId = `TEST-${randomBytes(4).toString("hex")}`;
+const instanceId = `${TEST_INSTANCE_PREFIX}${randomBytes(4).toString("hex")}`;
 const taskId = `${instanceId}-cold`;
 process.env["INSTANCE_ID"] = instanceId;
 

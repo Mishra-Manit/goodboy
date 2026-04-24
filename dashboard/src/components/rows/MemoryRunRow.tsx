@@ -5,6 +5,7 @@ import { useNow } from "@dashboard/hooks/use-now";
 import { type MemoryRun } from "@dashboard/lib/api";
 import { formatDuration, timeAgo } from "@dashboard/lib/format";
 import { KIND_TONE } from "@dashboard/lib/memory-ui";
+import { isTestInstance } from "@dashboard/shared";
 import { cn, shortId } from "@dashboard/lib/utils";
 
 interface MemoryRunRowProps {
@@ -16,7 +17,7 @@ interface MemoryRunRowProps {
 
 export function MemoryRunRow({ run, onClick, showRepo }: MemoryRunRowProps) {
   const now = useNow();
-  const isTest = run.instance.startsWith("TEST-");
+  const isTest = isTestInstance(run.instance);
   const duration = run.completedAt ? formatDuration(run.startedAt, run.completedAt) : null;
   const subtitle = run.externalLabel ?? (run.originTaskId ? `task ${shortId(run.originTaskId)}` : null);
 

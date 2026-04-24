@@ -8,11 +8,12 @@ import { readdir, rm } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
 import { config } from "../../shared/config.js";
 import * as queries from "../../db/repository.js";
+import { TEST_INSTANCE_PREFIX } from "../../shared/test-instance.js";
 
 const log = createLogger("memory-cleanup");
 
-const TEST_MEMORY_DIR_PREFIX = "memory-TEST-";
-const TEST_TRANSCRIPT_DIR_RE = /^TEST-[0-9a-f]+-(cold|warm)$/;
+const TEST_MEMORY_DIR_PREFIX = `memory-${TEST_INSTANCE_PREFIX}`;
+const TEST_TRANSCRIPT_DIR_RE = new RegExp(`^${TEST_INSTANCE_PREFIX}[0-9a-f]+-(cold|warm)$`);
 
 // --- Public API ---
 

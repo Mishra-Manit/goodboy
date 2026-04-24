@@ -24,6 +24,8 @@ export type {
 export { TASK_KIND_CONFIG } from "@shared/task-kinds.js";
 export type { TaskKindConfig } from "@shared/task-kinds.js";
 
+export { TEST_INSTANCE_PREFIX, isTestInstance } from "@shared/test-instance.js";
+
 export type {
   FileEntry,
   SessionEntry,

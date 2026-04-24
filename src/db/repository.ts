@@ -17,6 +17,7 @@ import type {
   MemoryRunSource,
 } from "../shared/types.js";
 import { loadEnv } from "../shared/config.js";
+import { TEST_INSTANCE_PREFIX } from "../shared/test-instance.js";
 
 export type { Task, TaskStage, PrSession, PrSessionRun, MemoryRun };
 
@@ -271,7 +272,7 @@ export async function getRunsForPrSession(prSessionId: string): Promise<PrSessio
 function memoryRunsVisible(includeInactive = false) {
   const instanceVisible = or(
     eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID),
-    like(schema.memoryRuns.instance, "TEST-%"),
+    like(schema.memoryRuns.instance, `${TEST_INSTANCE_PREFIX}%`),
   );
 
   return includeInactive
@@ -378,7 +379,7 @@ export async function deleteTestMemoryRuns(): Promise<Array<Pick<MemoryRun, "id"
   const db = getDb();
   return db
     .delete(schema.memoryRuns)
-    .where(like(schema.memoryRuns.instance, "TEST-%"))
+    .where(like(schema.memoryRuns.instance, `${TEST_INSTANCE_PREFIX}%`))
     .returning({
       id: schema.memoryRuns.id,
       sessionPath: schema.memoryRuns.sessionPath,
