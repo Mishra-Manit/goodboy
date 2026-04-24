@@ -29,6 +29,7 @@ import {
 } from "./prompts.js";
 import { startPrSession } from "../pr-session/session.js";
 import { runMemory } from "../memory/pipeline.js";
+import { memoryBlock } from "../../shared/agent-prompts.js";
 
 const log = createLogger("coding");
 
@@ -115,6 +116,10 @@ async function runCodingPipelineInner(
     chatId,
   });
 
+  // Render memory once for the whole task. All three coding stages read the
+  // same snapshot, so no stage needs to re-read files from disk.
+  const memory = await memoryBlock(task.repo);
+
   const branch = await generateBranchName(taskId, task.description);
   let worktreePath: string;
   let agentsSuggestion: string | undefined;
@@ -132,7 +137,7 @@ async function runCodingPipelineInner(
 
   try {
     for (const stage of STAGE_ORDER) {
-      await runCodingStage(stage, { taskId, task, worktreePath, artifactsDir, worktreeEnv, sendTelegram });
+      await runCodingStage(stage, { taskId, task, worktreePath, artifactsDir, worktreeEnv, memory, sendTelegram });
       await requireArtifact(artifactsDir, STAGES[stage].artifact, STAGES[stage].artifactError);
     }
 
@@ -170,14 +175,16 @@ interface StageContext {
   worktreePath: string;
   artifactsDir: string;
   worktreeEnv: WorktreeEnv;
+  /** Pre-rendered memory block; shared across all coding stages. */
+  memory: string;
   sendTelegram: SendTelegram;
 }
 
 async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<void> {
   const absArtifacts = path.resolve(ctx.artifactsDir);
   const spec = STAGES[stage];
-  const { systemPrompt, initialPrompt } = await codingPrompts(
-    stage, ctx.task.repo, absArtifacts, ctx.worktreeEnv, ctx.task.description,
+  const { systemPrompt, initialPrompt } = codingPrompts(
+    stage, ctx.memory, absArtifacts, ctx.worktreeEnv, ctx.task.description,
   );
 
   // Only the planner delegates to subagents. Other stages stay on

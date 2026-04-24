@@ -22,6 +22,7 @@ import {
 import { withPipelineSpan } from "../../observability/index.js";
 import { questionSystemPrompt, questionInitialPrompt } from "./prompts.js";
 import { runMemory } from "../memory/pipeline.js";
+import { memoryBlock } from "../../shared/agent-prompts.js";
 
 const log = createLogger("question");
 
@@ -80,6 +81,7 @@ async function runQuestionInner(
     chatId,
   });
 
+  const memory = await memoryBlock(task.repo);
   const absArtifacts = path.resolve(artifactsDir);
 
   try {
@@ -87,7 +89,7 @@ async function runQuestionInner(
       taskId,
       stage: "answering",
       cwd: repo.localPath,
-      systemPrompt: await questionSystemPrompt(task.repo, task.description, absArtifacts),
+      systemPrompt: questionSystemPrompt(memory, task.description, absArtifacts),
       initialPrompt: questionInitialPrompt(task.description, absArtifacts),
       model: loadEnv().PI_MODEL,
       sendTelegram,

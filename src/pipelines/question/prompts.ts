@@ -1,9 +1,12 @@
-/** System prompt for the codebase-question pipeline. Enforces read-only behavior. */
+/**
+ * System prompt for the codebase-question pipeline. Enforces read-only
+ * behavior. Pure string composition -- the caller pre-renders the memory
+ * block and passes it in.
+ */
 
-import { SHARED_RULES, memoryBlock } from "../../shared/agent-prompts.js";
+import { SHARED_RULES } from "../../shared/agent-prompts.js";
 
-export async function questionSystemPrompt(repo: string, question: string, artifactsDir: string): Promise<string> {
-  const memory = await memoryBlock(repo);
+export function questionSystemPrompt(memory: string, question: string, artifactsDir: string): string {
   return `${memory}You are answering a question about a codebase. You have READ-ONLY access.
 ${SHARED_RULES}
 READ-ONLY RULES:
