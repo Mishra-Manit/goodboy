@@ -384,6 +384,21 @@ export async function assertMemoryWorktreeClean(
   }
 }
 
+/**
+ * Zone directories that currently exist on disk for `repo`. Excludes the
+ * `_root` directory, the nested `checkout` worktree, and any dotfile. Used
+ * by the warm validator to prove the agent didn't create a new zone dir.
+ */
+export async function listZoneDirs(repo: string): Promise<string[]> {
+  try {
+    const entries = await readdir(memoryDir(repo), { withFileTypes: true });
+    return entries
+      .filter((e) => e.isDirectory() && e.name !== ROOT_DIR && e.name !== "checkout" && !e.name.startsWith("."))
+      .map((e) => e.name)
+      .sort();
+  } catch { return []; }
+}
+
 /** Hard-reset the memory worktree. Called after every run, success or not. */
 export async function resetMemoryWorktree(repo: string): Promise<void> {
   const wt = memoryWorktreeDir(repo);

@@ -20,7 +20,7 @@
  * for skip/noop (the two paths that don't spawn a pi session).
  */
 
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { trace, type Span } from "@opentelemetry/api";
 import { createLogger } from "../../shared/logger.js";
 import { loadEnv } from "../../shared/config.js";
@@ -35,15 +35,15 @@ import { Goodboy } from "../../observability/attributes.js";
 import {
   memoryDir,
   tryAcquireLock, releaseLock,
-  ensureMemoryWorktree, assertMemoryWorktreeClean, resetMemoryWorktree,
-  readState, writeState, readZonesSidecar,
+  ensureMemoryWorktree, resetMemoryWorktree,
+  readState, writeState,
   currentHeadSha, gitDiffFiles,
   buildFileManifest, readAllMemory,
-  memoryFilesValid, stateFileHash,
+  stateFileHash, listZoneDirs,
   bucketPathsByZone, findUnzonedSubtrees,
-  ROOT_DIR,
   type Zone, type MemoryState,
 } from "../../core/memory/index.js";
+import { validateColdOutput, validateWarmOutput } from "../../core/memory/validate.js";
 import { startMemoryRun, type MemoryRunTracker } from "../../core/memory/run-tracker.js";
 import {
   coldSystemPrompt, coldInitialPrompt,
@@ -174,15 +174,9 @@ async function runCold(
       timeoutMs: COLD_TIMEOUT_MS,
       sessionEventMeta: tracker.runId ? { memoryRunId: tracker.runId } : undefined,
       postValidate: async () => {
-        const zones = await readZonesSidecar(opts.repo);
-        if (zones === null) return { valid: false, reason: ".zones.json missing or invalid" };
-        const fileCheck = memoryFilesValid(opts.repo, zones);
-        if (!fileCheck.valid) return { valid: false, reason: fileCheck.reason };
-        const clean = await assertMemoryWorktreeClean(opts.repo);
-        if (!clean.clean) {
-          return { valid: false, reason: `memory worktree dirty after cold: ${clean.dirty.slice(0, 5).join(", ")}` };
-        }
-        validatedZones = zones;
+        const v = await validateColdOutput(opts.repo);
+        if (!v.valid) return { valid: false, reason: v.reason };
+        validatedZones = v.zones;
         return { valid: true };
       },
     });
@@ -239,24 +233,9 @@ async function runWarm(
       envOverrides: cap.envOverrides,
       timeoutMs: WARM_TIMEOUT_MS,
       sessionEventMeta: tracker.runId ? { memoryRunId: tracker.runId } : undefined,
-      postValidate: async () => {
-        const stateHashAfter = await stateFileHash(opts.repo);
-        if (stateHashBefore !== stateHashAfter) {
-          return { valid: false, reason: "warm illegally modified .state.json" };
-        }
-        const zoneDirsAfter = await listZoneDirs(opts.repo);
-        const added = zoneDirsAfter.filter((d) => !zoneDirsBefore.includes(d));
-        if (added.length > 0) {
-          return { valid: false, reason: `warm created unauthorized zones: ${added.join(", ")}` };
-        }
-        const fileCheck = memoryFilesValid(opts.repo, state.zones);
-        if (!fileCheck.valid) return { valid: false, reason: fileCheck.reason };
-        const clean = await assertMemoryWorktreeClean(opts.repo);
-        if (!clean.clean) {
-          return { valid: false, reason: `memory worktree dirty after warm: ${clean.dirty.slice(0, 5).join(", ")}` };
-        }
-        return { valid: true };
-      },
+      postValidate: () => validateWarmOutput(
+        opts.repo, state.zones, stateHashBefore, zoneDirsBefore,
+      ),
     });
   } catch (err) {
     await tracker.fail(err);
@@ -273,16 +252,6 @@ async function runWarm(
 }
 
 // --- Helpers ---
-
-async function listZoneDirs(repo: string): Promise<string[]> {
-  try {
-    const entries = await readdir(memoryDir(repo), { withFileTypes: true });
-    return entries
-      .filter((e) => e.isDirectory() && e.name !== ROOT_DIR && e.name !== "checkout" && !e.name.startsWith("."))
-      .map((e) => e.name)
-      .sort();
-  } catch { return []; }
-}
 
 /**
  * Write the `task_stages` row + emit the terminal stage_update for paths
