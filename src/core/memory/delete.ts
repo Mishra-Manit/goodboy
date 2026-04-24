@@ -32,6 +32,9 @@ export async function deleteRepoMemoryArtifacts(
   const hadWorktree = existsSync(worktreePath);
   const hadMemoryDir = existsSync(memoryPath);
 
+  // First prune clears the main clone's worktree registry of stale entries,
+  // so `git worktree remove` below succeeds even if the checkout dir was
+  // deleted out-of-band. Second prune cleans up our own remove afterward.
   await pruneWorktrees(repoPath);
 
   if (hadWorktree) {

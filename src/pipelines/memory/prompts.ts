@@ -85,6 +85,15 @@ Compress rather than pad. If a file would be <50 lines of real content, fold
 that content into a sibling section elsewhere.
 `;
 
+/**
+ * Concatenates every policy/reference block that both cold and warm need.
+ * Kept in one place so a new global rule (e.g. a new tool, a new forbidden
+ * path) can be appended without touching both prompt builders.
+ */
+function sharedPolicyTail(memoryDir: string, worktree: string): string {
+  return `${fileWritePolicy(memoryDir, worktree)}${CITATIONS}${ROOT_SECTIONS}${ZONE_SECTIONS}${LINE_TARGETS}${SUBAGENTS}${ENVIRONMENT}`;
+}
+
 function fileWritePolicy(memoryDir: string, worktree: string): string {
   return `
 FILE WRITE POLICY (HARD)
@@ -192,7 +201,7 @@ Do NOT concatenate subagent findings into memory files. Every claim in a
 memory file must be supported by >=2 evidence points from findings, OR by
 a first-hand read you performed yourself.
 
-${fileWritePolicy(memoryDir, worktree)}${CITATIONS}${ROOT_SECTIONS}${ZONE_SECTIONS}${LINE_TARGETS}${SUBAGENTS}${ENVIRONMENT}
+${sharedPolicyTail(memoryDir, worktree)}
 FILE MANIFEST (format: "<path>\\t<line-count>", filtered for noise):
 ${manifest}
 
@@ -276,7 +285,7 @@ If a source file was deleted, remove references from the affected map.md.
 If a pattern no longer has supporting code, remove the pattern. If a type
 was removed, drop the glossary entry. Prune — memory that only grows decays.
 
-${fileWritePolicy(memoryDir, worktree)}${CITATIONS}${ROOT_SECTIONS}${ZONE_SECTIONS}${LINE_TARGETS}${SUBAGENTS}${ENVIRONMENT}
+${sharedPolicyTail(memoryDir, worktree)}
 Write patches only to files that need updating. Leave untouched files alone.
 When done, end your output with "MEMORY_MAINTAINER_DONE".`;
 }

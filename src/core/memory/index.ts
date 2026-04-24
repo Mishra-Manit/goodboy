@@ -34,6 +34,11 @@ export const ROOT_DIR = "_root";
 
 const LOCK_STALE_MS = 10 * 60 * 1000;
 
+/**
+ * Paths matching any of these are dropped from the cold-start manifest
+ * before the agent sees it. Keep the list to high-noise / low-signal
+ * dirs and non-source blobs; anything a human reader would skim past.
+ */
 const MANIFEST_EXCLUDES = [
   /\/dist\//, /\/build\//, /\/node_modules\//,
   /__snapshots__/, /\.lock$/, /\.generated\./,
