@@ -25,6 +25,13 @@ export const stageNameEnum = pgEnum("stage_name", [
 export const prSessionStatusEnum = pgEnum("pr_session_status", [
   "active", "closed",
 ]);
+/**
+ * Memory run kinds. `cold` and `warm` spawn a pi session and produce a
+ * transcript; `skip` (lock held) and `noop` (repo up-to-date) are no-op
+ * outcomes recorded purely so the dashboard can show "memory was checked."
+ * No-op kinds always start and finish in the same atomic write -- their
+ * rows never appear with status=running.
+ */
 export const memoryRunKindEnum = pgEnum("memory_run_kind", [
   "cold", "warm", "skip", "noop",
 ]);
@@ -101,6 +108,18 @@ export const prSessionRuns = pgTable("pr_session_runs", {
   completedAt: timestamp("completed_at"),
 });
 
+/**
+ * One row per memory pipeline invocation. Duplicates some fields with
+ * `task_stages` (status, startedAt, completedAt, error) because a memory run
+ * is both a stage inside a task AND a first-class memory-specific event with
+ * its own lifecycle:
+ *   - `task_stages` gives the coding/question task a uniform cross-stage
+ *     history entry, owned by `runStage` for cold/warm and by
+ *     `finalizeInlineMemoryStage` for skip/noop.
+ *   - `memory_runs` holds memory-specific detail (kind, sha, zoneCount,
+ *     externalLabel for manual-test runs) and per-repo history queries.
+ * Keep both in sync via `MemoryRunTracker` + `finalizeInlineMemoryStage`.
+ */
 export const memoryRuns = pgTable("memory_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
   instance: text("instance").notNull(),
