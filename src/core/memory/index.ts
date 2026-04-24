@@ -385,6 +385,40 @@ export async function assertMemoryWorktreeClean(
 }
 
 /**
+ * Resource wrapper for a memory run. Owns the full lock + worktree
+ * lifecycle so the caller only writes the business logic:
+ *
+ *   acquire lock (skip-on-contention) -> ensure worktree exists and is
+ *   clean -> run body(worktree) -> reset worktree -> release lock.
+ *
+ * Returns `"lock_held"` when another run is active and the body never ran.
+ * Throws from body propagate through the cleanup finally blocks unchanged.
+ */
+export async function withMemoryRun(
+  repo: string,
+  repoPath: string,
+  taskId: string,
+  body: (worktree: string) => Promise<void>,
+): Promise<"ran" | "lock_held"> {
+  const acquired = await tryAcquireLock(repo, taskId);
+  if (!acquired) return "lock_held";
+
+  try {
+    await mkdir(memoryDir(repo), { recursive: true });
+    const worktree = await ensureMemoryWorktree(repo, repoPath);
+    try {
+      await body(worktree);
+    } finally {
+      // Always reset the worktree — even on success. It's a view, not storage.
+      await resetMemoryWorktree(repo);
+    }
+  } finally {
+    await releaseLock(repo);
+  }
+  return "ran";
+}
+
+/**
  * Zone directories that currently exist on disk for `repo`. Excludes the
  * `_root` directory, the nested `checkout` worktree, and any dotfile. Used
  * by the warm validator to prove the agent didn't create a new zone dir.

@@ -1,26 +1,29 @@
 /**
- * Memory pipeline. Orchestrates:
- *   1. Acquire atomic skip-on-contention lock. If held, mark "skipped".
- *   2. Ensure the dedicated memory worktree is present and clean at origin/main.
- *   3. Read .state.json. Missing/invalid or stored SHA unreachable -> COLD.
- *      Else compute git diff; empty -> fast path; else -> WARM.
- *   4. Run one pi stage (cold or warm) with cwd = memory worktree and a
- *      `postValidate` hook that enforces output contract + worktree cleanliness
- *      atomically with the stage's terminal status emit. runStage returns
- *      `{ok}` and we branch on it; pi-side throws still throw.
- *   5. On cold success: pipeline composes .state.json from .zones.json + HEAD sha.
- *      On warm success: pipeline rewrites .state.json with new sha (zones preserved).
- *   6. Always hard-reset the memory worktree in `finally`, even on failure.
- *   7. On throw: log; runStage already marked stage failed via postValidate.
- * Never propagates failure to caller.
+ * Memory pipeline. Resource lifecycle (lock + worktree) is owned by
+ * `withMemoryRun`; this file only decides which run kind applies.
+ *
+ *   withMemoryRun -> body(worktree) runs unless the lock is held.
+ *     read .state.json.
+ *       missing / invalid / sha unreachable -> runCold
+ *       git diff empty                       -> noop (rewrite state, finalize)
+ *       otherwise                            -> runWarm
+ *   withMemoryRun returned "lock_held" -> record a skip run and finalize.
+ *
+ * Cold/warm spawn a pi stage with a `postValidate` hook that enforces the
+ * output contract + worktree cleanliness. runStage returns `{ok}` and we
+ * branch on it; pi-side throws propagate and are caught by the outer catch.
+ * Cold success composes .state.json from .zones.json + HEAD sha; warm
+ * success rewrites .state.json with new sha (zones preserved).
  *
  * Every memory run -- including skip and noop -- flows through a
  * `MemoryRunTracker` for the `memory_runs` row + SSE emits. The `task_stages`
  * row is owned by `runStage` for cold/warm and by `finalizeInlineMemoryStage`
  * for skip/noop (the two paths that don't spawn a pi session).
+ *
+ * Never propagates failure to caller.
  */
 
-import { mkdir } from "node:fs/promises";
+
 import { trace, type Span } from "@opentelemetry/api";
 import { createLogger } from "../../shared/logger.js";
 import { loadEnv } from "../../shared/config.js";
@@ -33,9 +36,7 @@ import { emit } from "../../shared/events.js";
 import { withPipelineSpan } from "../../observability/index.js";
 import { Goodboy } from "../../observability/attributes.js";
 import {
-  memoryDir,
-  tryAcquireLock, releaseLock,
-  ensureMemoryWorktree, resetMemoryWorktree,
+  memoryDir, withMemoryRun,
   readState, writeState,
   currentHeadSha, gitDiffFiles,
   buildFileManifest, readAllMemory,
@@ -81,61 +82,49 @@ async function runMemoryInner(opts: RunMemoryOptions, pipelineSpan: Span): Promi
   const { taskId, repo, repoPath } = opts;
 
   try {
-    const acquired = await tryAcquireLock(repo, taskId);
-    if (!acquired) {
+    const outcome = await withMemoryRun(repo, repoPath, taskId, async (worktree) => {
+      const headSha = await currentHeadSha(worktree);
+      pipelineSpan.setAttribute(Goodboy.MemorySha, headSha);
+      const state = await readState(repo);
+
+      if (!state) {
+        pipelineSpan.setAttribute(Goodboy.MemoryKind, "cold");
+        await runCold(opts, worktree, headSha);
+        return;
+      }
+
+      const changed = await gitDiffFiles(worktree, state.lastIndexedSha, headSha);
+      if (changed === null) {
+        pipelineSpan.setAttribute(Goodboy.MemoryKind, "cold");
+        pipelineSpan.setAttribute(Goodboy.MemorySkipReason, "sha_unreachable");
+        log.info(`Stored SHA ${state.lastIndexedSha.slice(0, 8)} unreachable; rebuilding cold for ${repo}`);
+        await runCold(opts, worktree, headSha);
+        return;
+      }
+      if (changed.length === 0) {
+        pipelineSpan.setAttribute(Goodboy.MemoryKind, "noop");
+        pipelineSpan.setAttribute(Goodboy.MemoryZoneCount, state.zones.length);
+        log.info(`Memory up-to-date for ${repo} @ ${headSha.slice(0, 8)}`);
+        await writeState(repo, headSha, state.zones);
+        const tracker = await startMemoryRun({ ...opts, kind: "noop", sessionPath: null });
+        await tracker.complete({ sha: headSha, zoneCount: state.zones.length });
+        await finalizeInlineMemoryStage(taskId, "complete");
+        return;
+      }
+
+      pipelineSpan.setAttribute(Goodboy.MemoryKind, "warm");
+      pipelineSpan.setAttribute(Goodboy.MemoryChangedFiles, changed.length);
+      pipelineSpan.setAttribute(Goodboy.MemoryZoneCount, state.zones.length);
+      await runWarm(opts, worktree, state, changed, headSha);
+    });
+
+    if (outcome === "lock_held") {
       pipelineSpan.setAttribute(Goodboy.MemoryKind, "skip");
       pipelineSpan.setAttribute(Goodboy.MemorySkipReason, "lock_held");
       log.info(`Memory lock held for ${repo}; skipping for task ${taskId}`);
       const tracker = await startMemoryRun({ ...opts, kind: "skip", sessionPath: null });
       await tracker.complete();
       await finalizeInlineMemoryStage(taskId, "skipped");
-      return;
-    }
-
-    try {
-      await mkdir(memoryDir(repo), { recursive: true });
-      const worktree = await ensureMemoryWorktree(repo, repoPath);
-
-      try {
-        const headSha = await currentHeadSha(worktree);
-        pipelineSpan.setAttribute(Goodboy.MemorySha, headSha);
-        const state = await readState(repo);
-
-        if (!state) {
-          pipelineSpan.setAttribute(Goodboy.MemoryKind, "cold");
-          await runCold(opts, worktree, headSha);
-          return;
-        }
-
-        const changed = await gitDiffFiles(worktree, state.lastIndexedSha, headSha);
-        if (changed === null) {
-          pipelineSpan.setAttribute(Goodboy.MemoryKind, "cold");
-          pipelineSpan.setAttribute(Goodboy.MemorySkipReason, "sha_unreachable");
-          log.info(`Stored SHA ${state.lastIndexedSha.slice(0, 8)} unreachable; rebuilding cold for ${repo}`);
-          await runCold(opts, worktree, headSha);
-          return;
-        }
-        if (changed.length === 0) {
-          pipelineSpan.setAttribute(Goodboy.MemoryKind, "noop");
-          pipelineSpan.setAttribute(Goodboy.MemoryZoneCount, state.zones.length);
-          log.info(`Memory up-to-date for ${repo} @ ${headSha.slice(0, 8)}`);
-          await writeState(repo, headSha, state.zones);
-          const tracker = await startMemoryRun({ ...opts, kind: "noop", sessionPath: null });
-          await tracker.complete({ sha: headSha, zoneCount: state.zones.length });
-          await finalizeInlineMemoryStage(taskId, "complete");
-          return;
-        }
-
-        pipelineSpan.setAttribute(Goodboy.MemoryKind, "warm");
-        pipelineSpan.setAttribute(Goodboy.MemoryChangedFiles, changed.length);
-        pipelineSpan.setAttribute(Goodboy.MemoryZoneCount, state.zones.length);
-        await runWarm(opts, worktree, state, changed, headSha);
-      } finally {
-        // Always reset the worktree — even on success. It's a view, not storage.
-        await resetMemoryWorktree(repo);
-      }
-    } finally {
-      await releaseLock(repo);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
