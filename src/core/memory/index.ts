@@ -392,9 +392,16 @@ export async function resetMemoryWorktree(repo: string): Promise<void> {
 
 // --- Manifest (cold, batched) ---
 
+/** Parallelism cap for per-file reads during manifest build. Bounded to avoid FD exhaustion on monorepos. */
+const MANIFEST_READ_CONCURRENCY = 32;
+
+const NEWLINE_BYTE = 0x0a;
+
 /**
- * Tracked files annotated with line counts, filtered for noise. One
- * batched `wc -l` call over all files at once — not per-file spawn.
+ * Tracked files annotated with line counts, filtered for noise. Files are
+ * discovered with `git ls-files -z` and read in parallel from Node; a failed
+ * read (binary blob, permission error, race with worktree reset) degrades
+ * the line count to `?` without failing the whole manifest.
  */
 export async function buildFileManifest(repoPath: string, subdir?: string): Promise<string> {
   const args = subdir
@@ -408,34 +415,42 @@ export async function buildFileManifest(repoPath: string, subdir?: string): Prom
     .filter((f) => !MANIFEST_EXCLUDES.some((r) => r.test(f)));
   if (files.length === 0) return "";
 
-  // One xargs -0 wc -l invocation, null-delimited to survive exotic paths.
-  // Returns "<count> <path>" per line plus a total summary; parse and drop total.
-  const { spawn } = await import("node:child_process");
-  const lineCounts = await new Promise<Record<string, number>>((resolve, reject) => {
-    const child = spawn("xargs", ["-0", "wc", "-l"], {
-      cwd: repoPath, stdio: ["pipe", "pipe", "pipe"],
-    });
-    let out = "";
-    let err = "";
-    child.stdout.on("data", (c) => { out += c.toString(); });
-    child.stderr.on("data", (c) => { err += c.toString(); });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code !== 0 && code !== 123) return reject(new Error(`xargs wc exited ${code}: ${err}`));
-      const counts: Record<string, number> = {};
-      for (const raw of out.split("\n")) {
-        const line = raw.trim();
-        if (!line || line.endsWith(" total")) continue;
-        const m = line.match(/^(\d+)\s+(.+)$/);
-        if (m) counts[m[2]] = Number(m[1]);
-      }
-      resolve(counts);
-    });
-    child.stdin.write(files.join("\0"));
-    child.stdin.end();
-  });
+  const counts = await countLinesParallel(repoPath, files, MANIFEST_READ_CONCURRENCY);
+  return files.map((f) => `${f}\t${counts.get(f) ?? "?"}`).join("\n");
+}
 
-  return files.map((f) => `${f}\t${lineCounts[f] ?? "?"}`).join("\n");
+/** Count newline bytes in one file. Returns null on any read error. */
+async function countFileLines(absPath: string): Promise<number | null> {
+  try {
+    const buf = await readFile(absPath);
+    let count = 0;
+    for (let i = 0; i < buf.length; i++) {
+      if (buf[i] === NEWLINE_BYTE) count += 1;
+    }
+    return count;
+  } catch { return null; }
+}
+
+/** Read every file's line count with a concurrency cap so monorepos don't exhaust FDs. */
+async function countLinesParallel(
+  repoPath: string, files: readonly string[], concurrency: number,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  let cursor = 0;
+
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const i = cursor++;
+      if (i >= files.length) return;
+      const rel = files[i];
+      const lines = await countFileLines(path.join(repoPath, rel));
+      if (lines !== null) counts.set(rel, lines);
+    }
+  };
+
+  const workers = Array.from({ length: Math.min(concurrency, files.length) }, worker);
+  await Promise.all(workers);
+  return counts;
 }
 
 // --- Status + orphans ---
