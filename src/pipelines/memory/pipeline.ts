@@ -13,13 +13,18 @@
  *   6. Always hard-reset the memory worktree in `finally`, even on failure.
  *   7. On throw: log; runStage already marked stage failed via postValidate.
  * Never propagates failure to caller.
+ *
+ * Every memory run -- including skip and noop -- flows through a
+ * `MemoryRunTracker` for the `memory_runs` row + SSE emits. The `task_stages`
+ * row is owned by `runStage` for cold/warm and by `finalizeInlineMemoryStage`
+ * for skip/noop (the two paths that don't spawn a pi session).
  */
 
 import { mkdir, readdir } from "node:fs/promises";
 import { trace, type Span } from "@opentelemetry/api";
 import { createLogger } from "../../shared/logger.js";
 import { loadEnv } from "../../shared/config.js";
-import type { MemoryRunKind, MemoryRunSource } from "../../shared/types.js";
+import type { MemoryRunSource, StageStatus } from "../../shared/types.js";
 import { subagentCapability } from "../../core/subagents/index.js";
 import { runStage, isPersistedTaskId, type SendTelegram } from "../../core/stage.js";
 import { taskSessionPath } from "../../core/pi/session-file.js";
@@ -39,6 +44,7 @@ import {
   ROOT_DIR,
   type Zone, type MemoryState,
 } from "../../core/memory/index.js";
+import { startMemoryRun, type MemoryRunTracker } from "../../core/memory/run-tracker.js";
 import {
   coldSystemPrompt, coldInitialPrompt,
   warmSystemPrompt, warmInitialPrompt,
@@ -79,7 +85,10 @@ async function runMemoryInner(opts: RunMemoryOptions, pipelineSpan: Span): Promi
     if (!acquired) {
       pipelineSpan.setAttribute(Goodboy.MemoryKind, "skip");
       pipelineSpan.setAttribute(Goodboy.MemorySkipReason, "lock_held");
-      await markSkipped(opts);
+      log.info(`Memory lock held for ${repo}; skipping for task ${taskId}`);
+      const tracker = await startMemoryRun({ ...opts, kind: "skip", sessionPath: null });
+      await tracker.complete();
+      await finalizeInlineMemoryStage(taskId, "skipped");
       return;
     }
 
@@ -111,15 +120,9 @@ async function runMemoryInner(opts: RunMemoryOptions, pipelineSpan: Span): Promi
           pipelineSpan.setAttribute(Goodboy.MemoryZoneCount, state.zones.length);
           log.info(`Memory up-to-date for ${repo} @ ${headSha.slice(0, 8)}`);
           await writeState(repo, headSha, state.zones);
-          const stage = await createBestEffortMemoryStage(taskId);
-          if (stage) {
-            await queries.updateTaskStage(stage.id, { status: "complete", completedAt: new Date() });
-          }
-          await recordMemoryRunComplete(opts, "noop", {
-            sha: headSha,
-            zoneCount: state.zones.length,
-          });
-          emit({ type: "stage_update", taskId, stage: "memory", status: "complete" });
+          const tracker = await startMemoryRun({ ...opts, kind: "noop", sessionPath: null });
+          await tracker.complete({ sha: headSha, zoneCount: state.zones.length });
+          await finalizeInlineMemoryStage(taskId, "complete");
           return;
         }
 
@@ -148,8 +151,8 @@ async function runCold(
   const cap = subagentCapability();
   const manifest = await buildFileManifest(worktree);
   const sessionPath = taskSessionPath(opts.taskId, "memory");
-  const runId = await createMemoryRunRecord(opts, "cold", sessionPath);
-  if (runId) trace.getActiveSpan()?.setAttribute(Goodboy.MemoryRunId, runId);
+  const tracker = await startMemoryRun({ ...opts, kind: "cold", sessionPath });
+  attachRunIdToSpan(tracker);
   // postValidate captures the parsed zones sidecar on success so we don't
   // re-read it to build the state file. Guaranteed set when result.ok.
   let validatedZones: readonly Zone[] | null = null;
@@ -169,7 +172,7 @@ async function runCold(
       extensions: cap.extensions,
       envOverrides: cap.envOverrides,
       timeoutMs: COLD_TIMEOUT_MS,
-      sessionEventMeta: runId ? { memoryRunId: runId } : undefined,
+      sessionEventMeta: tracker.runId ? { memoryRunId: tracker.runId } : undefined,
       postValidate: async () => {
         const zones = await readZonesSidecar(opts.repo);
         if (zones === null) return { valid: false, reason: ".zones.json missing or invalid" };
@@ -184,21 +187,18 @@ async function runCold(
       },
     });
   } catch (err) {
-    await failMemoryRunRecord(runId, err);
+    await tracker.fail(err);
     throw err;
   }
 
   if (!result.ok) {
-    await failMemoryRunRecord(runId, `cold validation failed: ${result.reason}`);
+    await tracker.fail(`cold validation failed: ${result.reason}`);
     return;
   }
 
   const zones: readonly Zone[] = validatedZones!;
   await writeState(opts.repo, headSha, zones);
-  await completeMemoryRunRecord(runId, {
-    sha: headSha,
-    zoneCount: zones.length,
-  });
+  await tracker.complete({ sha: headSha, zoneCount: zones.length });
 }
 
 // --- Warm ---
@@ -217,8 +217,8 @@ async function runWarm(
   const stateHashBefore = await stateFileHash(opts.repo);
   const zoneDirsBefore = await listZoneDirs(opts.repo);
   const sessionPath = taskSessionPath(opts.taskId, "memory");
-  const runId = await createMemoryRunRecord(opts, "warm", sessionPath);
-  if (runId) trace.getActiveSpan()?.setAttribute(Goodboy.MemoryRunId, runId);
+  const tracker = await startMemoryRun({ ...opts, kind: "warm", sessionPath });
+  attachRunIdToSpan(tracker);
 
   let result;
   try {
@@ -238,7 +238,7 @@ async function runWarm(
       extensions: cap.extensions,
       envOverrides: cap.envOverrides,
       timeoutMs: WARM_TIMEOUT_MS,
-      sessionEventMeta: runId ? { memoryRunId: runId } : undefined,
+      sessionEventMeta: tracker.runId ? { memoryRunId: tracker.runId } : undefined,
       postValidate: async () => {
         const stateHashAfter = await stateFileHash(opts.repo);
         if (stateHashBefore !== stateHashAfter) {
@@ -259,20 +259,17 @@ async function runWarm(
       },
     });
   } catch (err) {
-    await failMemoryRunRecord(runId, err);
+    await tracker.fail(err);
     throw err;
   }
 
   if (!result.ok) {
-    await failMemoryRunRecord(runId, `warm validation failed: ${result.reason}`);
+    await tracker.fail(`warm validation failed: ${result.reason}`);
     return;
   }
 
   await writeState(opts.repo, headSha, state.zones);
-  await completeMemoryRunRecord(runId, {
-    sha: headSha,
-    zoneCount: state.zones.length,
-  });
+  await tracker.complete({ sha: headSha, zoneCount: state.zones.length });
 }
 
 // --- Helpers ---
@@ -287,120 +284,24 @@ async function listZoneDirs(repo: string): Promise<string[]> {
   } catch { return []; }
 }
 
-async function markSkipped(opts: RunMemoryOptions): Promise<void> {
-  log.info(`Memory lock held for ${opts.repo}; skipping for task ${opts.taskId}`);
-  const stage = await createBestEffortMemoryStage(opts.taskId);
-  if (stage) {
-    await queries.updateTaskStage(stage.id, { status: "skipped", completedAt: new Date() });
+/**
+ * Write the `task_stages` row + emit the terminal stage_update for paths
+ * that don't spawn a pi session. Best-effort: a missing tasks row (manual
+ * test) silently skips the DB write while still emitting SSE.
+ */
+async function finalizeInlineMemoryStage(taskId: string, status: StageStatus): Promise<void> {
+  if (isPersistedTaskId(taskId)) {
+    const stage = await queries.createTaskStage({ taskId, stage: "memory" }).catch(() => null);
+    if (stage) {
+      await queries.updateTaskStage(stage.id, { status, completedAt: new Date() }).catch(() => {});
+    }
   }
-  await recordMemoryRunComplete(opts, "skip");
-  emit({ type: "stage_update", taskId: opts.taskId, stage: "memory", status: "skipped" });
+  emit({ type: "stage_update", taskId, stage: "memory", status });
 }
 
-async function createBestEffortMemoryStage(taskId: string) {
-  if (!isPersistedTaskId(taskId)) return null;
-  return queries.createTaskStage({ taskId, stage: "memory" }).catch(() => null);
-}
-
-async function createMemoryRunRecord(
-  opts: RunMemoryOptions,
-  kind: MemoryRunKind,
-  sessionPath: string | null,
-): Promise<string | null> {
-  try {
-    const run = await queries.createMemoryRun({
-      instance: loadEnv().INSTANCE_ID,
-      repo: opts.repo,
-      kind,
-      sessionPath,
-      ...memoryRunIdentity(opts),
-    });
-    emitMemoryRunUpdate(run.id, opts, kind, "running");
-    return run.id;
-  } catch (err) {
-    log.warn(`Failed to create memory_runs row for ${opts.repo}`, err);
-    return null;
-  }
-}
-
-async function completeMemoryRunRecord(
-  runId: string | null,
-  data: { sha?: string; zoneCount?: number } = {},
-): Promise<void> {
-  if (!runId) return;
-  try {
-    const updated = await queries.updateMemoryRun(runId, {
-      status: "complete",
-      sha: data.sha ?? null,
-      zoneCount: data.zoneCount ?? null,
-      completedAt: new Date(),
-    });
-    emitMemoryRunUpdateFromRow(updated);
-  } catch (err) {
-    log.warn(`Failed to complete memory_runs row ${runId}`, err);
-  }
-}
-
-async function failMemoryRunRecord(runId: string | null, err: unknown): Promise<void> {
-  if (!runId) return;
-  const error = err instanceof Error ? err.message : String(err);
-  try {
-    const updated = await queries.updateMemoryRun(runId, {
-      status: "failed",
-      error,
-      completedAt: new Date(),
-    });
-    emitMemoryRunUpdateFromRow(updated);
-  } catch (updateErr) {
-    log.warn(`Failed to fail memory_runs row ${runId}`, updateErr);
-  }
-}
-
-async function recordMemoryRunComplete(
-  opts: RunMemoryOptions,
-  kind: MemoryRunKind,
-  data: { sha?: string; zoneCount?: number } = {},
-): Promise<void> {
-  const runId = await createMemoryRunRecord(opts, kind, null);
-  await completeMemoryRunRecord(runId, data);
-}
-
-function emitMemoryRunUpdate(
-  runId: string,
-  opts: RunMemoryOptions,
-  kind: MemoryRunKind,
-  status: "running" | "complete" | "failed",
-): void {
-  emit({
-    type: "memory_run_update",
-    runId,
-    repo: opts.repo,
-    kind,
-    status,
-    sessionTaskId: opts.taskId,
-  });
-}
-
-function emitMemoryRunUpdateFromRow(
-  row: { id: string; repo: string; kind: MemoryRunKind; status: "running" | "complete" | "failed"; originTaskId: string | null; externalLabel: string | null } | null | undefined,
-): void {
-  if (!row) return;
-  const sessionTaskId = row.originTaskId ?? row.externalLabel;
-  if (!sessionTaskId) return;
-  emit({
-    type: "memory_run_update",
-    runId: row.id,
-    repo: row.repo,
-    kind: row.kind,
-    status: row.status,
-    sessionTaskId,
-  });
-}
-
-function memoryRunIdentity(opts: RunMemoryOptions) {
-  return opts.source === "task"
-    ? { source: "task" as const, originTaskId: opts.taskId, externalLabel: null }
-    : { source: "manual_test" as const, originTaskId: null, externalLabel: opts.taskId };
+/** Attach the memory_runs id to the active OTel span when present. */
+function attachRunIdToSpan(tracker: MemoryRunTracker): void {
+  if (tracker.runId) trace.getActiveSpan()?.setAttribute(Goodboy.MemoryRunId, tracker.runId);
 }
 
 function modelForMemory(): string {
