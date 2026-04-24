@@ -6,7 +6,8 @@
  *      Else compute git diff; empty -> fast path; else -> WARM.
  *   4. Run one pi stage (cold or warm) with cwd = memory worktree and a
  *      `postValidate` hook that enforces output contract + worktree cleanliness
- *      atomically with the stage's terminal status emit.
+ *      atomically with the stage's terminal status emit. runStage returns
+ *      `{ok}` and we branch on it; pi-side throws still throw.
  *   5. On cold success: pipeline composes .state.json from .zones.json + HEAD sha.
  *      On warm success: pipeline rewrites .state.json with new sha (zones preserved).
  *   6. Always hard-reset the memory worktree in `finally`, even on failure.
@@ -149,10 +150,13 @@ async function runCold(
   const sessionPath = taskSessionPath(opts.taskId, "memory");
   const runId = await createMemoryRunRecord(opts, "cold", sessionPath);
   if (runId) trace.getActiveSpan()?.setAttribute(Goodboy.MemoryRunId, runId);
+  // postValidate captures the parsed zones sidecar on success so we don't
+  // re-read it to build the state file. Guaranteed set when result.ok.
   let validatedZones: readonly Zone[] | null = null;
 
+  let result;
   try {
-    await runStage({
+    result = await runStage({
       taskId: opts.taskId,
       stage: "memory",
       cwd: worktree,
@@ -184,12 +188,12 @@ async function runCold(
     throw err;
   }
 
-  if (!validatedZones) {
-    await failMemoryRunRecord(runId, "cold validation failed");
+  if (!result.ok) {
+    await failMemoryRunRecord(runId, `cold validation failed: ${result.reason}`);
     return;
   }
 
-  const zones: readonly Zone[] = validatedZones;
+  const zones: readonly Zone[] = validatedZones!;
   await writeState(opts.repo, headSha, zones);
   await completeMemoryRunRecord(runId, {
     sha: headSha,
@@ -215,10 +219,10 @@ async function runWarm(
   const sessionPath = taskSessionPath(opts.taskId, "memory");
   const runId = await createMemoryRunRecord(opts, "warm", sessionPath);
   if (runId) trace.getActiveSpan()?.setAttribute(Goodboy.MemoryRunId, runId);
-  let structurallyValid = false;
 
+  let result;
   try {
-    await runStage({
+    result = await runStage({
       taskId: opts.taskId,
       stage: "memory",
       cwd: worktree,
@@ -251,7 +255,6 @@ async function runWarm(
         if (!clean.clean) {
           return { valid: false, reason: `memory worktree dirty after warm: ${clean.dirty.slice(0, 5).join(", ")}` };
         }
-        structurallyValid = true;
         return { valid: true };
       },
     });
@@ -260,8 +263,8 @@ async function runWarm(
     throw err;
   }
 
-  if (!structurallyValid) {
-    await failMemoryRunRecord(runId, "warm validation failed");
+  if (!result.ok) {
+    await failMemoryRunRecord(runId, `warm validation failed: ${result.reason}`);
     return;
   }
 

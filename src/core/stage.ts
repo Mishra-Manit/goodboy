@@ -132,12 +132,20 @@ interface RunStageOptions {
 }
 
 /**
+ * Outcome of a stage. `ok: false` means the stage ran to completion but
+ * postValidate rejected the output; the row is already persisted as failed
+ * and the terminal SSE event was already emitted. A thrown pi-side failure
+ * propagates instead and never produces a result value.
+ */
+export type StageResult = { ok: true } | { ok: false; reason: string };
+
+/**
  * Run one pi-RPC stage end-to-end: mark task running, create the stage row,
  * spawn the pi subprocess with a persistent session file, tail that file to
  * SSE, then update the stage row on success/failure. The session is always
  * killed and the watcher always stopped in `finally`.
  */
-export async function runStage(options: RunStageOptions): Promise<void> {
+export async function runStage(options: RunStageOptions): Promise<StageResult> {
   const {
     taskId, stage, cwd, systemPrompt, initialPrompt,
     model, sendTelegram, chatId, stageLabel,
@@ -146,9 +154,9 @@ export async function runStage(options: RunStageOptions): Promise<void> {
 
   const sessionPath = taskSessionPath(taskId, stage);
 
-  await withStageSpan(
+  return withStageSpan(
     { taskId, stage, model, stageLabel, piSessionPath: sessionPath },
-    async (stageSpan) => {
+    async (stageSpan): Promise<StageResult> => {
       const persisted = isPersistedTaskId(taskId);
       if (persisted) {
         await queries.updateTask(taskId, { status: "running" }).catch((err) => {
@@ -206,7 +214,7 @@ export async function runStage(options: RunStageOptions): Promise<void> {
             }
             emit({ type: "stage_update", taskId, stage, status: "failed" });
             log.warn(`Stage ${stage} failed postValidate for task ${taskId}: ${reason}`);
-            return;
+            return { ok: false, reason };
           }
         }
         if (stageRecord) {
@@ -215,6 +223,7 @@ export async function runStage(options: RunStageOptions): Promise<void> {
         emit({ type: "stage_update", taskId, stage, status: "complete" });
         await notifyTelegram(sendTelegram, chatId, `Stage complete: ${stageLabel}.`);
         log.info(`Stage ${stage} complete for task ${taskId}`);
+        return { ok: true };
       } catch (err) {
         if (stageRecord) {
           await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
