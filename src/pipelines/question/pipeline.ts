@@ -17,6 +17,9 @@ import {
   notifyTelegram,
   runStage,
   clearActiveSession,
+  isTaskCancelled,
+  resetTaskCancellation,
+  TaskCancelledError,
   type SendTelegram,
 } from "../../core/stage.js";
 import { withPipelineSpan } from "../../observability/index.js";
@@ -56,6 +59,8 @@ async function runQuestionInner(
     return;
   }
 
+  resetTaskCancellation(taskId);
+
   const chatId = task.telegramChatId;
   await notifyTelegram(sendTelegram, chatId,
     `Answering question for ${task.repo}...\n\n${task.description}`);
@@ -81,6 +86,11 @@ async function runQuestionInner(
     chatId,
   });
 
+  if (isTaskCancelled(taskId)) {
+    log.info(`Task ${taskId} cancelled during memory stage; halting pipeline`);
+    return;
+  }
+
   const memory = await memoryBlock(task.repo);
   const absArtifacts = path.resolve(artifactsDir);
 
@@ -102,6 +112,10 @@ async function runQuestionInner(
     await queries.updateTask(taskId, { status: "complete", completedAt: new Date() });
     emit({ type: "task_update", taskId, status: "complete" });
   } catch (err) {
+    if (err instanceof TaskCancelledError) {
+      log.info(`Task ${taskId} cancelled mid-stage; pipeline halted`);
+      return;
+    }
     await failTask(taskId, err instanceof Error ? err.message : String(err), sendTelegram, chatId);
   } finally {
     clearActiveSession(taskId);

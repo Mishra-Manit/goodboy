@@ -31,6 +31,19 @@ export function isPersistedTaskId(taskId: string): boolean {
 // --- Session registry ---
 
 const activeSessions = new Map<string, PiSession>();
+const cancelledTasks = new Set<string>();
+
+/**
+ * Thrown by `runStage` when a task has been cancelled. Pipelines catch this
+ * to skip `failTask` (the API already wrote `status: cancelled`) and bail
+ * without running further stages.
+ */
+export class TaskCancelledError extends Error {
+  constructor(taskId: string) {
+    super(`Task ${taskId} cancelled`);
+    this.name = "TaskCancelledError";
+  }
+}
 
 /** Register the live pi session for a task so cancellation can find it. */
 export function setActiveSession(taskId: string, session: PiSession): void {
@@ -42,13 +55,29 @@ export function clearActiveSession(taskId: string): void {
   activeSessions.delete(taskId);
 }
 
-/** Kill the active pi session for a task. Returns `true` if one was running. */
+/**
+ * Mark a task as cancelled and kill its live pi session if one is registered.
+ * Returns `true` if a session was killed. The cancelled flag persists until
+ * `resetTaskCancellation` is called (typically by a retry), so any stage
+ * spawned after this point short-circuits via `runStage`'s entry check.
+ */
 export function cancelTask(taskId: string): boolean {
+  cancelledTasks.add(taskId);
   const session = activeSessions.get(taskId);
   if (!session) return false;
   session.kill();
   activeSessions.delete(taskId);
   return true;
+}
+
+/** True if `cancelTask` has been called for this task and it has not been reset. */
+export function isTaskCancelled(taskId: string): boolean {
+  return cancelledTasks.has(taskId);
+}
+
+/** Clear the cancelled flag. Pipelines call this at entry so a retry can run. */
+export function resetTaskCancellation(taskId: string): void {
+  cancelledTasks.delete(taskId);
 }
 
 // --- Telegram ---
@@ -157,6 +186,11 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
   return withStageSpan(
     { taskId, stage, model, stageLabel, piSessionPath: sessionPath },
     async (stageSpan): Promise<StageResult> => {
+      if (cancelledTasks.has(taskId)) {
+        emit({ type: "stage_update", taskId, stage, status: "skipped" });
+        throw new TaskCancelledError(taskId);
+      }
+
       const persisted = isPersistedTaskId(taskId);
       if (persisted) {
         await queries.updateTask(taskId, { status: "running" }).catch((err) => {
@@ -225,10 +259,13 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
         log.info(`Stage ${stage} complete for task ${taskId}`);
         return { ok: true };
       } catch (err) {
+        const cancelled = cancelledTasks.has(taskId);
+        const terminalStatus = cancelled ? "skipped" : "failed";
         if (stageRecord) {
-          await queries.updateTaskStage(stageRecord.id, { status: "failed" }).catch(() => {});
+          await queries.updateTaskStage(stageRecord.id, { status: terminalStatus }).catch(() => {});
         }
-        emit({ type: "stage_update", taskId, stage, status: "failed" });
+        emit({ type: "stage_update", taskId, stage, status: terminalStatus });
+        if (cancelled) throw new TaskCancelledError(taskId);
         throw err;
       } finally {
         session.kill();

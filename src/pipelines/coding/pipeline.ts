@@ -18,7 +18,10 @@ import {
   failTask,
   notifyTelegram,
   clearActiveSession,
+  isTaskCancelled,
+  resetTaskCancellation,
   runStage,
+  TaskCancelledError,
   type SendTelegram,
 } from "../../core/stage.js";
 import { withPipelineSpan } from "../../observability/index.js";
@@ -90,6 +93,8 @@ async function runCodingPipelineInner(
     return;
   }
 
+  resetTaskCancellation(taskId);
+
   const chatId = task.telegramChatId;
   await notifyTelegram(sendTelegram, chatId,
     `Task ${task.id.slice(0, 8)} started for repo ${task.repo}.\n\n${task.description}`);
@@ -116,6 +121,11 @@ async function runCodingPipelineInner(
     chatId,
   });
 
+  if (isTaskCancelled(taskId)) {
+    log.info(`Task ${taskId} cancelled during memory stage; halting pipeline`);
+    return;
+  }
+
   // Render memory once for the whole task. All three coding stages read the
   // same snapshot, so no stage needs to re-read files from disk.
   const memory = await memoryBlock(task.repo);
@@ -137,6 +147,10 @@ async function runCodingPipelineInner(
 
   try {
     for (const stage of STAGE_ORDER) {
+      if (isTaskCancelled(taskId)) {
+        log.info(`Task ${taskId} cancelled before stage ${stage}; halting pipeline`);
+        return;
+      }
       await runCodingStage(stage, { taskId, task, worktreePath, artifactsDir, worktreeEnv, memory, sendTelegram });
       await requireArtifact(artifactsDir, STAGES[stage].artifact, STAGES[stage].artifactError);
     }
@@ -161,6 +175,10 @@ async function runCodingPipelineInner(
         `PR session failed: ${err instanceof Error ? err.message : String(err)}`);
     });
   } catch (err) {
+    if (err instanceof TaskCancelledError) {
+      log.info(`Task ${taskId} cancelled mid-stage; pipeline halted`);
+      return;
+    }
     await failTask(taskId, err instanceof Error ? err.message : String(err), sendTelegram, chatId);
   } finally {
     clearActiveSession(taskId);
