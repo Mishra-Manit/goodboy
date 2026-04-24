@@ -17,19 +17,8 @@ import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { LogViewer } from "@dashboard/components/log-viewer";
 import { dedupeById } from "@dashboard/components/log-viewer/helpers";
 import { formatDuration, timeAgo } from "@dashboard/lib/format";
+import { KIND_TONE, SOURCE_LABEL } from "@dashboard/lib/memory-ui";
 import { cn, shortId } from "@dashboard/lib/utils";
-
-const KIND_TONE: Record<MemoryRun["kind"], string> = {
-  cold: "text-accent",
-  warm: "text-warn",
-  skip: "text-text-void",
-  noop: "text-text-dim",
-};
-
-const SOURCE_LABEL: Record<MemoryRun["source"], string> = {
-  task: "task",
-  manual_test: "manual test",
-};
 
 export function MemoryDetail() {
   const { id } = useParams<{ id: string }>();

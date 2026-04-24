@@ -4,6 +4,7 @@ import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { useNow } from "@dashboard/hooks/use-now";
 import { type MemoryRun } from "@dashboard/lib/api";
 import { formatDuration, timeAgo } from "@dashboard/lib/format";
+import { KIND_TONE } from "@dashboard/lib/memory-ui";
 import { cn, shortId } from "@dashboard/lib/utils";
 
 interface MemoryRunRowProps {
@@ -12,13 +13,6 @@ interface MemoryRunRowProps {
   /** Show the repo name as a column. Enable when the list spans multiple repos. */
   showRepo?: boolean;
 }
-
-const KIND_TONE: Record<MemoryRun["kind"], string> = {
-  cold: "text-accent",
-  warm: "text-warn",
-  skip: "text-text-void",
-  noop: "text-text-dim",
-};
 
 export function MemoryRunRow({ run, onClick, showRepo }: MemoryRunRowProps) {
   const now = useNow();

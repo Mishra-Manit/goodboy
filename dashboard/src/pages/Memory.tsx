@@ -12,18 +12,17 @@ import {
   type MemoryStatus,
   type Repo,
 } from "@dashboard/lib/api";
-import { MEMORY_RUN_KINDS, type MemoryRunKind } from "@dashboard/shared";
-import { Card } from "@dashboard/components/Card";
+import { MEMORY_RUN_KINDS } from "@dashboard/shared";
 import { PageState } from "@dashboard/components/PageState";
 import { EmptyState } from "@dashboard/components/EmptyState";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
-import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { MemoryRunRow } from "@dashboard/components/rows/MemoryRunRow";
+import { LiveMemoryRunCard } from "@dashboard/components/memory/LiveMemoryRunCard";
+import { RepoSummaryCard, type RepoEntry } from "@dashboard/components/memory/RepoSummaryCard";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSERefresh } from "@dashboard/hooks/use-sse";
 import { useNow } from "@dashboard/hooks/use-now";
-import { cn, shortId } from "@dashboard/lib/utils";
-import { timeAgo } from "@dashboard/lib/format";
+import { cn } from "@dashboard/lib/utils";
 
 interface MemoryPageData {
   repos: Repo[];
@@ -33,13 +32,6 @@ interface MemoryPageData {
 
 const KIND_FILTERS = ["all", ...MEMORY_RUN_KINDS] as const;
 type KindFilter = (typeof KIND_FILTERS)[number];
-
-const KIND_TONE: Record<MemoryRunKind, string> = {
-  cold: "text-accent",
-  warm: "text-warn",
-  skip: "text-text-void",
-  noop: "text-text-dim",
-};
 
 export function Memory() {
   const navigate = useNavigate();
@@ -202,118 +194,6 @@ export function Memory() {
           );
         }}
       </PageState>
-    </div>
-  );
-}
-
-// --- Live card ---
-
-interface LiveMemoryRunCardProps {
-  run: MemoryRun;
-  now: number;
-  onClick: () => void;
-}
-
-function LiveMemoryRunCard({ run, now, onClick }: LiveMemoryRunCardProps) {
-  const subtitle = run.externalLabel ?? (run.originTaskId ? `task ${shortId(run.originTaskId)}` : null);
-
-  return (
-    <div className="animate-fade-up">
-      <Card hoverable live onClick={onClick}>
-        <div className="mb-2 flex items-center gap-3">
-          <span className={cn("font-mono text-[10px] uppercase tracking-wide", KIND_TONE[run.kind])}>
-            {run.kind}
-          </span>
-          <span className="font-mono text-[11px] font-medium text-accent">{run.repo}</span>
-          <StatusBadge status={run.status} />
-          <span className="ml-auto font-mono text-[10px] text-text-void">
-            {timeAgo(run.startedAt, now)}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 font-mono text-[10px] text-text-ghost">
-          {run.sha && <span className="text-text-dim">{run.sha.slice(0, 8)}</span>}
-          {run.zoneCount !== null && (
-            <span>{run.zoneCount} zone{run.zoneCount === 1 ? "" : "s"}</span>
-          )}
-          {subtitle && <span>{subtitle}</span>}
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-// --- Repo summary card ---
-
-interface RepoEntry {
-  repo: string;
-  registered: boolean;
-  status: MemoryStatus | undefined;
-  runCount: number;
-}
-
-interface RepoSummaryCardProps {
-  entry: RepoEntry;
-  now: number;
-  deleting: boolean;
-  onDelete: (repo: string) => Promise<void>;
-}
-
-function RepoSummaryCard({ entry, now, deleting, onDelete }: RepoSummaryCardProps) {
-  const { repo, registered, status, runCount } = entry;
-  const sha = status?.lastIndexedSha?.slice(0, 8);
-  const indexedAt = status?.lastIndexedAt ? timeAgo(status.lastIndexedAt, now) : null;
-  const zones = status?.zones.length ?? 0;
-  const files = status?.fileCount ?? 0;
-
-  return (
-    <div className="rounded-lg border border-glass-border bg-glass/40 px-3 py-2.5">
-      <div className="mb-1.5 flex items-center gap-2">
-        <span className="truncate font-mono text-[11px] font-medium text-text">{repo}</span>
-        {!registered && (
-          <span className="shrink-0 rounded-full border border-glass-border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wide text-text-ghost">
-            unregistered
-          </span>
-        )}
-        <span className="ml-auto shrink-0 font-mono text-[10px] text-text-void">
-          {runCount} run{runCount === 1 ? "" : "s"}
-        </span>
-        {registered && (
-          <button
-            onClick={() => void onDelete(repo)}
-            disabled={deleting}
-            className="shrink-0 rounded-full px-2 py-0.5 font-mono text-[9px] tracking-wide text-text-ghost transition-colors hover:text-fail disabled:cursor-not-allowed disabled:text-text-void"
-          >
-            {deleting ? "deleting..." : "delete memory"}
-          </button>
-        )}
-      </div>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] text-text-ghost">
-        {registered && status ? (
-          <>
-            <span className="text-text-dim">{status.status}</span>
-            <span className="text-text-void">·</span>
-            <span>{zones}z</span>
-            <span className="text-text-void">·</span>
-            <span>{files}f</span>
-            {sha && (
-              <>
-                <span className="text-text-void">·</span>
-                <span className="text-text-dim">{sha}</span>
-              </>
-            )}
-            {indexedAt && (
-              <>
-                <span className="text-text-void">·</span>
-                <span>{indexedAt}</span>
-              </>
-            )}
-          </>
-        ) : registered ? (
-          <span className="text-text-void">loading...</span>
-        ) : (
-          <span className="text-text-void">historical runs only</span>
-        )}
-      </div>
     </div>
   );
 }
