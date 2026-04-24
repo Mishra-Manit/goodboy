@@ -3,9 +3,7 @@
  * Usage: npx tsx tests/scripts/run-memory-warm.ts <repo-name> <TEST-instance-id>
  *
  * Reuses the memory directory created by run-memory-cold.ts. The instance ID
- * must be the TEST-prefixed value printed by the cold runner. The task ID
- * derives from the instance ID so every invocation writes to a fresh session
- * path (no pi session resume across runs).
+ * must be the TEST-prefixed value printed by the cold runner.
  */
 
 import "dotenv/config";
@@ -25,75 +23,45 @@ if (!isTestInstance(instanceId)) {
   process.exit(1);
 }
 
-const taskId = `${instanceId}-warm`;
+// Set BEFORE importing the common module so loadEnv picks up the test ID.
 process.env["INSTANCE_ID"] = instanceId;
 
-const { getRepo } = await import("../../src/shared/repos.js");
-const { runMemory } = await import("../../src/pipelines/memory/pipeline.js");
-const { memoryDir, memoryStatePath, zonesSidecarPath } = await import("../../src/core/memory/index.js");
-const { initObservability, shutdownObservability } = await import(
-  "../../src/observability/index.js"
-);
+const { prepareMemoryTest, runMemoryTest, printBanner } = await import("./_memory-test-common.js");
 
-initObservability();
+const ctx = await prepareMemoryTest({ repoName, instanceId, kind: "warm" });
 
-const repo = getRepo(repoName);
-if (!repo) {
-  console.error(`Unknown repo: ${repoName}. Check REGISTERED_REPOS.`);
-  process.exit(1);
-}
-
-const statePath = memoryStatePath(repoName);
 let stateBefore: string;
 try {
-  stateBefore = await readFile(statePath, "utf8");
+  stateBefore = await readFile(ctx.statePath, "utf8");
 } catch {
   console.error(
-    `No .state.json found at ${statePath}.\nRun the cold script first:\n  npm run test:memory:cold -- ${repoName}`,
+    `No .state.json found at ${ctx.statePath}.\nRun the cold script first:\n  npm run test:memory:cold -- ${repoName}`,
   );
   process.exit(1);
 }
 
-const zonesPath = zonesSidecarPath(repoName);
-const zonesHashBefore = await readFile(zonesPath, "utf8")
+const zonesHashBefore = await readFile(ctx.zonesPath, "utf8")
   .then((c) => createHash("sha256").update(c).digest("hex"))
   .catch(() => null);
 
 const parsedBefore = JSON.parse(stateBefore);
+const shaBefore = parsedBefore.lastIndexedSha?.slice(0, 12) ?? "?";
 
-console.log(`\n=== MEMORY WARM-PATCH TEST ===`);
-console.log(`repo       : ${repoName}`);
-console.log(`instanceId : ${instanceId}`);
-console.log(`taskId     : ${taskId}`);
-console.log(`memoryDir  : ${memoryDir(repoName)}`);
-console.log(`repoPath   : ${repo.localPath}`);
-console.log(`sha-before : ${parsedBefore.lastIndexedSha?.slice(0, 12)}`);
+printBanner("MEMORY WARM-PATCH TEST", ctx, { "sha-before": shaBefore });
 console.log(`\nRunning warm memory stage...\n`);
 
-const noopTelegram = async () => {};
-try {
-  await runMemory({
-    taskId,
-    repo: repoName,
-    repoPath: repo.localPath,
-    source: "manual_test",
-    sendTelegram: noopTelegram,
-    chatId: null,
-  });
-} finally {
-  await shutdownObservability();
-}
+await runMemoryTest(ctx);
 
 try {
-  const stateAfter = await readFile(statePath, "utf8");
+  const stateAfter = await readFile(ctx.statePath, "utf8");
   const parsedAfter = JSON.parse(stateAfter);
-  const zonesHashAfter = await readFile(zonesPath, "utf8")
+  const zonesHashAfter = await readFile(ctx.zonesPath, "utf8")
     .then((c) => createHash("sha256").update(c).digest("hex"))
     .catch(() => null);
 
   console.log(`\n=== RESULT ===`);
   console.log(`zones      : ${parsedAfter.zones?.length ?? 0}`);
-  console.log(`sha-before : ${parsedBefore.lastIndexedSha?.slice(0, 12)}`);
+  console.log(`sha-before : ${shaBefore}`);
   console.log(`sha-after  : ${parsedAfter.lastIndexedSha?.slice(0, 12)}`);
   console.log(`indexedAt  : ${parsedAfter.lastIndexedAt}`);
   console.log(
