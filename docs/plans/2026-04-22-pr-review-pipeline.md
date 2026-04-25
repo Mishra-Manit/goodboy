@@ -3,10 +3,10 @@
 **Goal:** Turn `pr_review` from a stub into a real pipeline with three stages:
 
 1. **`memory`** — standard memory run, identical to coding/question pipelines.
-2. **`pr_impact`** — memory-derived synthesis pass. Reads memory + diff, produces `pr-impact.md`, a PR-scoped pre-filter of memory for the analyst.
+2. **`pr_impact`** — context curator. Gets the full memory block injected, explores the worktree (PR branch) to validate and expand on memory claims, and produces `pr-impact.md` — the curated, PR-scoped context the analyst receives.
 3. **`pr_analyst`** — the heavy stage. Reads the full PR, fans out a fleet of subagents to review every file group + cross-cutting concerns, aggregates all reports, applies every auto-fixable issue with real commits pushed back to the PR branch, and posts a single structured comment summarizing everything it fixed and everything the author still needs to address.
 
-**Approach:** Thin outer pipeline in `pr-review/pipeline.ts`: `syncRepo → runMemory → fetch PR context → runImpactAnalyzer → runPrAnalyst`. The real work is in `pr_analyst`, which runs as a pi session with `pi-subagents` capability, full memory injected, and `pr-impact.md` as its primary lens.
+**Approach:** Thin outer pipeline in `pr-review/pipeline.ts`: `syncRepo → runMemory → fetch PR context → createPrWorktree → runImpactAnalyzer → runPrAnalyst`. The worktree is created before the impact stage so the curator runs inside the PR branch with full file access. The analyst then runs in the same worktree, receiving `pr-impact.md` as its only context (falling back to the full memory block if the impact stage failed).
 
 ---
 
@@ -18,8 +18,8 @@
 4. **Auto-fix rule:** `style` at any severity and `correctness` at `minor`/`nit` are auto-fixed. `correctness` at `major`/`blocker`, any `security`, and anything requiring a design choice are flag-only — described in the final comment, not touched.
 5. **Output:** one `gh pr comment` summary. No `gh pr review --approve/--request-changes`. No inline line comments in v1.
 6. **Memory always runs first.** `runMemory` runs after `syncRepo`, before everything else. Soft-fails always.
-7. **Impact stage is memory-derived and repo-isolated.** Its cwd is `artifactsDir` — it sees only `pr.diff` + `pr-context.json`. No grep, no file opens outside artifacts. All codebase knowledge comes from the injected `memoryBlock`. Always runs; soft-fails on LLM error/timeout (analyst proceeds without `pr-impact.md`).
-8. **Analyst gets both context layers.** Full `memoryBlock` (repo-wide view) + `pr-impact.md` (PR-scoped pre-filter). Analyst distills per-group focus strings from `pr-impact.md` before spawning subagents. Subagents get the distilled focus, not the full memory block — they stay lean.
+7. **Impact stage is a curator with full repo access.** It gets the full `memoryBlock` injected plus the PR diff. It can grep and read any file in the worktree to validate memory claims and explore context around changed symbols. Its job is to produce a tight, curated `pr-impact.md` — the exact memory context the analyst needs, no more. Always runs; soft-fails on LLM error/timeout (analyst falls back to the full memory block directly).
+8. **Analyst gets `pr-impact.md` only — not the full memory block.** The impact stage curates down to what's relevant so the analyst's context stays focused. If `pr-impact.md` is absent (impact stage failed), the analyst falls back to the full memory block as a last resort, but that's the degraded path.
 9. **Commit-back before comment.** Fixes are committed (1–3 logical commits, conventional prefixes) and pushed to the PR branch before the final comment is posted. The comment's "Fixes pushed" section cites the short SHAs.
 10. **Follow-up replies:** humans reply to the summary comment → existing poller + `resumePrSession` loop handles it. No new wiring needed.
 
@@ -32,7 +32,7 @@ Already in the codebase — this plan depends on it, does not build it:
 - `runMemory({ taskId, repo, repoPath, source, sendTelegram, chatId })` in `src/pipelines/memory/pipeline.ts`. Soft-fail.
 - `memoryBlock(repo)` in `src/shared/agent-prompts.ts`. Async. Returns `""` if no memory exists. Concatenates every zone's `.md` files into a single prompt block.
 - `memory` is already in `STAGE_NAMES`. Memory run records + `memory_run_update` SSE events stream to the dashboard automatically.
-- `resumePrSession` already injects `memoryBlock` + subagent capability. The new `pr_analyst` turn uses the same pattern.
+- `resumePrSession` already injects `memoryBlock` + subagent capability for follow-up replies. The new `pr_analyst` uses `pr-impact.md` instead of the full memory block.
 
 ---
 
@@ -296,93 +296,99 @@ export async function getPrDiff(nwo: string, prNumber: number): Promise<string> 
 
 ### Design
 
-The `pr_impact` stage is a **pure synthesis step**. Inputs: `memoryBlock(repo)` + the staged diff. Output: `pr-impact.md` — five sections the analyst reads as its primary lens.
+The `pr_impact` stage is a **context curator**. It gets the full `memoryBlock` plus the PR diff, and it can read and grep any file in the worktree. Its job is to explore the codebase around the changed code, validate and expand on memory claims, and produce `pr-impact.md` — a curated, PR-scoped context document that is the *only* context the analyst receives. This prevents context rot in the analyst: instead of dumping the entire memory block into a session that already has to plan, fan out subagents, apply fixes, and write a comment, the impact stage distills exactly what's relevant.
 
-**No repo access.** cwd is `artifactsDir`, so the agent's tools only see `pr.diff` and `pr-context.json`. This is deliberate: it forces memory-grounded reasoning and prevents a giant tool-use preamble before the analyst starts.
+**Full worktree access.** cwd is the worktree (PR branch). The agent can read any file, grep for usages of changed symbols, check test coverage, and cross-reference memory claims against live code.
 
-**No subagents.** One reasoning pass. Fast, cheap model preferred.
+**No subagents.** One focused exploration pass.
 
-**Always runs.** If `memoryBlock` returns `""`, the agent still runs and produces a "flying blind" degraded report. On LLM error/timeout, soft-fail — analyst proceeds without `pr-impact.md`.
+**Always runs.** If `memoryBlock` returns `""`, the agent still runs using only the diff + whatever it finds in the worktree. On LLM error/timeout, soft-fail — analyst falls back to the full memory block directly.
 
 ### `src/pipelines/pr-review/impact-prompts.ts`
 
 ```ts
 /**
- * Prompts for the pr_impact stage. Memory-derived synthesis: the agent sees
- * only the injected memory block and the staged PR diff. No repo access.
+ * Prompts for the pr_impact stage. Context curator: gets the full memory
+ * block injected plus full worktree access. Explores, validates, and curates
+ * the exact context the pr_analyst needs. No sandbox constraints.
  */
 
 export function impactAnalyzerSystemPrompt(
   repo: string,
   artifactsDir: string,
+  worktreePath: string,
   memoryBody: string,
 ): string {
   const memorySection = memoryBody
     ? memoryBody
-    : `NO MEMORY AVAILABLE for ${repo}. Produce the report from the diff alone.
-Every section will be thin — that is fine. The "Memory Gaps" section should
-flag every touched area as uncovered so the analyst knows to work harder.`;
+    : `NO MEMORY AVAILABLE for ${repo}. Work from the diff and live codebase only.
+The "Memory Gaps & Blind Spots" section should flag every touched area since nothing is documented.`;
 
-  return `You are the PR Impact Analyzer for "${repo}".
+  return `You are the PR Impact Curator for "${repo}".
 
-Your job: produce a PR-scoped pre-filter of the codebase memory. The pr_analyst
-stage reads your report as its primary lens on this PR. Be tight, structured,
-and memory-grounded.
+Your job: produce a curated context document for the PR Analyst. The analyst
+will receive ONLY what you write in pr-impact.md — not the full memory block.
+You are the gatekeeper between the full codebase knowledge and the analyst's
+focused working context. Be thorough in your exploration, ruthless in your
+curation. Every line you include costs the analyst context window.
 
 WHAT YOU HAVE:
-- The full codebase memory (injected below). Your ONLY view of the repo.
-  You cannot open source files. You cannot grep. Do not try.
+- The full codebase memory (injected below).
+- Full read access to the worktree at ${worktreePath} — the PR branch.
+  You MAY grep, read any file, check imports, trace usages of changed symbols.
+  Validate memory claims against live code. Explore freely.
 - PR diff at ${artifactsDir}/pr.diff
 - PR metadata at ${artifactsDir}/pr-context.json
 
-WHAT YOU DO NOT HAVE:
-- Access to any file outside ${artifactsDir}. Do not attempt it.
+YOU ARE READ-ONLY. You may NOT edit any file in ${worktreePath}.
+You may ONLY write to ${artifactsDir}/pr-impact.md.
 
 ${memorySection}
 
 YOUR TASK:
-Read both artifact files, reason about the diff in light of the memory above,
-then write ${artifactsDir}/pr-impact.md using EXACTLY these five section headers
-in this order. If a section has nothing to say, write "None identified."
+1. Read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff.
+2. For each changed file/symbol, grep the worktree to understand its callers,
+   usages, and relationships. Cross-reference what the memory says against what
+   the live code actually shows. Note any drift.
+3. Write ${artifactsDir}/pr-impact.md using EXACTLY these five section headers
+   in this order. If a section has nothing to say, write "None identified."
 
   # Impact Analysis — PR #<number>: <title>
 
   ## Summary
-  One paragraph. What the PR changes, which memory zones it touches, and the
-  single biggest risk area according to memory.
+  One paragraph. What the PR changes, the memory zones it touches, and the
+  single biggest risk the analyst should focus on.
 
-  ## Touched Zones
-  For every memory zone this PR's changed files fall into: zone name, zone
-  summary (quoted verbatim from memory), and the PR files that land there.
-  Files outside every zone go under "_root".
+  ## Touched Zones & Relevant Memory
+  For each memory zone relevant to this PR: the zone name, the memory claims
+  that directly apply to the changed code (quoted + [path:line] citation),
+  and which PR files land in that zone. Omit memory claims that do not touch
+  anything in this diff. This is the analyst's primary codebase knowledge —
+  include everything relevant, strip everything that isn't.
 
-  ## Affected Symbols & Concepts
-  Exported symbols or architectural concepts the diff changes. For each, cite
-  the memory line that mentions it (quote + [path:line]). Changed symbols
-  absent from memory go under "Not in memory" — a signal for the analyst.
+  ## Affected Symbols & Live Context
+  For each exported symbol or concept the diff changes: what the memory says
+  about it (quoted), plus what you found by grepping the worktree — callers,
+  related tests, other files that depend on it. Flag anything the memory is
+  wrong or silent about.
 
-  ## Risks per Memory
-  Invariants and patterns the memory records for touched zones, projected onto
-  what the diff does. Format:
-    - [zone] <one-line risk> — memory says: "<quote>" [path:line]
+  ## Risks
+  Concrete risks grounded in memory claims and live code exploration. Format:
+    - [zone] <one-line risk>
+      memory: "<quote>" [path:line]
+      live: <what you found in the worktree that confirms or complicates this>
       diff impact: <one-line assessment>
-  Only list risks where the diff actually interacts with the memory claim.
+  Only include risks where you have evidence from both memory and live code.
 
-  ## Memory Gaps
-  Places the PR touches that memory does NOT cover well. Be specific. This
-  tells the analyst: "here, you are flying blind — be extra careful."
-
-CONSTRAINTS:
-- READ-ONLY. You may ONLY write to ${artifactsDir}/pr-impact.md.
-- Every concrete claim must cite the memory line it came from.
-- Do NOT cite from first-hand file inspection. You cannot inspect files.
-- Do not rename or reorder the five section headers.
+  ## Memory Gaps & Blind Spots
+  Areas the PR touches where memory is absent or wrong, and where you could not
+  find enough live context. Be specific. The analyst will be extra careful here.
 
 End your output with "IMPACT_ANALYSIS_DONE".`;
 }
 
 export function impactAnalyzerInitialPrompt(artifactsDir: string): string {
-  return `Begin the impact analysis. Read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff, then write the complete ${artifactsDir}/pr-impact.md covering all five sections. Project the memory above onto this specific diff. Do not attempt to read source files.`;
+  return `Begin the impact curation. Read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff. Then explore the worktree — grep for changed symbols, trace usages, check tests, validate memory claims against live code. Write the complete ${artifactsDir}/pr-impact.md covering all five sections. Be thorough in exploration, ruthless in curation. End with "IMPACT_ANALYSIS_DONE".`;
 }
 ```
 
@@ -390,8 +396,10 @@ export function impactAnalyzerInitialPrompt(artifactsDir: string): string {
 
 ```ts
 /**
- * pr_impact stage. Memory-derived synthesis: reads memory + PR diff,
- * produces pr-impact.md. Soft-fails always. cwd = artifactsDir (sandboxed).
+ * pr_impact stage. Context curator: explores the worktree with full read
+ * access, cross-references memory against live code, and produces pr-impact.md
+ * — the curated context the analyst receives instead of the full memory block.
+ * Soft-fails always. cwd = worktreePath (PR branch).
  */
 
 import { createLogger } from "../../shared/logger.js";
@@ -402,38 +410,39 @@ import { impactAnalyzerSystemPrompt, impactAnalyzerInitialPrompt } from "./impac
 
 const log = createLogger("pr-impact");
 
-const IMPACT_TIMEOUT_MS = 5 * 60 * 1000;
+const IMPACT_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface ImpactAnalyzerOptions {
   taskId: string;
   repo: string;
   artifactsDir: string;
+  worktreePath: string;
   sendTelegram: SendTelegram;
   chatId: string | null;
 }
 
 /**
  * Run the pr_impact stage. Never throws. Writes pr-impact.md on success;
- * leaves it absent on failure so the analyst can detect and degrade gracefully.
+ * leaves it absent on failure so the analyst falls back to the full memory block.
  */
 export async function runImpactAnalyzer(opts: ImpactAnalyzerOptions): Promise<void> {
-  const { taskId, repo, artifactsDir, sendTelegram, chatId } = opts;
+  const { taskId, repo, artifactsDir, worktreePath, sendTelegram, chatId } = opts;
   try {
     const memoryBody = await memoryBlock(repo);
     await runStage({
       taskId,
       stage: "pr_impact",
-      cwd: artifactsDir,
-      systemPrompt: impactAnalyzerSystemPrompt(repo, artifactsDir, memoryBody),
+      cwd: worktreePath,
+      systemPrompt: impactAnalyzerSystemPrompt(repo, artifactsDir, worktreePath, memoryBody),
       initialPrompt: impactAnalyzerInitialPrompt(artifactsDir),
       model: modelForImpact(),
       sendTelegram,
       chatId,
-      stageLabel: "PR Impact Analysis",
+      stageLabel: "PR Impact Curation",
       timeoutMs: IMPACT_TIMEOUT_MS,
     });
   } catch (err) {
-    log.warn(`pr_impact failed for ${taskId}: ${err instanceof Error ? err.message : String(err)} — analyst proceeds without report`);
+    log.warn(`pr_impact failed for ${taskId}: ${err instanceof Error ? err.message : String(err)} — analyst falls back to full memory block`);
   }
 }
 
@@ -452,19 +461,20 @@ PI_MODEL_PR_IMPACT: z.string().optional(),
 
 In `.env.example`:
 ```
-# Light, fast model for the pr_impact synthesis pass. Falls back to PI_MODEL.
+# Model for the pr_impact curation stage. Can use a capable model since it
+# explores the worktree. Falls back to PI_MODEL.
 PI_MODEL_PR_IMPACT=
 ```
 
 **Verify:** `npm run build`
 
-**Commit:** `feat(pr-review): pr_impact stage — memory-derived synthesis, sandboxed cwd`
+**Commit:** `feat(pr-review): pr_impact stage — context curator with full worktree access`
 
 ---
 
 ## Task 6: The pr_analyst stage
 
-This is the core of the pipeline. The `pr_analyst` receives the full memory block and `pr-impact.md`, fans out a fleet of subagents to review every file group, aggregates all their JSON reports, applies every auto-fixable issue with real commits pushed to the PR branch, then posts a single structured comment.
+This is the core of the pipeline. The `pr_analyst` receives `pr-impact.md` as its primary context (curated by the impact stage from the full memory block), fans out a fleet of subagents to review every file group, aggregates all their JSON reports, applies every auto-fixable issue with real commits pushed to the PR branch, then posts a single structured comment. If `pr-impact.md` is absent (impact stage failed), it falls back to the full memory block directly.
 
 **Files:**
 - Create: `src/pipelines/pr-review/analyst-prompts.ts`
@@ -477,11 +487,9 @@ This is the core of the pipeline. The `pr_analyst` receives the full memory bloc
 ```ts
 /**
  * Prompts for the pr_analyst stage — the main PR review orchestrator.
- * Receives full memory + pr-impact.md, fans out subagents, commits fixes,
- * and posts the final comment.
- *
- * Memory is NOT embedded here; it is prepended at the call site via
- * memoryBlock(repo), matching the coding/question/resumePrSession pattern.
+ * Primary context is pr-impact.md (curated by the impact stage). If that file
+ * is absent, the call site falls back to prepending the full memoryBlock.
+ * Either way, the analyst does not receive both — only one or the other.
  */
 
 export interface PrAnalystPromptOptions {
@@ -509,15 +517,16 @@ PR alone — you will miss things. Spawn aggressively.
 ---
 
 CONTEXT YOU HAVE:
-- Codebase memory (the "CODEBASE MEMORY" block prepended above): full agent-
-  maintained knowledge base for this repo. Understand WHY code is written the
-  way it is, which patterns and invariants the repo holds.
-- PR impact report at ${artifactsDir}/pr-impact.md (if present): memory-derived,
-  PR-scoped pre-filter. Start here — it tells you which zones and risks are
-  relevant to this diff. If absent, fall back to the full memory block.
+- PR impact report at ${artifactsDir}/pr-impact.md: curated codebase context
+  produced specifically for this PR by the impact stage. This is your primary
+  and preferred context — it contains the memory claims, live code findings,
+  risks, and blind spots that are actually relevant to this diff.
+  If this file is ABSENT (impact stage failed), a full CODEBASE MEMORY block
+  will have been prepended to this system prompt as a fallback. Check for the
+  file first; only use the prepended block if the file does not exist.
 - PR metadata at ${artifactsDir}/pr-context.json
 - PR diff at ${artifactsDir}/pr.diff
-- Full worktree at ${worktreePath} (for applying fixes).
+- Full worktree at ${worktreePath} (for applying fixes and reading context).
 
 ---
 
@@ -614,8 +623,8 @@ WORKFLOW — follow this order exactly:
       <schema below>
       ---
 
-   Subagents do NOT receive the full memory block. You hold that context and
-   distill it into the per-group focus strings. Keep subagents lean.
+   Subagents do NOT receive pr-impact.md or the memory block. You hold that
+   context and distill it into the per-group focus strings. Keep subagents lean.
 
    SUBAGENT REPORT SCHEMA (every subagent must produce this):
    {
@@ -648,7 +657,7 @@ WORKFLOW — follow this order exactly:
 7. APPLY ALL AUTO-FIXABLE ISSUES.
    For each auto-fix issue: open the file in ${worktreePath}, make the fix,
    save. Group into 1–3 logical commits (fix:, style:, refactor:, test:) and
-   push to ${branch}. Note the short SHAs.
+   push to ${headRef}. Note the short SHAs.
 
 8. WRITE THE SUMMARY.
    Write ${artifactsDir}/summary.md:
@@ -689,10 +698,13 @@ export function prAnalystInitialPrompt(artifactsDir: string): string {
  * subagents, aggregates their reports, commits all auto-fixable issues to
  * the PR branch, and posts a single summary comment.
  *
- * Runs as a pi session with pi-subagents capability. Memory is injected at
- * invocation time. Throws on hard failure so the pipeline can failTask.
+ * Primary context is pr-impact.md (curated by the impact stage). If absent,
+ * falls back to the full memory block. Never both — avoids context rot.
+ * Throws on hard failure so the pipeline can failTask.
  */
 
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { createLogger } from "../../shared/logger.js";
 import { loadEnv } from "../../shared/config.js";
 import { runStage, type SendTelegram } from "../../core/stage.js";
@@ -723,11 +735,14 @@ export interface PrAnalystOptions {
 export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
   const { taskId, repo, nwo, prNumber, headRef, artifactsDir, worktreePath, sendTelegram, chatId } = opts;
 
-  const memory = await memoryBlock(repo);
   const cap = subagentCapability();
 
-  const systemPrompt = memory
-    + "\n\n"
+  // Prefer the curated pr-impact.md over the full memory block. Only fall back
+  // to the full block if the impact stage failed and left no file behind.
+  const impactExists = existsSync(path.join(artifactsDir, "pr-impact.md"));
+  const fallbackMemory = impactExists ? "" : await memoryBlock(repo);
+
+  const systemPrompt = (fallbackMemory ? fallbackMemory + "\n\n" : "")
     + prAnalystSystemPrompt({ repo, nwo, headRef, prNumber, artifactsDir, worktreePath });
 
   await runStage({
@@ -793,7 +808,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
 import { config } from "../../shared/config.js";
 import { getRepo } from "../../shared/repos.js";
-import { syncRepo, createPrWorktree, cleanupWorktree } from "../../core/git/worktree.js";
+import { syncRepo, createPrWorktree, removeWorktree } from "../../core/git/worktree.js";
 import { getPrMetadata, getPrDiff, parseNwo, parsePrIdentifier } from "../../core/git/github.js";
 import { runMemory } from "../memory/pipeline.js";
 import { runImpactAnalyzer } from "./impact-analyzer.js";
@@ -876,18 +891,8 @@ async function runPrReviewInner(
   await writeFile(path.join(artifactsDir, "pr-context.json"), JSON.stringify(metadata, null, 2));
   await writeFile(path.join(artifactsDir, "pr.diff"), diff);
 
-  // Stage 2: pr_impact. Memory-derived synthesis. Soft-fail.
-  await runImpactAnalyzer({
-    taskId,
-    repo: task.repo,
-    artifactsDir,
-    sendTelegram,
-    chatId: chatId ?? null,
-  });
-
-  // Create the worktree the analyst will commit from.
-  // createPrWorktree now takes headRef and fetches the real branch from origin,
-  // so the worktree is directly on the PR branch. git push just works.
+  // Create the worktree first — the impact stage runs inside it (PR branch,
+  // full read access) so it sees the files as they are in the PR.
   let worktreePath: string;
   try {
     worktreePath = await createPrWorktree(repo.localPath, branch, taskId);
@@ -895,6 +900,17 @@ async function runPrReviewInner(
     await failTask(taskId, `Failed to create worktree: ${err instanceof Error ? err.message : String(err)}`, sendTelegram, chatId);
     return;
   }
+
+  // Stage 2: pr_impact. Context curator — explores the worktree, validates
+  // memory against live code, writes pr-impact.md. Soft-fail.
+  await runImpactAnalyzer({
+    taskId,
+    repo: task.repo,
+    artifactsDir,
+    worktreePath,
+    sendTelegram,
+    chatId: chatId ?? null,
+  });
 
   await queries.updateTask(taskId, { prNumber, status: "running" });
 
@@ -915,7 +931,7 @@ async function runPrReviewInner(
   } catch (err) {
     await failTask(taskId, err instanceof Error ? err.message : String(err), sendTelegram, chatId);
   } finally {
-    await cleanupWorktree(worktreePath).catch((e) => log.warn(`Worktree cleanup failed: ${e}`));
+    await removeWorktree(repo.localPath, worktreePath).catch((e) => log.warn(`Worktree cleanup failed: ${e}`));
   }
 }
 ```
