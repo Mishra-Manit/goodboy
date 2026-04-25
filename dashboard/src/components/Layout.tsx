@@ -5,7 +5,8 @@ import { cn } from "@dashboard/lib/utils";
 
 const NAV_ITEMS = [
   { to: "/", label: "Tasks" },
-  { to: "/prs", label: "PRs" },
+  { to: "/pr-reviews", label: "PR Reviews" },
+  { to: "/prs", label: "PR Sessions" },
   { to: "/repos", label: "Repos" },
   { to: "/memory", label: "Memory" },
 ] as const;

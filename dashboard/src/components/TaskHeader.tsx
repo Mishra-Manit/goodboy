@@ -2,9 +2,10 @@
 
 import { ExternalLink, RotateCcw, XCircle } from "lucide-react";
 import { StatusBadge } from "./StatusBadge.js";
-import { shortId } from "@dashboard/lib/utils";
-import { formatDate, timeAgo } from "@dashboard/lib/format";
 import { TASK_KIND_CONFIG, type TaskWithStages } from "@dashboard/lib/api";
+import { formatDate, timeAgo } from "@dashboard/lib/format";
+import { getPrReviewTarget, getPrReviewUrl } from "@dashboard/lib/pr-review";
+import { shortId } from "@dashboard/lib/utils";
 
 interface TaskHeaderProps {
   task: TaskWithStages;
@@ -16,6 +17,8 @@ interface TaskHeaderProps {
 
 export function TaskHeader({ task, now, isActive, onRetry, onCancel }: TaskHeaderProps) {
   const kindConfig = TASK_KIND_CONFIG[task.kind] ?? TASK_KIND_CONFIG.coding_task;
+  const prReviewUrl = getPrReviewUrl(task);
+  const prReviewTarget = getPrReviewTarget(task);
 
   return (
     <header className="mb-8">
@@ -44,6 +47,17 @@ export function TaskHeader({ task, now, isActive, onRetry, onCancel }: TaskHeade
           >
             <ExternalLink size={10} />
             PR #{task.prNumber}
+          </a>
+        )}
+        {!task.prUrl && prReviewUrl && (
+          <a
+            href={prReviewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 font-mono text-[10px] text-text-ghost hover:text-accent"
+          >
+            <ExternalLink size={10} />
+            {prReviewTarget}
           </a>
         )}
         {task.status === "failed" && (

@@ -44,9 +44,9 @@ export function PullRequests() {
   return (
     <div>
       <header className="mb-8">
-        <h1 className="font-display text-lg font-semibold tracking-tight text-text">Pull Requests</h1>
+        <h1 className="font-display text-lg font-semibold tracking-tight text-text">PR Sessions</h1>
         <p className="mt-1 font-mono text-[11px] text-text-ghost">
-          PRs created by goodboy and active review sessions
+          PRs created by goodboy and active follow-up review sessions
         </p>
       </header>
 

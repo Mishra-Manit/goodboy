@@ -24,6 +24,7 @@ import { LogViewer } from "@dashboard/components/log-viewer";
 import { PipelineProgress } from "@dashboard/components/PipelineProgress";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { dedupeById } from "@dashboard/components/log-viewer/helpers";
+import { getPrReviewTarget, getPrReviewUrl } from "@dashboard/lib/pr-review";
 import { cn } from "@dashboard/lib/utils";
 
 const TERMINAL = new Set(["complete", "failed", "cancelled"]);
@@ -90,6 +91,8 @@ interface TaskViewProps {
 function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: TaskViewProps) {
   const kindConfig = TASK_KIND_CONFIG[task.kind] ?? TASK_KIND_CONFIG.coding_task;
   const isActive = !TERMINAL.has(task.status);
+  const prReviewUrl = getPrReviewUrl(task);
+  const prReviewTarget = getPrReviewTarget(task);
 
   const stageNames = useMemo(
     () => [
@@ -139,7 +142,21 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
       )}
 
       {task.kind === "pr_review" && task.prIdentifier && (
-        <div className="mb-6 font-mono text-[11px] text-text-ghost">reviewing: {task.prIdentifier}</div>
+        <div className="mb-6 font-mono text-[11px] text-text-ghost">
+          reviewing:{" "}
+          {prReviewUrl ? (
+            <a
+              href={prReviewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-text-ghost transition-colors hover:text-accent"
+            >
+              {prReviewTarget}
+            </a>
+          ) : (
+            prReviewTarget
+          )}
+        </div>
       )}
 
       <SectionDivider label="transcript" />
