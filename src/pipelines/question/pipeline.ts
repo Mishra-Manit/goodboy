@@ -8,26 +8,15 @@ import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
 import { resolveModel } from "../../shared/config.js";
-import { emit } from "../../shared/events.js";
-import { getRepo } from "../../shared/repos.js";
-import { syncRepo } from "../../core/git/worktree.js";
-import * as queries from "../../db/repository.js";
-import {
-  failTask,
-  notifyTelegram,
-  runStage,
-  clearActiveSession,
-  isTaskCancelled,
-  resetTaskCancellation,
-  TaskCancelledError,
-  type SendTelegram,
-} from "../../core/stage.js";
-import { withPipelineSpan } from "../../observability/index.js";
+import { notifyTelegram, runStage, clearActiveSession, completeTask, type SendTelegram } from "../../core/stage.js";
 import { questionSystemPrompt, questionInitialPrompt } from "./prompts.js";
-import { runMemory } from "../memory/pipeline.js";
 import { memoryBlock } from "../../shared/agent-prompts.js";
-import { prepareArtifactsDir } from "../../shared/artifacts.js";
-import { toErrorMessage } from "../../shared/errors.js";
+import {
+  handlePipelineError,
+  prepareTaskPipeline,
+  withTaskPipeline,
+  type TaskPipelineContext,
+} from "../common.js";
 
 const log = createLogger("question");
 
@@ -38,58 +27,23 @@ const TELEGRAM_ANSWER_TRUNCATED_AT = 900;
 
 /** Run the codebase-question pipeline. Errors surface via `failTask`; never throws. */
 export async function runQuestion(taskId: string, sendTelegram: SendTelegram): Promise<void> {
-  const task = await queries.getTask(taskId);
-  if (!task) {
-    log.error(`Task ${taskId} not found`);
-    return;
-  }
-
-  return withPipelineSpan(
-    { taskId, kind: "codebase_question", repo: task.repo },
-    () => runQuestionInner(taskId, task, sendTelegram),
-  );
+  return withTaskPipeline(taskId, "codebase_question", sendTelegram, async (ctx) => {
+    await runQuestionInner(ctx);
+  });
 }
 
 async function runQuestionInner(
-  taskId: string,
-  task: NonNullable<Awaited<ReturnType<typeof queries.getTask>>>,
-  sendTelegram: SendTelegram,
+  ctx: TaskPipelineContext,
 ): Promise<void> {
-  const repo = getRepo(task.repo);
-  if (!repo) {
-    await failTask(taskId, `Repo '${task.repo}' not found in registry`, sendTelegram, task.telegramChatId);
-    return;
-  }
+  const { taskId, task, repo, chatId, sendTelegram } = ctx;
 
-  resetTaskCancellation(taskId);
-
-  const chatId = task.telegramChatId;
-  await notifyTelegram(sendTelegram, chatId,
-    `Answering question for ${task.repo}...\n\n${task.description}`);
-
-  const artifactsDir = await prepareArtifactsDir(taskId);
-
-  try {
-    await syncRepo(repo.localPath);
-  } catch (err) {
-    await failTask(taskId, `Failed to sync repo: ${toErrorMessage(err)}`, sendTelegram, chatId);
-    return;
-  }
-
-  // Run the memory stage before answering. Soft-fail: never throws to caller.
-  await runMemory({
-    taskId,
-    repo: task.repo,
-    repoPath: repo.localPath,
-    source: "task",
-    sendTelegram,
-    chatId,
+  const prepared = await prepareTaskPipeline({
+    ctx,
+    startMessage: `Answering question for ${task.repo}...\n\n${task.description}`,
   });
+  if (!prepared) return;
 
-  if (isTaskCancelled(taskId)) {
-    log.info(`Task ${taskId} cancelled during memory stage; halting pipeline`);
-    return;
-  }
+  const { artifactsDir } = prepared;
 
   const memory = await memoryBlock(task.repo);
   const absArtifacts = path.resolve(artifactsDir);
@@ -109,14 +63,15 @@ async function runQuestionInner(
 
     await sendAnswerToTelegram(artifactsDir, sendTelegram, chatId);
 
-    await queries.updateTask(taskId, { status: "complete", completedAt: new Date() });
-    emit({ type: "task_update", taskId, status: "complete" });
+    await completeTask(taskId);
   } catch (err) {
-    if (err instanceof TaskCancelledError) {
-      log.info(`Task ${taskId} cancelled mid-stage; pipeline halted`);
-      return;
-    }
-    await failTask(taskId, toErrorMessage(err), sendTelegram, chatId);
+    await handlePipelineError({
+      taskId,
+      err,
+      sendTelegram,
+      chatId,
+      logCancelled: () => log.info(`Task ${taskId} cancelled mid-stage; pipeline halted`),
+    });
   } finally {
     clearActiveSession(taskId);
   }

@@ -10,6 +10,7 @@
 
 import { createLogger } from "../shared/logger.js";
 import { emit } from "../shared/events.js";
+import { toErrorMessage } from "../shared/errors.js";
 import * as queries from "../db/repository.js";
 import { spawnPiSession, type PiSession } from "./pi/spawn.js";
 import { ensureSessionDir, taskSessionPath } from "./pi/session-file.js";
@@ -111,6 +112,12 @@ export async function failTask(
   await queries.updateTask(taskId, { status: "failed", error });
   emit({ type: "task_update", taskId, status: "failed" });
   await notifyTelegram(sendTelegram, chatId, `Task failed: ${error}`);
+}
+
+/** Mark a task as complete and emit the terminal SSE update. */
+export async function completeTask(taskId: string): Promise<void> {
+  await queries.updateTask(taskId, { status: "complete", completedAt: new Date() });
+  emit({ type: "task_update", taskId, status: "complete" });
 }
 
 // --- Timeout ---
@@ -262,7 +269,11 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
         const cancelled = cancelledTasks.has(taskId);
         const terminalStatus = cancelled ? "skipped" : "failed";
         if (stageRecord) {
-          await queries.updateTaskStage(stageRecord.id, { status: terminalStatus }).catch(() => {});
+          await queries.updateTaskStage(stageRecord.id, {
+            status: terminalStatus,
+            completedAt: new Date(),
+            error: cancelled ? null : toErrorMessage(err),
+          }).catch(() => {});
         }
         emit({ type: "stage_update", taskId, stage, status: terminalStatus });
         if (cancelled) throw new TaskCancelledError(taskId);

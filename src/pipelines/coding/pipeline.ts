@@ -5,35 +5,35 @@
  */
 
 import path from "node:path";
-import { stat } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
 import { resolveModel } from "../../shared/config.js";
 import { subagentCapability } from "../../core/subagents/index.js";
-import { emit } from "../../shared/events.js";
-import { getRepo } from "../../shared/repos.js";
-import { createWorktree, generateBranchName, syncRepo } from "../../core/git/worktree.js";
+import { createWorktree, generateBranchName } from "../../core/git/worktree.js";
 import * as queries from "../../db/repository.js";
 import {
   failTask,
   notifyTelegram,
   clearActiveSession,
   isTaskCancelled,
-  resetTaskCancellation,
   runStage,
-  TaskCancelledError,
+  completeTask,
   type SendTelegram,
 } from "../../core/stage.js";
-import { withPipelineSpan } from "../../observability/index.js";
 import {
   codingPrompts,
   type CodingStage,
   type WorktreeEnv,
 } from "./prompts.js";
 import { startPrSession } from "../pr-session/session.js";
-import { runMemory } from "../memory/pipeline.js";
 import { memoryBlock } from "../../shared/agent-prompts.js";
-import { prepareArtifactsDir } from "../../shared/artifacts.js";
+import { requireNonEmptyArtifact } from "../../shared/artifacts.js";
 import { toErrorMessage } from "../../shared/errors.js";
+import {
+  handlePipelineError,
+  prepareTaskPipeline,
+  withTaskPipeline,
+  type TaskPipelineContext,
+} from "../common.js";
 
 const log = createLogger("coding");
 
@@ -71,59 +71,23 @@ const STAGE_ORDER: readonly CodingStage[] = ["planner", "implementer", "reviewer
 
 /** Run the full coding pipeline for a task. Errors surface via `failTask`; never throws. */
 export async function runPipeline(taskId: string, sendTelegram: SendTelegram): Promise<void> {
-  const task = await queries.getTask(taskId);
-  if (!task) {
-    log.error(`Task ${taskId} not found`);
-    return;
-  }
-
-  return withPipelineSpan(
-    { taskId, kind: "coding_task", repo: task.repo },
-    () => runCodingPipelineInner(taskId, task, sendTelegram),
-  );
+  return withTaskPipeline(taskId, "coding_task", sendTelegram, async (ctx) => {
+    await runCodingPipelineInner(ctx);
+  });
 }
 
 async function runCodingPipelineInner(
-  taskId: string,
-  task: NonNullable<Awaited<ReturnType<typeof queries.getTask>>>,
-  sendTelegram: SendTelegram,
+  ctx: TaskPipelineContext,
 ): Promise<void> {
-  const repo = getRepo(task.repo);
-  if (!repo) {
-    await failTask(taskId, `Repo '${task.repo}' not found in registry`, sendTelegram, task.telegramChatId);
-    return;
-  }
+  const { taskId, task, repo, chatId, sendTelegram } = ctx;
 
-  resetTaskCancellation(taskId);
-
-  const chatId = task.telegramChatId;
-  await notifyTelegram(sendTelegram, chatId,
-    `Task ${task.id.slice(0, 8)} started for repo ${task.repo}.\n\n${task.description}`);
-
-  // Clean artifacts so retries start fresh.
-  const artifactsDir = await prepareArtifactsDir(taskId);
-
-  try {
-    await syncRepo(repo.localPath);
-  } catch (err) {
-    await failTask(taskId, `Failed to sync repo: ${toErrorMessage(err)}`, sendTelegram, chatId);
-    return;
-  }
-
-  // Run the memory stage before planning. Soft-fail: never throws to caller.
-  await runMemory({
-    taskId,
-    repo: task.repo,
-    repoPath: repo.localPath,
-    source: "task",
-    sendTelegram,
-    chatId,
+  const prepared = await prepareTaskPipeline({
+    ctx,
+    startMessage: `Task ${task.id.slice(0, 8)} started for repo ${task.repo}.\n\n${task.description}`,
   });
+  if (!prepared) return;
 
-  if (isTaskCancelled(taskId)) {
-    log.info(`Task ${taskId} cancelled during memory stage; halting pipeline`);
-    return;
-  }
+  const { artifactsDir } = prepared;
 
   // Render memory once for the whole task. All three coding stages read the
   // same snapshot, so no stage needs to re-read files from disk.
@@ -151,11 +115,10 @@ async function runCodingPipelineInner(
         return;
       }
       await runCodingStage(stage, { taskId, task, worktreePath, artifactsDir, worktreeEnv, memory, sendTelegram });
-      await requireArtifact(artifactsDir, STAGES[stage].artifact, STAGES[stage].artifactError);
+      await requireNonEmptyArtifact(artifactsDir, STAGES[stage].artifact, STAGES[stage].artifactError);
     }
 
-    await queries.updateTask(taskId, { status: "complete", completedAt: new Date() });
-    emit({ type: "task_update", taskId, status: "complete" });
+    await completeTask(taskId);
     await notifyTelegram(sendTelegram, chatId,
       `Task ${task.id.slice(0, 8)} complete. Handing off to PR session...`);
 
@@ -174,11 +137,13 @@ async function runCodingPipelineInner(
         `PR session failed: ${toErrorMessage(err)}`);
     });
   } catch (err) {
-    if (err instanceof TaskCancelledError) {
-      log.info(`Task ${taskId} cancelled mid-stage; pipeline halted`);
-      return;
-    }
-    await failTask(taskId, toErrorMessage(err), sendTelegram, chatId);
+    await handlePipelineError({
+      taskId,
+      err,
+      sendTelegram,
+      chatId,
+      logCancelled: () => log.info(`Task ${taskId} cancelled mid-stage; pipeline halted`),
+    });
   } finally {
     clearActiveSession(taskId);
   }
@@ -224,15 +189,3 @@ async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<vo
 }
 
 // --- Helpers ---
-
-/** Assert that an artifact file exists and is non-empty; throws with `errorMsg` otherwise. */
-async function requireArtifact(artifactsDir: string, filename: string, errorMsg: string): Promise<void> {
-  const filePath = path.join(artifactsDir, filename);
-  try {
-    const s = await stat(filePath);
-    if (s.size === 0) throw new Error(`${errorMsg} (file is empty: ${filePath})`);
-  } catch (err) {
-    if (err instanceof Error && err.message.startsWith(errorMsg)) throw err;
-    throw new Error(`${errorMsg} (expected at ${filePath})`);
-  }
-}
