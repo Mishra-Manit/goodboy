@@ -19,6 +19,7 @@ import { initObservability, shutdownObservability, emitStartupEvent } from "./ob
 import { findOrphanedMemoryDirs, cleanupStaleMemoryLocks } from "./core/memory/index.js";
 import { pruneWorktrees } from "./core/git/worktree.js";
 import { listRepos, listRepoNames } from "./shared/repos.js";
+import { reapRunningRows } from "./db/repository.js";
 const log = createLogger("main");
 
 async function main(): Promise<void> {
@@ -44,6 +45,37 @@ async function main(): Promise<void> {
         "goodboy.memory.repo": lock.repo,
         "goodboy.memory.previousTaskId": lock.previousTaskId ?? "",
         "goodboy.memory.reason": lock.reason,
+      });
+    }
+  }
+
+  // Reconcile DB rows still marked `running` from a previous unclean
+  // shutdown. Symmetric with the memory-lock sweep above: lock files
+  // recover on-disk state, this recovers DB state. Without it the
+  // dashboard would show an orphaned task/stage as "running" forever.
+  const reaped = await reapRunningRows();
+  if (reaped.tasks.length || reaped.stages.length || reaped.memoryRuns.length) {
+    log.info(
+      `Reaped orphan running rows on startup: ${reaped.tasks.length} task(s), ${reaped.stages.length} stage(s), ${reaped.memoryRuns.length} memory run(s)`,
+    );
+    for (const t of reaped.tasks) {
+      emitStartupEvent("goodboy.startup.task_reaped", {
+        "goodboy.task.id": t.id,
+        "goodboy.task.repo": t.repo,
+      });
+    }
+    for (const s of reaped.stages) {
+      emitStartupEvent("goodboy.startup.stage_reaped", {
+        "goodboy.stage.id": s.id,
+        "goodboy.task.id": s.taskId,
+        "goodboy.stage.name": s.stage,
+      });
+    }
+    for (const m of reaped.memoryRuns) {
+      emitStartupEvent("goodboy.startup.memory_run_reaped", {
+        "goodboy.memory.runId": m.id,
+        "goodboy.memory.repo": m.repo,
+        "goodboy.memory.kind": m.kind,
       });
     }
   }
