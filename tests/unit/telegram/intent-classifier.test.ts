@@ -66,12 +66,17 @@ describe("classifyMessage", () => {
     expect(intent.type).toBe(payload.type);
   });
 
-  it("passes the repo names into structuredOutput's system prompt", async () => {
+  it("passes repo names and GitHub URLs into structuredOutput's system prompt", async () => {
     llmHandler.impl = async () => ({ type: "unknown", rawText: "x" });
-    await classifyMessage("x", ["alpha", "beta"]);
+    await classifyMessage("x", [
+      { name: "alpha", githubUrl: "https://github.com/acme/alpha" },
+      { name: "beta" },
+    ]);
     const callArg = llmHandler.calls[0] as { system: string };
     expect(callArg.system).toContain("alpha");
     expect(callArg.system).toContain("beta");
+    expect(callArg.system).toContain("https://github.com/acme/alpha");
+    expect(callArg.system).toContain("review this PR");
   });
 
   it("passes an explicit model override into structuredOutput", async () => {

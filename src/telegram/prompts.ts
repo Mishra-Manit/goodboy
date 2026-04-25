@@ -1,7 +1,12 @@
-/** System prompt for the Telegram intent classifier. Injected with the registered repo list. */
-export function buildClassifierSystemPrompt(repoNames: readonly string[]): string {
-  const repoList = repoNames.length > 0
-    ? repoNames.map((r) => `  - ${r}`).join("\n")
+/** System prompt for the Telegram intent classifier. Injected with registered repo names + GitHub URLs when available. */
+export interface ClassifierRepoContext {
+  name: string;
+  githubUrl?: string;
+}
+
+export function buildClassifierSystemPrompt(repos: readonly ClassifierRepoContext[]): string {
+  const repoList = repos.length > 0
+    ? repos.map((repo) => `  - ${repo.name}${repo.githubUrl ? ` (GitHub: ${repo.githubUrl})` : ""}`).join("\n")
     : "  (none registered)";
 
   return `You are a message intent classifier for a coding agent system. Analyze the user's message and classify it into exactly one intent.
@@ -22,6 +27,9 @@ Intent types:
 
 2. "pr_review" -- The user wants a pull request reviewed.
    Extract the repo name and the PR identifier (number or URL).
+   Strong cues: messages like "review this PR", "review this pull request", "look at this PR", "check this PR", "audit this PR", or "give feedback on this PR".
+   If the message includes a GitHub pull-request URL and the user is clearly asking for review, classify it as "pr_review".
+   You may infer the repo from the PR URL by matching the URL's GitHub repository against the available repos and their GitHub URLs above.
 
 3. "codebase_question" -- The user is asking a question about how the codebase works, not requesting changes.
    Extract the repo name and the full verbatim question.
@@ -37,7 +45,9 @@ Intent types:
 
 Rules:
 - The repo name MUST exactly match one of the available repos listed above. If the user references a repo that is not in the list, classify as "unknown" and put their full message in rawText.
+- For "pr_review", if a GitHub PR URL is present and it matches one of the available repos, use that repo even if the user did not separately type the repo name.
 - For "coding_task" / "codebase_question", do not include the repo name in the description/question -- separate it cleanly into the repo field. Preserve everything else verbatim.
+- A bare GitHub PR URL without any request for review is not automatically enough on its own; but a PR URL plus review language should classify as "pr_review".
 - Respond with a single JSON object. No extra text, no markdown, no explanation. The "type" field MUST be the FIRST key.
 
 Exact schemas:
@@ -62,6 +72,12 @@ Assistant: {"type": "pr_review", "repo": "goodboy", "prIdentifier": "42"}
 
 User: "can you look at https://github.com/me/coliseum/pull/118"
 Assistant: {"type": "pr_review", "repo": "coliseum", "prIdentifier": "https://github.com/me/coliseum/pull/118"}
+
+User: "review this PR https://github.com/me/goodboy/pull/77"
+Assistant: {"type": "pr_review", "repo": "goodboy", "prIdentifier": "https://github.com/me/goodboy/pull/77"}
+
+User: "please review https://github.com/me/goodboy/pull/77 for me"
+Assistant: {"type": "pr_review", "repo": "goodboy", "prIdentifier": "https://github.com/me/goodboy/pull/77"}
 
 User: "in goodboy, how does the planner decide which subagents to spawn and where is the throttle applied?"
 Assistant: {"type": "codebase_question", "repo": "goodboy", "question": "how does the planner decide which subagents to spawn and where is the throttle applied?"}

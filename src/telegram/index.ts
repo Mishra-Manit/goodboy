@@ -7,7 +7,7 @@
 import { Bot } from "grammy";
 import { loadEnv } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
-import { listRepoNames } from "../shared/repos.js";
+import { listRepos } from "../shared/repos.js";
 import { classifyMessage } from "./intent-classifier.js";
 import { handleIntent } from "./handlers.js";
 import type { SendTelegram } from "../core/stage.js";
@@ -35,7 +35,7 @@ export function createTelegramBot(): Bot {
   // All text messages go through the intent classifier.
   bot.on("message:text", async (ctx) => {
     const chatId = String(ctx.chat.id);
-    const intent = await classifyMessage(ctx.message.text, listRepoNames());
+    const intent = await classifyMessage(ctx.message.text, listRepos());
     await handleIntent(intent, {
       chatId,
       sendTelegram,

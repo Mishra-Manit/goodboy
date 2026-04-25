@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { LIGHT_MODEL, structuredOutput } from "../shared/llm.js";
 import { createLogger } from "../shared/logger.js";
-import { buildClassifierSystemPrompt } from "./prompts.js";
+import { buildClassifierSystemPrompt, type ClassifierRepoContext } from "./prompts.js";
 
 const log = createLogger("intent-classifier");
 
@@ -27,22 +27,24 @@ const intentSchema = z.discriminatedUnion("type", [
 
 export type Intent = z.infer<typeof intentSchema>;
 
+type ClassifierRepoInput = string | ClassifierRepoContext;
+
 // --- Public API ---
 
 /** Classify a user message with the default light model. Never throws; falls back to `unknown` on failure. */
-export async function classifyMessage(text: string, repoNames: readonly string[]): Promise<Intent> {
-  return classifyMessageWithModel(text, repoNames, LIGHT_MODEL);
+export async function classifyMessage(text: string, repos: readonly ClassifierRepoInput[]): Promise<Intent> {
+  return classifyMessageWithModel(text, repos, LIGHT_MODEL);
 }
 
 /** Classify a user message with an explicit model override for manual benchmarking. */
 export async function classifyMessageWithModel(
   text: string,
-  repoNames: readonly string[],
+  repos: readonly ClassifierRepoInput[],
   model: string,
 ): Promise<Intent> {
   try {
     const intent = await structuredOutput({
-      system: buildClassifierSystemPrompt(repoNames),
+      system: buildClassifierSystemPrompt(normalizeRepoContexts(repos)),
       prompt: text,
       schema: intentSchema,
       model,
@@ -58,4 +60,8 @@ export async function classifyMessageWithModel(
     log.error("Classification failed, returning unknown", err);
     return { type: "unknown", rawText: text };
   }
+}
+
+function normalizeRepoContexts(repos: readonly ClassifierRepoInput[]): ClassifierRepoContext[] {
+  return repos.map((repo) => (typeof repo === "string" ? { name: repo } : repo));
 }
