@@ -19,7 +19,8 @@ import { getPrMetadata, getPrDiff, parseNwo, parsePrIdentifier } from "../../cor
 import { runMemory } from "../memory/pipeline.js";
 import { runImpactAnalyzer } from "./impact-analyzer.js";
 import { runPrAnalyst } from "./analyst.js";
-import { failTask, notifyTelegram, type SendTelegram } from "../../core/stage.js";
+import { failTask, notifyTelegram, clearActiveSession, isTaskCancelled, resetTaskCancellation, TaskCancelledError, type SendTelegram } from "../../core/stage.js";
+import { emit } from "../../shared/events.js";
 import { withPipelineSpan } from "../../observability/index.js";
 import * as queries from "../../db/repository.js";
 
@@ -43,6 +44,8 @@ async function runPrReviewInner(
 ): Promise<void> {
   const taskId = task.id;
   const chatId = task.telegramChatId;
+
+  resetTaskCancellation(taskId);
 
   // Resolve repo + nwo + PR number.
   const repo = getRepo(task.repo);
@@ -86,6 +89,11 @@ async function runPrReviewInner(
     source: "task", sendTelegram, chatId,
   });
 
+  if (isTaskCancelled(taskId)) {
+    log.info(`Task ${taskId} cancelled during memory stage; halting pipeline`);
+    return;
+  }
+
   // Fetch + persist PR metadata and diff so the impact + analyst stages can read them.
   let headRef: string;
   try {
@@ -122,9 +130,15 @@ async function runPrReviewInner(
     });
 
     await queries.updateTask(taskId, { status: "complete", completedAt: new Date() });
+    emit({ type: "task_update", taskId, status: "complete" });
   } catch (err) {
+    if (err instanceof TaskCancelledError) {
+      log.info(`Task ${taskId} cancelled mid-pipeline; halting`);
+      return;
+    }
     await failTask(taskId, message(err), sendTelegram, chatId);
   } finally {
+    clearActiveSession(taskId);
     await removeWorktree(repo.localPath, worktreePath).catch((e) =>
       log.warn(`Worktree cleanup failed for ${taskId}: ${message(e)}`),
     );
