@@ -7,18 +7,15 @@
 import { getRepo, listRepoNames } from "../shared/repos.js";
 import { createLogger } from "../shared/logger.js";
 import * as queries from "../db/repository.js";
-import { runPipeline } from "../pipelines/coding/pipeline.js";
-import { runQuestion } from "../pipelines/question/pipeline.js";
-import { runPrReview } from "../pipelines/pr-review/pipeline.js";
+import { PIPELINES } from "../pipelines/index.js";
 import { cancelTask, type SendTelegram } from "../core/stage.js";
 import type { Intent } from "./intent-classifier.js";
 import type { Task } from "../db/repository.js";
-import type { TaskKind } from "../shared/types.js";
+import { isTerminalStatus, type TaskKind } from "../shared/types.js";
 
 const log = createLogger("telegram");
 
 const DESCRIPTION_PREVIEW_LEN = 80;
-const TERMINAL_STATUSES = ["complete", "failed", "cancelled"] as const;
 
 const UNKNOWN_REPLY =
   "I didn't understand that. You can ask me to work on a task, check status, or cancel/retry tasks.";
@@ -28,14 +25,6 @@ interface Ctx {
   sendTelegram: SendTelegram;
   reply: (text: string) => Promise<void>;
 }
-
-type PipelineRunner = (taskId: string, send: SendTelegram) => Promise<void>;
-
-const PIPELINES: Record<TaskKind, PipelineRunner> = {
-  coding_task: runPipeline,
-  codebase_question: runQuestion,
-  pr_review: runPrReview,
-};
 
 const ACK_MESSAGES: Record<TaskKind, string> = {
   coding_task: "Task created",
@@ -110,7 +99,7 @@ async function handleTaskStatus(intent: Extract<Intent, { type: "task_status" }>
     return;
   }
 
-  const active = (await queries.listTasks()).filter((t) => !isTerminal(t.status));
+  const active = (await queries.listTasks()).filter((t) => !isTerminalStatus(t.status));
   if (active.length === 0) {
     await ctx.reply("No active tasks.");
     return;
@@ -153,10 +142,6 @@ function shortId(id: string): string {
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 3)}...` : s;
-}
-
-function isTerminal(status: string): boolean {
-  return (TERMINAL_STATUSES as readonly string[]).includes(status);
 }
 
 function formatTaskLine(task: Task, prefix = ""): string {

@@ -5,9 +5,9 @@
  */
 
 import path from "node:path";
-import { mkdir, rm, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
-import { config, loadEnv } from "../../shared/config.js";
+import { resolveModel } from "../../shared/config.js";
 import { emit } from "../../shared/events.js";
 import { getRepo } from "../../shared/repos.js";
 import { syncRepo } from "../../core/git/worktree.js";
@@ -26,6 +26,8 @@ import { withPipelineSpan } from "../../observability/index.js";
 import { questionSystemPrompt, questionInitialPrompt } from "./prompts.js";
 import { runMemory } from "../memory/pipeline.js";
 import { memoryBlock } from "../../shared/agent-prompts.js";
+import { prepareArtifactsDir } from "../../shared/artifacts.js";
+import { toErrorMessage } from "../../shared/errors.js";
 
 const log = createLogger("question");
 
@@ -55,7 +57,7 @@ async function runQuestionInner(
 ): Promise<void> {
   const repo = getRepo(task.repo);
   if (!repo) {
-    await failTask(taskId, `Repo '${task.repo}' not found`, sendTelegram, task.telegramChatId);
+    await failTask(taskId, `Repo '${task.repo}' not found in registry`, sendTelegram, task.telegramChatId);
     return;
   }
 
@@ -65,14 +67,12 @@ async function runQuestionInner(
   await notifyTelegram(sendTelegram, chatId,
     `Answering question for ${task.repo}...\n\n${task.description}`);
 
-  const artifactsDir = path.join(config.artifactsDir, taskId);
-  await rm(artifactsDir, { recursive: true, force: true });
-  await mkdir(artifactsDir, { recursive: true });
+  const artifactsDir = await prepareArtifactsDir(taskId);
 
   try {
     await syncRepo(repo.localPath);
   } catch (err) {
-    await failTask(taskId, `Failed to sync repo: ${err}`, sendTelegram, chatId);
+    await failTask(taskId, `Failed to sync repo: ${toErrorMessage(err)}`, sendTelegram, chatId);
     return;
   }
 
@@ -101,7 +101,7 @@ async function runQuestionInner(
       cwd: repo.localPath,
       systemPrompt: questionSystemPrompt(memory, task.description, absArtifacts),
       initialPrompt: questionInitialPrompt(task.description, absArtifacts),
-      model: loadEnv().PI_MODEL,
+      model: resolveModel("PI_MODEL"),
       sendTelegram,
       chatId,
       stageLabel: "Answering",
@@ -116,7 +116,7 @@ async function runQuestionInner(
       log.info(`Task ${taskId} cancelled mid-stage; pipeline halted`);
       return;
     }
-    await failTask(taskId, err instanceof Error ? err.message : String(err), sendTelegram, chatId);
+    await failTask(taskId, toErrorMessage(err), sendTelegram, chatId);
   } finally {
     clearActiveSession(taskId);
   }

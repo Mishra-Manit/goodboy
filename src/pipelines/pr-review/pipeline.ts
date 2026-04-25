@@ -10,12 +10,11 @@
  */
 
 import path from "node:path";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
-import { config } from "../../shared/config.js";
-import { getRepo } from "../../shared/repos.js";
+import { getRepo, getRepoNwo } from "../../shared/repos.js";
 import { syncRepo, createPrWorktree, removeWorktree } from "../../core/git/worktree.js";
-import { getPrMetadata, getPrDiff, parseNwo, parsePrIdentifier } from "../../core/git/github.js";
+import { getPrMetadata, getPrDiff, parsePrIdentifier } from "../../core/git/github.js";
 import { runMemory } from "../memory/pipeline.js";
 import { runImpactAnalyzer } from "./impact-analyzer.js";
 import { runPrAnalyst } from "./analyst.js";
@@ -23,6 +22,8 @@ import { failTask, notifyTelegram, clearActiveSession, isTaskCancelled, resetTas
 import { emit } from "../../shared/events.js";
 import { withPipelineSpan } from "../../observability/index.js";
 import * as queries from "../../db/repository.js";
+import { prepareArtifactsDir } from "../../shared/artifacts.js";
+import { toErrorMessage } from "../../shared/errors.js";
 
 const log = createLogger("pr-review");
 
@@ -62,7 +63,7 @@ async function runPrReviewInner(
     );
     return;
   }
-  const nwo = repo.githubUrl ? parseNwo(repo.githubUrl) : null;
+  const nwo = getRepoNwo(task.repo);
   if (!nwo) {
     await failTask(taskId, `Repo '${task.repo}' is missing a githubUrl`, sendTelegram, chatId);
     return;
@@ -72,14 +73,12 @@ async function runPrReviewInner(
     `PR review ${taskId.slice(0, 8)} starting for ${nwo}#${prNumber}.`);
 
   // Fresh artifacts on every (re)run. reports/ is pre-created for the analyst's subagents.
-  const artifactsDir = path.join(config.artifactsDir, taskId);
-  await rm(artifactsDir, { recursive: true, force: true });
-  await mkdir(path.join(artifactsDir, "reports"), { recursive: true });
+  const artifactsDir = await prepareArtifactsDir(taskId, ["reports"]);
 
   try {
     await syncRepo(repo.localPath);
   } catch (err) {
-    await failTask(taskId, `Failed to sync repo: ${message(err)}`, sendTelegram, chatId);
+    await failTask(taskId, `Failed to sync repo: ${toErrorMessage(err)}`, sendTelegram, chatId);
     return;
   }
 
@@ -103,7 +102,7 @@ async function runPrReviewInner(
     await writeFile(path.join(artifactsDir, "pr.diff"), diff);
     headRef = metadata.headRef;
   } catch (err) {
-    await failTask(taskId, `Failed to fetch PR context: ${message(err)}`, sendTelegram, chatId);
+    await failTask(taskId, `Failed to fetch PR context: ${toErrorMessage(err)}`, sendTelegram, chatId);
     return;
   }
 
@@ -111,7 +110,7 @@ async function runPrReviewInner(
   try {
     worktreePath = await createPrWorktree(repo.localPath, headRef, taskId);
   } catch (err) {
-    await failTask(taskId, `Failed to create worktree: ${message(err)}`, sendTelegram, chatId);
+    await failTask(taskId, `Failed to create worktree: ${toErrorMessage(err)}`, sendTelegram, chatId);
     return;
   }
 
@@ -136,15 +135,9 @@ async function runPrReviewInner(
       log.info(`Task ${taskId} cancelled mid-pipeline; halting`);
       return;
     }
-    await failTask(taskId, message(err), sendTelegram, chatId);
+    await failTask(taskId, toErrorMessage(err), sendTelegram, chatId);
   } finally {
     clearActiveSession(taskId);
-    await removeWorktree(repo.localPath, worktreePath).catch((e) =>
-      log.warn(`Worktree cleanup failed for ${taskId}: ${message(e)}`),
-    );
+    await removeWorktree(repo.localPath, worktreePath);
   }
-}
-
-function message(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }

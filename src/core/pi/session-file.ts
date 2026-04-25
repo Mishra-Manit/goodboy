@@ -11,6 +11,7 @@ import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { createLogger } from "../../shared/logger.js";
 import { config } from "../../shared/config.js";
+import { taskArtifactsDir } from "../../shared/artifacts.js";
 import { CURRENT_SESSION_VERSION, type FileEntry } from "../../shared/session.js";
 import type { StageName } from "../../shared/types.js";
 
@@ -22,7 +23,7 @@ const POLL_INTERVAL_MS = 500;
 
 /** Absolute path to a task stage's session file. */
 export function taskSessionPath(taskId: string, stage: StageName): string {
-  return path.join(config.artifactsDir, taskId, `${stage}.session.jsonl`);
+  return path.join(taskArtifactsDir(taskId), `${stage}.session.jsonl`);
 }
 
 /** Absolute path to a PR session's session file. */

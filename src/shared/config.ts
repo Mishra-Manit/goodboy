@@ -63,6 +63,8 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+type ModelKey = Extract<keyof Env, `PI_MODEL${string}`>;
+
 // --- Public accessors ---
 
 let _env: Env | null = null;
@@ -72,6 +74,12 @@ export function loadEnv(): Env {
   if (_env) return _env;
   _env = envSchema.parse(process.env);
   return _env;
+}
+
+/** Resolve a stage-specific model env var with fallback to the global default. */
+export function resolveModel(key: ModelKey): string {
+  const env = loadEnv();
+  return env[key] ?? env.PI_MODEL;
 }
 
 /** Test-only. Clears the cached env so the next `loadEnv()` re-parses `process.env`. */

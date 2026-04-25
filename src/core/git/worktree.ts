@@ -75,9 +75,13 @@ export async function createPrWorktree(repoPath: string, headRef: string, taskId
 }
 
 /** Remove a worktree. Falls back to `rm -rf` + `git worktree prune` if git no longer tracks it. */
-export async function removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
+export async function removeWorktree(
+  repoPath: string,
+  worktreePath: string,
+  opts?: { strict?: boolean },
+): Promise<void> {
   try {
-    await exec("git", ["worktree", "remove", worktreePath, "--force"], { cwd: repoPath });
+    await exec("git", ["worktree", "remove", "--force", worktreePath], { cwd: repoPath });
     log.info(`Removed worktree at ${worktreePath}`);
     return;
   } catch (err) {
@@ -95,7 +99,13 @@ export async function removeWorktree(repoPath: string, worktreePath: string): Pr
     log.info(`Removed worktree directory at ${worktreePath}`);
   } catch (err) {
     log.warn(`Failed to rm worktree directory at ${worktreePath}`, err);
+    if (opts?.strict) throw err;
   }
+  await pruneWorktrees(repoPath);
+}
+
+/** Best-effort `git worktree prune` for a repo. */
+export async function pruneWorktrees(repoPath: string): Promise<void> {
   try {
     await exec("git", ["worktree", "prune"], { cwd: repoPath });
   } catch (err) {
@@ -126,7 +136,7 @@ export async function generateBranchName(taskId: string, description: string): P
 
 async function forceRemoveWorktree(repoPath: string, dir: string): Promise<void> {
   try {
-    await exec("git", ["worktree", "remove", dir, "--force"], { cwd: repoPath });
+    await exec("git", ["worktree", "remove", "--force", dir], { cwd: repoPath });
     log.info(`Removed existing worktree at ${dir}`);
   } catch { /* may not exist */ }
 }

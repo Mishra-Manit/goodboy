@@ -17,11 +17,8 @@ import { loadEnv } from "./shared/config.js";
 import { createLogger } from "./shared/logger.js";
 import { initObservability, shutdownObservability, emitStartupEvent } from "./observability/index.js";
 import { findOrphanedMemoryDirs } from "./core/memory/index.js";
+import { pruneWorktrees } from "./core/git/worktree.js";
 import { listRepos, listRepoNames } from "./shared/repos.js";
-import { promisify } from "node:util";
-import { execFile } from "node:child_process";
-
-const exec = promisify(execFile);
 const log = createLogger("main");
 
 async function main(): Promise<void> {
@@ -31,11 +28,7 @@ async function main(): Promise<void> {
   // Sweep stale worktree registry entries across all registered repos so
   // deleted memory checkouts don't linger and block future `worktree add`.
   for (const repo of listRepos()) {
-    try {
-      await exec("git", ["worktree", "prune"], { cwd: repo.localPath });
-    } catch (err) {
-      log.warn(`git worktree prune failed in ${repo.localPath}`, err);
-    }
+    await pruneWorktrees(repo.localPath);
   }
 
   // Warn (but do not delete) memory dirs whose repo is no longer registered.

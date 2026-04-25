@@ -10,7 +10,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { createLogger } from "../../shared/logger.js";
-import { loadEnv } from "../../shared/config.js";
+import { resolveModel } from "../../shared/config.js";
 import { runStage, type SendTelegram } from "../../core/stage.js";
 import { memoryBlock } from "../../shared/agent-prompts.js";
 import { subagentCapability } from "../../core/subagents/index.js";
@@ -37,7 +37,6 @@ export interface PrAnalystOptions {
 /** Throws on failure -- pipeline catches and fails the task. */
 export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
   const { taskId, repo, nwo, prNumber, headRef, artifactsDir, worktreePath, sendTelegram, chatId } = opts;
-  const env = loadEnv();
   const cap = subagentCapability();
 
   // Prefer pr-impact.md. Fall back to the full memory block only if the
@@ -57,7 +56,7 @@ export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
     cwd: worktreePath,
     systemPrompt,
     initialPrompt: prAnalystInitialPrompt(artifactsDir),
-    model: env.PI_MODEL_PR_ANALYST ?? env.PI_MODEL,
+    model: resolveModel("PI_MODEL_PR_ANALYST"),
     sendTelegram,
     chatId,
     stageLabel: "PR Analyst",

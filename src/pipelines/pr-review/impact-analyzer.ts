@@ -7,10 +7,11 @@
  */
 
 import { createLogger } from "../../shared/logger.js";
-import { loadEnv } from "../../shared/config.js";
+import { resolveModel } from "../../shared/config.js";
 import { runStage, type SendTelegram } from "../../core/stage.js";
 import { memoryBlock } from "../../shared/agent-prompts.js";
 import { impactAnalyzerSystemPrompt, impactAnalyzerInitialPrompt } from "./impact-prompts.js";
+import { toErrorMessage } from "../../shared/errors.js";
 
 const log = createLogger("pr-impact");
 
@@ -28,8 +29,6 @@ export interface ImpactAnalyzerOptions {
 /** Never throws: failure leaves pr-impact.md absent and the analyst degrades. */
 export async function runImpactAnalyzer(opts: ImpactAnalyzerOptions): Promise<void> {
   const { taskId, repo, artifactsDir, worktreePath, sendTelegram, chatId } = opts;
-  const env = loadEnv();
-
   try {
     const memoryBody = await memoryBlock(repo);
     await runStage({
@@ -38,14 +37,14 @@ export async function runImpactAnalyzer(opts: ImpactAnalyzerOptions): Promise<vo
       cwd: worktreePath,
       systemPrompt: impactAnalyzerSystemPrompt(repo, artifactsDir, worktreePath, memoryBody),
       initialPrompt: impactAnalyzerInitialPrompt(artifactsDir),
-      model: env.PI_MODEL_PR_IMPACT ?? env.PI_MODEL,
+      model: resolveModel("PI_MODEL_PR_IMPACT"),
       sendTelegram,
       chatId,
       stageLabel: "PR Impact Curation",
       timeoutMs: IMPACT_TIMEOUT_MS,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = toErrorMessage(err);
     log.warn(`pr_impact failed for ${taskId}: ${msg} -- analyst falls back to full memory block`);
   }
 }

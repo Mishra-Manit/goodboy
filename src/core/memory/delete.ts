@@ -5,13 +5,8 @@
 
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { createLogger } from "../../shared/logger.js";
+import { removeWorktree, pruneWorktrees } from "../git/worktree.js";
 import { memoryDir, memoryWorktreeDir } from "./index.js";
-
-const exec = promisify(execFile);
-const log = createLogger("memory-delete");
 
 // --- Public API ---
 
@@ -34,11 +29,12 @@ export async function deleteRepoMemoryArtifacts(
 
   // First prune clears the main clone's worktree registry of stale entries,
   // so `git worktree remove` below succeeds even if the checkout dir was
-  // deleted out-of-band. Second prune cleans up our own remove afterward.
+  // deleted out-of-band. Second prune de-registers a normal remove; in the
+  // fallback rm path, `removeWorktree` already prunes internally.
   await pruneWorktrees(repoPath);
 
   if (hadWorktree) {
-    await removeWorktree(repo, repoPath, worktreePath);
+    await removeWorktree(repoPath, worktreePath, { strict: true });
   }
 
   await pruneWorktrees(repoPath);
@@ -52,23 +48,5 @@ export async function deleteRepoMemoryArtifacts(
   };
 }
 
-// --- Helpers ---
-
-async function removeWorktree(repo: string, repoPath: string, worktreePath: string): Promise<void> {
-  try {
-    await exec("git", ["worktree", "remove", "--force", worktreePath], { cwd: repoPath });
-    return;
-  } catch (err) {
-    log.warn(`git worktree remove failed for ${repo}; falling back to rm + prune`, err);
-  }
-
-  await rm(worktreePath, { recursive: true, force: true });
-}
-
-async function pruneWorktrees(repoPath: string): Promise<void> {
-  try {
-    await exec("git", ["worktree", "prune"], { cwd: repoPath });
-  } catch (err) {
-    log.warn(`git worktree prune failed in ${repoPath}`, err);
-  }
-}
+// No local git-worktree helpers here. Reuse `core/git/worktree.ts` so cleanup
+// behavior stays consistent everywhere.

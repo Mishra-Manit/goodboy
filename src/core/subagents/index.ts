@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { cp, stat } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
+import { toErrorMessage } from "../../shared/errors.js";
 
 const log = createLogger("subagents");
 const require = createRequire(import.meta.url);
@@ -22,7 +23,7 @@ function resolveExtensionPath(): string {
     return require.resolve("pi-subagents/index.ts");
   } catch (err) {
     throw new Error(
-      `Failed to resolve pi-subagents. Run 'npm install'. ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to resolve pi-subagents. Run 'npm install'. ${toErrorMessage(err)}`,
     );
   }
 }

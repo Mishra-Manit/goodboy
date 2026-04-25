@@ -16,6 +16,7 @@ import { z } from "zod";
 import { createLogger } from "../../shared/logger.js";
 import { config, loadEnv } from "../../shared/config.js";
 import { stageSubagentAssets } from "../subagents/index.js";
+import { pruneWorktrees } from "../git/worktree.js";
 
 const exec = promisify(execFile);
 const log = createLogger("memory");
@@ -351,8 +352,7 @@ export async function ensureMemoryWorktree(
 ): Promise<string> {
   const wt = memoryWorktreeDir(repo);
   await mkdir(memoryDir(repo), { recursive: true });
-  try { await exec("git", ["worktree", "prune"], { cwd: mainRepoPath }); }
-  catch (err) { log.warn(`git worktree prune failed in ${mainRepoPath}`, err); }
+  await pruneWorktrees(mainRepoPath);
 
   if (!existsSync(wt)) {
     await exec("git", ["fetch", "origin", "main", "--quiet"], { cwd: mainRepoPath });

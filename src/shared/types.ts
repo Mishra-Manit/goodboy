@@ -26,6 +26,15 @@ export const TASK_STATUSES = [
 
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+export const TERMINAL_STATUSES = ["complete", "failed", "cancelled"] as const;
+
+export type TerminalTaskStatus = (typeof TERMINAL_STATUSES)[number];
+
+/** True when the task status is terminal and no more work should run. */
+export function isTerminalStatus(status: TaskStatus): boolean {
+  return (TERMINAL_STATUSES as readonly string[]).includes(status);
+}
+
 // --- Stage names (union across all kinds) ---
 
 export const STAGE_NAMES = [

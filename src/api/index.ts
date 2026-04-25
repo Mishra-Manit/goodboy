@@ -23,8 +23,8 @@ import { cleanupTestMemoryRuns } from "../core/memory/cleanup.js";
 import { deleteRepoMemoryArtifacts } from "../core/memory/delete.js";
 import { config } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
+import { toErrorMessage } from "../shared/errors.js";
 import { TASK_STATUSES, TASK_KINDS, MEMORY_RUN_KINDS } from "../shared/types.js";
-import type { TaskKind } from "../shared/types.js";
 import {
   readSessionFile,
   taskSessionPath,
@@ -33,9 +33,7 @@ import {
 } from "../core/pi/session-file.js";
 import { STAGE_NAMES } from "../shared/types.js";
 import { cancelTask as cancelRunningTask, type SendTelegram } from "../core/stage.js";
-import { runPipeline } from "../pipelines/coding/pipeline.js";
-import { runQuestion } from "../pipelines/question/pipeline.js";
-import { runPrReview } from "../pipelines/pr-review/pipeline.js";
+import { PIPELINES } from "../pipelines/index.js";
 import { dismissTask } from "../core/cleanup.js";
 
 const log = createLogger("api");
@@ -47,12 +45,6 @@ const ARTIFACT_NAME_PATTERN = /^[\w.-]+$/;
 
 // Dashboard-triggered retries don't have bot access; skip Telegram.
 const noopSend: SendTelegram = async () => {};
-
-const PIPELINES: Record<TaskKind, (taskId: string, send: SendTelegram) => Promise<void>> = {
-  coding_task: runPipeline,
-  codebase_question: runQuestion,
-  pr_review: runPrReview,
-};
 
 // --- Public API ---
 
@@ -125,7 +117,7 @@ export function createApi(): Hono {
       await dismissTask(c.req.param("id"));
       return c.json({ ok: true });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = toErrorMessage(err);
       if (message.includes("not found")) return c.json({ error: message }, 404);
       if (message.includes("Cannot dismiss")) return c.json({ error: message }, 409);
       log.error(`Dismiss error for ${c.req.param("id")}`, err);
@@ -258,7 +250,7 @@ export function createApi(): Hono {
           deactivatedRuns,
         });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = toErrorMessage(err);
         log.error(`Memory delete failed for ${name}`, err);
         return c.json({ error: message }, 500);
       }

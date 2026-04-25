@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
-import { loadEnv, resetEnvForTesting } from "@src/shared/config.js";
+import { loadEnv, resetEnvForTesting, resolveModel } from "@src/shared/config.js";
 
 // Snapshot the seeded env from tests/setup/env.ts so individual tests can
 // mutate process.env without leaking into other test files.
@@ -88,5 +88,19 @@ describe("loadEnv — caching", () => {
     resetEnvForTesting();
     const b = loadEnv();
     expect(a).not.toBe(b);
+  });
+});
+
+describe("resolveModel", () => {
+  it("returns the stage-specific override when present", () => {
+    process.env.PI_MODEL = "openai/default";
+    process.env.PI_MODEL_PLANNER = "openai/planner";
+    expect(resolveModel("PI_MODEL_PLANNER")).toBe("openai/planner");
+  });
+
+  it("falls back to PI_MODEL when the stage override is missing", () => {
+    process.env.PI_MODEL = "openai/default";
+    delete process.env.PI_MODEL_PLANNER;
+    expect(resolveModel("PI_MODEL_PLANNER")).toBe("openai/default");
   });
 });

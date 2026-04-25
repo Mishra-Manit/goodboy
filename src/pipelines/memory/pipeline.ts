@@ -26,7 +26,7 @@
 
 import { trace, type Span } from "@opentelemetry/api";
 import { createLogger } from "../../shared/logger.js";
-import { loadEnv } from "../../shared/config.js";
+import { resolveModel } from "../../shared/config.js";
 import type { MemoryRunSource, StageStatus } from "../../shared/types.js";
 import { subagentCapability } from "../../core/subagents/index.js";
 import { runStage, isPersistedTaskId, type SendTelegram } from "../../core/stage.js";
@@ -50,6 +50,7 @@ import {
   coldSystemPrompt, coldInitialPrompt,
   warmSystemPrompt, warmInitialPrompt,
 } from "./prompts.js";
+import { toErrorMessage } from "../../shared/errors.js";
 
 const log = createLogger("memory-pipeline");
 
@@ -127,7 +128,7 @@ async function runMemoryInner(opts: RunMemoryOptions, pipelineSpan: Span): Promi
       await finalizeInlineMemoryStage(taskId, "skipped");
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = toErrorMessage(err);
     log.warn(`Memory stage failed for task ${taskId} repo ${repo}: ${message}`);
   }
 }
@@ -154,7 +155,7 @@ async function runCold(
       cwd: worktree,
       systemPrompt: coldSystemPrompt(opts.repo, memoryDir(opts.repo), worktree, manifest),
       initialPrompt: coldInitialPrompt(opts.repo, memoryDir(opts.repo)),
-      model: modelForMemory(),
+      model: resolveModel("PI_MODEL_MEMORY"),
       sendTelegram: opts.sendTelegram,
       chatId: opts.chatId,
       stageLabel: "Memory (cold)",
@@ -214,7 +215,7 @@ async function runWarm(
         state.zones, snapshot, bucketed, hints,
       ),
       initialPrompt: warmInitialPrompt(opts.repo, memoryDir(opts.repo)),
-      model: modelForMemory(),
+      model: resolveModel("PI_MODEL_MEMORY"),
       sendTelegram: opts.sendTelegram,
       chatId: opts.chatId,
       stageLabel: "Memory (warm)",
@@ -262,7 +263,3 @@ function attachRunIdToSpan(tracker: MemoryRunTracker): void {
   if (tracker.runId) trace.getActiveSpan()?.setAttribute(Goodboy.MemoryRunId, tracker.runId);
 }
 
-function modelForMemory(): string {
-  const env = loadEnv();
-  return env.PI_MODEL_MEMORY ?? env.PI_MODEL;
-}

@@ -5,15 +5,14 @@
  */
 
 import path from "node:path";
-import { mkdir, stat, rm } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
-import { config, loadEnv } from "../../shared/config.js";
+import { resolveModel } from "../../shared/config.js";
 import { subagentCapability } from "../../core/subagents/index.js";
 import { emit } from "../../shared/events.js";
 import { getRepo } from "../../shared/repos.js";
 import { createWorktree, generateBranchName, syncRepo } from "../../core/git/worktree.js";
 import * as queries from "../../db/repository.js";
-import type { Env } from "../../shared/config.js";
 import {
   failTask,
   notifyTelegram,
@@ -33,12 +32,14 @@ import {
 import { startPrSession } from "../pr-session/session.js";
 import { runMemory } from "../memory/pipeline.js";
 import { memoryBlock } from "../../shared/agent-prompts.js";
+import { prepareArtifactsDir } from "../../shared/artifacts.js";
+import { toErrorMessage } from "../../shared/errors.js";
 
 const log = createLogger("coding");
 
 interface StageSpec {
   readonly label: string;
-  readonly modelKey: keyof Env;
+  readonly modelKey: Parameters<typeof resolveModel>[0];
   readonly artifact: string;
   readonly artifactError: string;
 }
@@ -100,14 +101,12 @@ async function runCodingPipelineInner(
     `Task ${task.id.slice(0, 8)} started for repo ${task.repo}.\n\n${task.description}`);
 
   // Clean artifacts so retries start fresh.
-  const artifactsDir = path.join(config.artifactsDir, taskId);
-  await rm(artifactsDir, { recursive: true, force: true });
-  await mkdir(artifactsDir, { recursive: true });
+  const artifactsDir = await prepareArtifactsDir(taskId);
 
   try {
     await syncRepo(repo.localPath);
   } catch (err) {
-    await failTask(taskId, `Failed to sync repo: ${err}`, sendTelegram, chatId);
+    await failTask(taskId, `Failed to sync repo: ${toErrorMessage(err)}`, sendTelegram, chatId);
     return;
   }
 
@@ -138,7 +137,7 @@ async function runCodingPipelineInner(
     worktreePath = worktree.path;
     agentsSuggestion = worktree.agentsSuggestion;
   } catch (err) {
-    await failTask(taskId, `Failed to create worktree: ${err}`, sendTelegram, chatId);
+    await failTask(taskId, `Failed to create worktree: ${toErrorMessage(err)}`, sendTelegram, chatId);
     return;
   }
 
@@ -172,14 +171,14 @@ async function runCodingPipelineInner(
     }).catch((err) => {
       log.error(`PR session failed for task ${taskId}`, err);
       notifyTelegram(sendTelegram, chatId,
-        `PR session failed: ${err instanceof Error ? err.message : String(err)}`);
+        `PR session failed: ${toErrorMessage(err)}`);
     });
   } catch (err) {
     if (err instanceof TaskCancelledError) {
       log.info(`Task ${taskId} cancelled mid-stage; pipeline halted`);
       return;
     }
-    await failTask(taskId, err instanceof Error ? err.message : String(err), sendTelegram, chatId);
+    await failTask(taskId, toErrorMessage(err), sendTelegram, chatId);
   } finally {
     clearActiveSession(taskId);
   }
@@ -215,7 +214,7 @@ async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<vo
     cwd: ctx.worktreePath,
     systemPrompt,
     initialPrompt,
-    model: modelFor(spec.modelKey),
+    model: resolveModel(spec.modelKey),
     sendTelegram: ctx.sendTelegram,
     chatId: ctx.task.telegramChatId,
     stageLabel: spec.label,
@@ -225,11 +224,6 @@ async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<vo
 }
 
 // --- Helpers ---
-
-function modelFor(key: keyof Env): string {
-  const env = loadEnv();
-  return (env[key] as string | undefined) ?? env.PI_MODEL;
-}
 
 /** Assert that an artifact file exists and is non-empty; throws with `errorMsg` otherwise. */
 async function requireArtifact(artifactsDir: string, filename: string, errorMsg: string): Promise<void> {

@@ -10,7 +10,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createLogger } from "../../shared/logger.js";
-import { loadEnv } from "../../shared/config.js";
+import { resolveModel } from "../../shared/config.js";
 import { emit } from "../../shared/events.js";
 import { spawnPiSession } from "../../core/pi/spawn.js";
 import {
@@ -20,16 +20,16 @@ import {
 } from "../../core/pi/session-file.js";
 import { broadcastSessionFile } from "../../core/pi/session-broadcast.js";
 import { createPrWorktree } from "../../core/git/worktree.js";
-import { getRepo } from "../../shared/repos.js";
+import { getRepo, getRepoNwo } from "../../shared/repos.js";
 import * as queries from "../../db/repository.js";
 import { prSessionPrompt, formatCommentsPrompt, prCreationPrompt, externalReviewPrompt } from "./prompts.js";
 import { memoryBlock } from "../../shared/agent-prompts.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
-import type { Env } from "../../shared/config.js";
-import { parseNwo, parsePrNumberFromUrl, getPrMetadata, type PrComment } from "../../core/git/github.js";
+import { parsePrNumberFromUrl, getPrMetadata, type PrComment } from "../../core/git/github.js";
 import { withPipelineSpan, bridgeSessionToOtel } from "../../observability/index.js";
 import { trace } from "@opentelemetry/api";
 import { Goodboy } from "../../observability/attributes.js";
+import { toErrorMessage } from "../../shared/errors.js";
 
 const exec = promisify(execFile);
 const log = createLogger("pr-session");
@@ -72,7 +72,7 @@ export async function startPrSession(options: {
         summaryPath: path.join(artifactsDir, "implementation-summary.md"),
         reviewPath: path.join(artifactsDir, "review.md"),
       }),
-      model: modelFor("PI_MODEL_PR_CREATOR"),
+      model: resolveModel("PI_MODEL_PR_CREATOR"),
       prompt: prCreationPrompt,
       run,
       timeoutLabel: "PR session (create)",
@@ -93,7 +93,7 @@ export async function startPrSession(options: {
     }
   } catch (err) {
     log.error(`PR session create failed for task ${originTaskId}`, err);
-    await notifyTelegram(sendTelegram, chatId, `PR session failed: ${errorMessage(err)}`);
+    await notifyTelegram(sendTelegram, chatId, `PR session failed: ${toErrorMessage(err)}`);
   }
 }
 
@@ -136,7 +136,7 @@ export async function resumePrSession(options: {
         branch: branch ?? "",
         prNumber: prNumber ?? undefined,
       }),
-      model: modelFor("PI_MODEL_REVISION"),
+      model: resolveModel("PI_MODEL_REVISION"),
       prompt: formatCommentsPrompt(comments),
       run,
       timeoutLabel: "PR session (resume)",
@@ -151,7 +151,7 @@ export async function resumePrSession(options: {
     log.error(`PR session resume failed for ${prSessionId}`, err);
     if (chatId) {
       await notifyTelegram(sendTelegram, chatId,
-        `Failed to address comments on PR #${prNumber}: ${errorMessage(err)}`);
+        `Failed to address comments on PR #${prNumber}: ${toErrorMessage(err)}`);
     }
   }
 }
@@ -169,7 +169,7 @@ export async function startExternalReview(options: {
   const repoConfig = getRepo(repo);
   if (!repoConfig) throw new Error(`Repo '${repo}' not found in registry`);
 
-  const nwo = repoConfig.githubUrl ? parseNwo(repoConfig.githubUrl) : null;
+  const nwo = getRepoNwo(repo);
   if (!nwo) throw new Error(`Repo '${repo}' is missing a githubUrl`);
 
   // Resolve the PR's real head branch so the worktree lands on origin/<headRef>
@@ -192,7 +192,7 @@ export async function startExternalReview(options: {
       labelSuffix: "review",
       cwd: worktreePath,
       systemPrompt: prSessionPrompt({ mode: "review", repo: nwo, branch, prNumber }),
-      model: modelFor("PI_MODEL_REVIEWER"),
+      model: resolveModel("PI_MODEL_REVIEWER"),
       prompt: externalReviewPrompt,
       run,
       timeoutLabel: "PR session (external review)",
@@ -273,7 +273,7 @@ async function runSessionTurnInner(turn: SessionTurn): Promise<void> {
   } catch (err) {
     await queries.updatePrSessionRun(run.id, {
       status: "failed",
-      error: errorMessage(err),
+      error: toErrorMessage(err),
       completedAt: new Date(),
     });
     throw err;
@@ -287,15 +287,6 @@ async function runSessionTurnInner(turn: SessionTurn): Promise<void> {
 }
 
 // --- Helpers ---
-
-function modelFor(key: keyof Env): string {
-  const env = loadEnv();
-  return (env[key] as string | undefined) ?? env.PI_MODEL;
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 /** Move worktree/branch ownership from the originating task row to the PR session row. */
 async function transferTaskGitOwnership(taskId: string, prSessionId: string): Promise<void> {

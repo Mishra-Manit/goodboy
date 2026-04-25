@@ -9,6 +9,7 @@
 import { createLogger } from "../../shared/logger.js";
 import { loadEnv } from "../../shared/config.js";
 import { emit } from "../../shared/events.js";
+import { toErrorMessage } from "../../shared/errors.js";
 import * as queries from "../../db/repository.js";
 import type {
   MemoryRunKind,
@@ -85,7 +86,7 @@ export async function startMemoryRun(opts: StartMemoryRunOptions): Promise<Memor
       try {
         await queries.updateMemoryRun(runId, {
           status: "failed",
-          error: stringifyReason(reason),
+          error: toErrorMessage(reason),
           completedAt: new Date(),
         });
         emitRunUpdate(runId, opts.repo, opts.kind, "failed", opts.taskId);
@@ -122,7 +123,3 @@ function emitRunUpdate(
   });
 }
 
-function stringifyReason(reason: unknown): string {
-  if (reason instanceof Error) return reason.message;
-  return String(reason);
-}
