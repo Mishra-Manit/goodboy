@@ -37,7 +37,8 @@ export const STAGE_NAMES = [
   // codebase_question
   "answering",
   // pr_review
-  "pr_reviewing",
+  "pr_impact",
+  "pr_analyst",
 ] as const;
 
 export type StageName = (typeof STAGE_NAMES)[number];
