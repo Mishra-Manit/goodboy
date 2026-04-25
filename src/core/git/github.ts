@@ -113,12 +113,6 @@ export async function getPrReviewComments(
   }
 }
 
-export interface PrFileChange {
-  path: string;
-  additions: number;
-  deletions: number;
-}
-
 export interface PrMetadata {
   number: number;
   title: string;
@@ -127,7 +121,7 @@ export interface PrMetadata {
   author: string;
   baseRef: string;
   headRef: string;
-  changedFiles: readonly PrFileChange[];
+  changedFiles: readonly { path: string; additions: number; deletions: number }[];
 }
 
 /** Fetch PR metadata needed by the pr-review pipeline. Throws on gh failure. */

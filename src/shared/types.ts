@@ -5,6 +5,9 @@
  * string unions elsewhere.
  */
 
+import { z } from "zod";
+import type { FileEntry } from "./session.js";
+
 // --- Task kinds ---
 
 export const TASK_KINDS = ["coding_task", "codebase_question", "pr_review"] as const;
@@ -63,8 +66,6 @@ export type MemoryRunSource = (typeof MEMORY_RUN_SOURCES)[number];
 
 // --- SSE events ---
 
-import type { FileEntry } from "./session.js";
-
 /**
  * Wire format for every server-sent event the dashboard consumes.
  *
@@ -104,8 +105,6 @@ export type SSEEvent =
     };
 
 // --- PR review contract ---
-
-import { z } from "zod";
 
 export const PR_REVIEW_SEVERITIES = ["blocker", "major", "minor", "nit"] as const;
 export const PR_REVIEW_CATEGORIES = ["correctness", "style", "tests", "security"] as const;

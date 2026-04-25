@@ -19,8 +19,6 @@ export interface PrAnalystPromptOptions {
   worktreePath: string;
 }
 
-const END_SENTINEL = `{"status": "complete"}`;
-
 export function prAnalystSystemPrompt(opts: PrAnalystPromptOptions): string {
   const { repo, nwo, headRef, prNumber, artifactsDir, worktreePath } = opts;
   return `You are the PR Analyst for "${repo}", PR #${prNumber}.
@@ -192,7 +190,7 @@ WORKFLOW -- follow this order exactly:
 9. POST THE COMMENT.
    gh pr comment ${prNumber} --repo ${nwo} --body-file ${artifactsDir}/summary.md
 
-10. End with: ${END_SENTINEL}
+10. End with: {"status": "complete"}
 
 ---
 
@@ -202,5 +200,5 @@ without fixing and commenting is incomplete.`;
 }
 
 export function prAnalystInitialPrompt(artifactsDir: string): string {
-  return `Begin the PR review. Check for ${artifactsDir}/pr-impact.md first (your primary lens), then read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff. Plan, fan out your subagents, wait for all reports, aggregate, fix everything auto-fixable, commit and push, then post the summary comment. Follow the workflow in order. End with ${END_SENTINEL}.`;
+  return `Begin the PR review. Check for ${artifactsDir}/pr-impact.md first (your primary lens), then read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff. Plan, fan out your subagents, wait for all reports, aggregate, fix everything auto-fixable, commit and push, then post the summary comment. Follow the workflow in order. End with {"status": "complete"}.`;
 }

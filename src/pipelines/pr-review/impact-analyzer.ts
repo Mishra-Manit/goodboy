@@ -25,9 +25,11 @@ export interface ImpactAnalyzerOptions {
   chatId: string | null;
 }
 
-/** Run the pr_impact stage. Never throws: failure leaves pr-impact.md absent. */
+/** Never throws: failure leaves pr-impact.md absent and the analyst degrades. */
 export async function runImpactAnalyzer(opts: ImpactAnalyzerOptions): Promise<void> {
   const { taskId, repo, artifactsDir, worktreePath, sendTelegram, chatId } = opts;
+  const env = loadEnv();
+
   try {
     const memoryBody = await memoryBlock(repo);
     await runStage({
@@ -36,19 +38,14 @@ export async function runImpactAnalyzer(opts: ImpactAnalyzerOptions): Promise<vo
       cwd: worktreePath,
       systemPrompt: impactAnalyzerSystemPrompt(repo, artifactsDir, worktreePath, memoryBody),
       initialPrompt: impactAnalyzerInitialPrompt(artifactsDir),
-      model: modelForImpact(),
+      model: env.PI_MODEL_PR_IMPACT ?? env.PI_MODEL,
       sendTelegram,
       chatId,
       stageLabel: "PR Impact Curation",
       timeoutMs: IMPACT_TIMEOUT_MS,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.warn(`pr_impact failed for ${taskId}: ${message} -- analyst falls back to full memory block`);
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn(`pr_impact failed for ${taskId}: ${msg} -- analyst falls back to full memory block`);
   }
-}
-
-function modelForImpact(): string {
-  const env = loadEnv();
-  return env.PI_MODEL_PR_IMPACT ?? env.PI_MODEL;
 }

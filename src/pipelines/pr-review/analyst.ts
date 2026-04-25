@@ -1,11 +1,10 @@
 /**
- * pr_analyst stage. The heavy lifter: reads the PR, fans out subagents via
- * pi-subagents, aggregates reports, commits auto-fixable issues back to the
- * PR branch, and posts a single summary comment.
+ * pr_analyst stage. Reads the PR, fans out subagents via pi-subagents,
+ * commits auto-fixable issues back to the PR branch, posts a summary comment.
  *
- * Primary context is pr-impact.md. Falls back to the full memory block only
- * if the impact stage failed and left no file behind. Never both.
- * Throws on hard failure so the pipeline can map it to `failTask`.
+ * Primary context is pr-impact.md (curated by the impact stage). If that file
+ * is missing, the full memory block is prepended as a fallback -- never both.
+ * Throws on hard failure so the pipeline maps it to `failTask`.
  */
 
 import { existsSync } from "node:fs";
@@ -20,7 +19,7 @@ import { prAnalystSystemPrompt, prAnalystInitialPrompt } from "./analyst-prompts
 const log = createLogger("pr-analyst");
 
 // Generous budget: the analyst plans, fans out subagents, applies fixes, and
-// posts a comment. Well above the default 30-minute stage timeout.
+// posts a comment -- well above the default 30-minute stage timeout.
 const ANALYST_TIMEOUT_MS = 45 * 60 * 1000;
 
 export interface PrAnalystOptions {
@@ -35,12 +34,22 @@ export interface PrAnalystOptions {
   chatId: string | null;
 }
 
-/** Run the pr_analyst stage. Throws on failure -- pipeline catches and fails the task. */
+/** Throws on failure -- pipeline catches and fails the task. */
 export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
   const { taskId, repo, nwo, prNumber, headRef, artifactsDir, worktreePath, sendTelegram, chatId } = opts;
-
+  const env = loadEnv();
   const cap = subagentCapability();
-  const systemPrompt = await buildSystemPrompt(opts);
+
+  // Prefer pr-impact.md. Fall back to the full memory block only if the
+  // impact stage failed to produce one. `memoryBlock` already wraps itself
+  // in a "CODEBASE MEMORY:" header so the analyst can recognize the prefix.
+  const impactExists = existsSync(path.join(artifactsDir, "pr-impact.md"));
+  if (!impactExists) {
+    log.warn(`pr-impact.md missing for ${taskId}; analyst running with full memory fallback`);
+  }
+  const fallback = impactExists ? "" : await memoryBlock(repo);
+  const systemPrompt = (fallback.trim() ? `${fallback}\n\n` : "")
+    + prAnalystSystemPrompt({ repo, nwo, headRef, prNumber, artifactsDir, worktreePath });
 
   await runStage({
     taskId,
@@ -48,7 +57,7 @@ export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
     cwd: worktreePath,
     systemPrompt,
     initialPrompt: prAnalystInitialPrompt(artifactsDir),
-    model: modelForAnalyst(),
+    model: env.PI_MODEL_PR_ANALYST ?? env.PI_MODEL,
     sendTelegram,
     chatId,
     stageLabel: "PR Analyst",
@@ -58,28 +67,4 @@ export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
   });
 
   log.info(`pr_analyst complete for task ${taskId} (${nwo}#${prNumber})`);
-}
-
-/**
- * Assemble the analyst's system prompt. If pr-impact.md is present, the
- * impact curation succeeded and is the sole context. Otherwise, prepend the
- * full memory block as a degraded fallback so the analyst still has codebase
- * knowledge to work from.
- */
-async function buildSystemPrompt(opts: PrAnalystOptions): Promise<string> {
-  const { repo, nwo, headRef, prNumber, artifactsDir, worktreePath } = opts;
-
-  const impactExists = existsSync(path.join(artifactsDir, "pr-impact.md"));
-  const fallbackMemory = impactExists ? "" : await memoryBlock(repo);
-  if (!impactExists) {
-    log.warn(`pr-impact.md missing for ${opts.taskId}; analyst running with full memory fallback`);
-  }
-
-  const prefix = fallbackMemory.trim().length > 0 ? `${fallbackMemory}\n\n` : "";
-  return prefix + prAnalystSystemPrompt({ repo, nwo, headRef, prNumber, artifactsDir, worktreePath });
-}
-
-function modelForAnalyst(): string {
-  const env = loadEnv();
-  return env.PI_MODEL_PR_ANALYST ?? env.PI_MODEL;
 }
