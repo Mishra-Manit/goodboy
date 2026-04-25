@@ -55,17 +55,21 @@ export async function createWorktree(repoPath: string, branch: string, taskId: s
   return { path: dir, agentsSuggestion };
 }
 
-/** Create a worktree checked out to a PR's head ref. */
-export async function createPrWorktree(repoPath: string, prNumber: string, taskId: string): Promise<string> {
+/**
+ * Create a worktree checked out to a PR's real head branch. Same-repo only
+ * (v1): because the PR branch lives at `origin/<headRef>`, we fetch it into
+ * an identically-named local branch and check that out -- a direct
+ * `git push origin <headRef>` from the worktree Just Works.
+ */
+export async function createPrWorktree(repoPath: string, headRef: string, taskId: string): Promise<string> {
   const dir = path.join(repoPath, "..", `goodboy-pr-${taskId.slice(0, 8)}`);
-  const localBranch = `pr-review-${prNumber}-${taskId.slice(0, 8)}`;
 
   await forceRemoveWorktree(repoPath, dir);
-  await forceDeleteBranch(repoPath, localBranch);
+  await forceDeleteBranch(repoPath, headRef);
 
-  await exec("git", ["fetch", "origin", `pull/${prNumber}/head:${localBranch}`], { cwd: repoPath });
-  await exec("git", ["worktree", "add", dir, localBranch], { cwd: repoPath });
-  log.info(`Created PR worktree at ${dir} for PR #${prNumber}`);
+  await exec("git", ["fetch", "origin", `${headRef}:${headRef}`], { cwd: repoPath });
+  await exec("git", ["worktree", "add", dir, headRef], { cwd: repoPath });
+  log.info(`Created PR worktree at ${dir} on branch ${headRef}`);
   await stageSubagentAssets(dir);
   return dir;
 }

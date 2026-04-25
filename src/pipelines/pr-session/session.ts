@@ -26,7 +26,7 @@ import { prSessionPrompt, formatCommentsPrompt, prCreationPrompt, externalReview
 import { memoryBlock } from "../../shared/agent-prompts.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import type { Env } from "../../shared/config.js";
-import { parseNwo, parsePrNumberFromUrl, type PrComment } from "../../core/git/github.js";
+import { parseNwo, parsePrNumberFromUrl, getPrMetadata, type PrComment } from "../../core/git/github.js";
 import { withPipelineSpan, bridgeSessionToOtel } from "../../observability/index.js";
 import { trace } from "@opentelemetry/api";
 import { Goodboy } from "../../observability/attributes.js";
@@ -169,8 +169,14 @@ export async function startExternalReview(options: {
   const repoConfig = getRepo(repo);
   if (!repoConfig) throw new Error(`Repo '${repo}' not found in registry`);
 
-  const worktreePath = await createPrWorktree(repoConfig.localPath, String(prNumber), taskId);
-  const branch = await currentBranch(worktreePath) ?? `pr-review-${prNumber}-${taskId.slice(0, 8)}`;
+  const nwo = repoConfig.githubUrl ? parseNwo(repoConfig.githubUrl) : null;
+  if (!nwo) throw new Error(`Repo '${repo}' is missing a githubUrl`);
+
+  // Resolve the PR's real head branch so the worktree lands on origin/<headRef>
+  // and pushes flow back without any refspec gymnastics.
+  const { headRef } = await getPrMetadata(nwo, prNumber);
+  const worktreePath = await createPrWorktree(repoConfig.localPath, headRef, taskId);
+  const branch = await currentBranch(worktreePath) ?? headRef;
 
   const prSession = await queries.createPrSession({
     repo, prNumber, branch, worktreePath, telegramChatId: chatId,
@@ -178,7 +184,6 @@ export async function startExternalReview(options: {
   });
 
   const run = await queries.createPrSessionRun({ prSessionId: prSession.id, trigger: "external_review" });
-  const nwo = repoConfig.githubUrl ? parseNwo(repoConfig.githubUrl) : null;
   log.info(`Starting external review for PR #${prNumber} on ${repo}`);
 
   try {
@@ -186,7 +191,7 @@ export async function startExternalReview(options: {
       prSessionId: prSession.id,
       labelSuffix: "review",
       cwd: worktreePath,
-      systemPrompt: prSessionPrompt({ mode: "review", repo: nwo ?? repo, branch, prNumber }),
+      systemPrompt: prSessionPrompt({ mode: "review", repo: nwo, branch, prNumber }),
       model: modelFor("PI_MODEL_REVIEWER"),
       prompt: externalReviewPrompt,
       run,
