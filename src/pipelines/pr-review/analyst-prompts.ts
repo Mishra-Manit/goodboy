@@ -8,6 +8,8 @@
  * either way, the analyst sees exactly one, never both.
  */
 
+import { prReviewArtifactPaths } from "./artifacts.js";
+
 export interface PrAnalystPromptOptions {
   repo: string;
   nwo: string;
@@ -21,6 +23,7 @@ export interface PrAnalystPromptOptions {
 
 export function prAnalystSystemPrompt(opts: PrAnalystPromptOptions): string {
   const { repo, nwo, headRef, prNumber, artifactsDir, worktreePath } = opts;
+  const paths = prReviewArtifactPaths(artifactsDir);
   return `You are the PR Analyst for "${repo}", PR #${prNumber}.
 
 You own this review end to end: read the PR, launch a fleet of subagents to
@@ -33,15 +36,15 @@ PR alone -- you will miss things. Spawn aggressively.
 ---
 
 CONTEXT YOU HAVE:
-- PR impact report at ${artifactsDir}/pr-impact.md: curated codebase context
+- PR impact report at ${paths.impact}: curated codebase context
   produced for this PR by the impact stage. This is your primary and preferred
   lens -- it contains the memory claims, live findings, risks, and blind
   spots that are actually relevant to this diff.
   If this file is ABSENT (impact stage failed), a full CODEBASE MEMORY block
   will have been prepended to this system prompt as a fallback. Check for the
   file first; only use the prepended block if the file does not exist.
-- PR metadata at ${artifactsDir}/pr-context.json
-- PR diff at ${artifactsDir}/pr.diff
+- PR metadata at ${paths.context}
+- PR diff at ${paths.diff}
 - Full worktree at ${worktreePath} (read freely, edit to apply fixes).
 
 ---
@@ -64,7 +67,7 @@ COMMIT RULE:
 ---
 
 COMMENT RULE:
-- Post exactly one plain comment: gh pr comment ${prNumber} --repo ${nwo} --body-file ${artifactsDir}/summary.md
+- Post exactly one plain comment: gh pr comment ${prNumber} --repo ${nwo} --body-file ${paths.summary}
 - Do NOT run gh pr review. No inline line comments in v1.
 
 ---
@@ -72,16 +75,16 @@ COMMENT RULE:
 WORKFLOW -- follow this order exactly:
 
 1. READ THE IMPACT REPORT.
-   Check if ${artifactsDir}/pr-impact.md exists. If yes, read it -- this is
+   Check if ${paths.impact} exists. If yes, read it -- this is
    your primary lens. Note the Touched Zones, Risks, and Memory Gaps.
    If absent, note this and proceed with the prepended memory block as your
    only context.
 
 2. READ THE PR.
-   Read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff in full.
+   Read ${paths.context} and ${paths.diff} in full.
 
 3. PLAN THE REVIEW.
-   Write ${artifactsDir}/review-plan.json:
+   Write ${paths.reviewPlan}:
    {
      "groups": [
        {
@@ -113,11 +116,11 @@ WORKFLOW -- follow this order exactly:
       Dimensions: <group.dimensions>
       FOCUS (from the repo's memory and PR impact report -- your primary lens):
       <group.focus>
-      The full diff is at ${artifactsDir}/pr.diff; your files' hunks are inside it.
+      The full diff is at ${paths.diff}; your files' hunks are inside it.
       You MAY open adjacent files in the worktree to understand callers/imports.
       You may NOT edit anything.
       Produce a report matching the schema below and write it to
-      ${artifactsDir}/reports/<group-id>.json. No prose outside the JSON.
+      ${paths.reportsDir}/<group-id>.json. No prose outside the JSON.
       ---
 
    b) One HOLISTIC subagent. Prompt template:
@@ -131,10 +134,10 @@ WORKFLOW -- follow this order exactly:
       FOCUS (memory gaps the orchestrator flagged):
       <paste the "Memory Gaps & Blind Spots" section from pr-impact.md, or
        "no impact report available">
-      Inputs: ${artifactsDir}/pr-context.json, ${artifactsDir}/pr.diff, any
+      Inputs: ${paths.context}, ${paths.diff}, any
       files you want to grep/read in the worktree.
       You MAY grep/read any file in the repo. You may NOT edit anything.
-      Write your report to ${artifactsDir}/reports/holistic.json.
+      Write your report to ${paths.reportsDir}/holistic.json.
       ---
 
    Subagents do NOT receive pr-impact.md or the full memory block. You hold
@@ -160,7 +163,7 @@ WORKFLOW -- follow this order exactly:
      "notes": ""
    }
 
-5. WAIT FOR ALL SUBAGENTS. Read every report back from ${artifactsDir}/reports/.
+5. WAIT FOR ALL SUBAGENTS. Read every report back from ${paths.reportsDir}/.
 
 6. AGGREGATE.
    - Dedupe issues that appear in multiple reports.
@@ -174,7 +177,7 @@ WORKFLOW -- follow this order exactly:
    push to ${headRef}. Note the short SHAs.
 
 8. WRITE THE SUMMARY.
-   Write ${artifactsDir}/summary.md:
+   Write ${paths.summary}:
 
    <one-line verdict: "N fixes pushed; M issues flagged for author.">
 
@@ -188,7 +191,7 @@ WORKFLOW -- follow this order exactly:
    - path -- reason  (omit section if empty)
 
 9. POST THE COMMENT.
-   gh pr comment ${prNumber} --repo ${nwo} --body-file ${artifactsDir}/summary.md
+   gh pr comment ${prNumber} --repo ${nwo} --body-file ${paths.summary}
 
 10. End with: {"status": "complete"}
 
@@ -200,5 +203,6 @@ without fixing and commenting is incomplete.`;
 }
 
 export function prAnalystInitialPrompt(artifactsDir: string): string {
-  return `Begin the PR review. Check for ${artifactsDir}/pr-impact.md first (your primary lens), then read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff. Plan, fan out your subagents, wait for all reports, aggregate, fix everything auto-fixable, commit and push, then post the summary comment. Follow the workflow in order. End with {"status": "complete"}.`;
+  const paths = prReviewArtifactPaths(artifactsDir);
+  return `Begin the PR review. Check for ${paths.impact} first (your primary lens), then read ${paths.context} and ${paths.diff}. Plan, fan out your subagents, wait for all reports, aggregate, fix everything auto-fixable, commit and push, then post the summary comment. Follow the workflow in order. End with {"status": "complete"}.`;
 }

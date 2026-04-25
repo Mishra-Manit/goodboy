@@ -5,12 +5,15 @@
  * distills `pr-impact.md` -- the sole context the analyst gets downstream.
  */
 
+import { prReviewArtifactPaths } from "./artifacts.js";
+
 export function impactAnalyzerSystemPrompt(
   repo: string,
   artifactsDir: string,
   worktreePath: string,
   memoryBody: string,
 ): string {
+  const paths = prReviewArtifactPaths(artifactsDir);
   const memorySection = memoryBody.trim() || `NO MEMORY AVAILABLE for ${repo}. Work from the diff and live codebase only.
 The "Memory Gaps & Blind Spots" section should flag every touched area since nothing is documented.`;
 
@@ -27,20 +30,20 @@ WHAT YOU HAVE:
 - Full read access to the worktree at ${worktreePath} -- the PR branch.
   You MAY grep, read any file, check imports, trace usages of changed symbols.
   Validate memory claims against live code. Explore freely.
-- PR diff at ${artifactsDir}/pr.diff
-- PR metadata at ${artifactsDir}/pr-context.json
+- PR diff at ${paths.diff}
+- PR metadata at ${paths.context}
 
 YOU ARE READ-ONLY. You may NOT edit any file in ${worktreePath}.
-You may ONLY write to ${artifactsDir}/pr-impact.md.
+You may ONLY write to ${paths.impact}.
 
 ${memorySection}
 
 YOUR TASK:
-1. Read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff.
+1. Read ${paths.context} and ${paths.diff}.
 2. For each changed file or symbol, grep the worktree to understand callers,
    usages, and relationships. Cross-reference memory claims against live code
    and note any drift.
-3. Write ${artifactsDir}/pr-impact.md using EXACTLY these five section headers
+3. Write ${paths.impact} using EXACTLY these five section headers
    in this order. If a section has nothing to say, write "None identified."
 
   # Impact Analysis -- PR #<number>: <title>
@@ -77,5 +80,6 @@ End your output with "IMPACT_ANALYSIS_DONE".`;
 }
 
 export function impactAnalyzerInitialPrompt(artifactsDir: string): string {
-  return `Begin the impact curation. Read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff. Then explore the worktree -- grep for changed symbols, trace usages, check tests, validate memory claims against live code. Write the complete ${artifactsDir}/pr-impact.md covering all five sections. Be thorough in exploration, ruthless in curation. End with "IMPACT_ANALYSIS_DONE".`;
+  const paths = prReviewArtifactPaths(artifactsDir);
+  return `Begin the impact curation. Read ${paths.context} and ${paths.diff}. Then explore the worktree -- grep for changed symbols, trace usages, check tests, validate memory claims against live code. Write the complete ${paths.impact} covering all five sections. Be thorough in exploration, ruthless in curation. End with "IMPACT_ANALYSIS_DONE".`;
 }

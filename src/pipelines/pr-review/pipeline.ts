@@ -9,51 +9,39 @@
  *     -> runPrAnalyst        (stage 3, fans out subagents, commits, comments)
  */
 
-import path from "node:path";
 import { writeFile } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
-import { getRepo, getRepoNwo } from "../../shared/repos.js";
-import { syncRepo, createPrWorktree, removeWorktree } from "../../core/git/worktree.js";
+import { getRepoNwo } from "../../shared/repos.js";
+import { createPrWorktree, removeWorktree } from "../../core/git/worktree.js";
 import { getPrMetadata, getPrDiff, parsePrIdentifier } from "../../core/git/github.js";
-import { runMemory } from "../memory/pipeline.js";
 import { runImpactAnalyzer } from "./impact-analyzer.js";
 import { runPrAnalyst } from "./analyst.js";
-import { failTask, notifyTelegram, clearActiveSession, isTaskCancelled, resetTaskCancellation, TaskCancelledError, type SendTelegram } from "../../core/stage.js";
-import { emit } from "../../shared/events.js";
-import { withPipelineSpan } from "../../observability/index.js";
+import { failTask, clearActiveSession, completeTask, type SendTelegram } from "../../core/stage.js";
 import * as queries from "../../db/repository.js";
-import { prepareArtifactsDir } from "../../shared/artifacts.js";
 import { toErrorMessage } from "../../shared/errors.js";
+import {
+  handlePipelineError,
+  prepareTaskPipeline,
+  withTaskPipeline,
+  type TaskPipelineContext,
+} from "../common.js";
+import { memoryBlock } from "../../shared/agent-prompts.js";
+import { PR_REVIEW_DIRS, prReviewArtifactPaths } from "./artifacts.js";
 
 const log = createLogger("pr-review");
 
 export async function runPrReview(taskId: string, sendTelegram: SendTelegram): Promise<void> {
-  const task = await queries.getTask(taskId);
-  if (!task) {
-    log.error(`Task ${taskId} not found`);
-    return;
-  }
-  return withPipelineSpan(
-    { taskId, kind: "pr_review", repo: task.repo },
-    () => runPrReviewInner(task, sendTelegram),
-  );
+  return withTaskPipeline(taskId, "pr_review", sendTelegram, async (ctx) => {
+    await runPrReviewInner(ctx);
+  });
 }
 
 async function runPrReviewInner(
-  task: NonNullable<Awaited<ReturnType<typeof queries.getTask>>>,
-  sendTelegram: SendTelegram,
+  ctx: TaskPipelineContext,
 ): Promise<void> {
-  const taskId = task.id;
-  const chatId = task.telegramChatId;
+  const { taskId, task, repo, chatId, sendTelegram } = ctx;
 
-  resetTaskCancellation(taskId);
-
-  // Resolve repo + nwo + PR number.
-  const repo = getRepo(task.repo);
-  if (!repo) {
-    await failTask(taskId, `Repo '${task.repo}' not found in registry`, sendTelegram, chatId);
-    return;
-  }
+  // Resolve nwo + PR number.
   const prNumber = parsePrIdentifier(task.prIdentifier ?? task.description);
   if (prNumber === null) {
     await failTask(
@@ -69,37 +57,23 @@ async function runPrReviewInner(
     return;
   }
 
-  await notifyTelegram(sendTelegram, chatId,
-    `PR review ${taskId.slice(0, 8)} starting for ${nwo}#${prNumber}.`);
-
-  // Fresh artifacts on every (re)run. reports/ is pre-created for the analyst's subagents.
-  const artifactsDir = await prepareArtifactsDir(taskId, ["reports"]);
-
-  try {
-    await syncRepo(repo.localPath);
-  } catch (err) {
-    await failTask(taskId, `Failed to sync repo: ${toErrorMessage(err)}`, sendTelegram, chatId);
-    return;
-  }
-
-  // Stage 1: memory. Soft-fail; never throws.
-  await runMemory({
-    taskId, repo: task.repo, repoPath: repo.localPath,
-    source: "task", sendTelegram, chatId,
+  const prepared = await prepareTaskPipeline({
+    ctx,
+    startMessage: `PR review ${taskId.slice(0, 8)} starting for ${nwo}#${prNumber}.`,
+    artifactSubdirs: [PR_REVIEW_DIRS.reports],
   });
+  if (!prepared) return;
 
-  if (isTaskCancelled(taskId)) {
-    log.info(`Task ${taskId} cancelled during memory stage; halting pipeline`);
-    return;
-  }
+  const { artifactsDir } = prepared;
+  const paths = prReviewArtifactPaths(artifactsDir);
 
   // Fetch + persist PR metadata and diff so the impact + analyst stages can read them.
   let headRef: string;
   try {
     const metadata = await getPrMetadata(nwo, prNumber);
     const diff = await getPrDiff(nwo, prNumber);
-    await writeFile(path.join(artifactsDir, "pr-context.json"), JSON.stringify(metadata, null, 2));
-    await writeFile(path.join(artifactsDir, "pr.diff"), diff);
+    await writeFile(paths.context, JSON.stringify(metadata, null, 2));
+    await writeFile(paths.diff, diff);
     headRef = metadata.headRef;
   } catch (err) {
     await failTask(taskId, `Failed to fetch PR context: ${toErrorMessage(err)}`, sendTelegram, chatId);
@@ -117,25 +91,43 @@ async function runPrReviewInner(
   try {
     await queries.updateTask(taskId, { prNumber, worktreePath, status: "running" });
 
+    const fullMemory = await memoryBlock(task.repo);
+
     // Stage 2: pr_impact. Soft-fail; analyst falls back to full memory if this drops.
-    await runImpactAnalyzer({
-      taskId, repo: task.repo, artifactsDir, worktreePath, sendTelegram, chatId,
+    const impactAvailable = await runImpactAnalyzer({
+      taskId,
+      repo: task.repo,
+      artifactsDir,
+      worktreePath,
+      sendTelegram,
+      chatId,
+      memoryBody: fullMemory,
     });
 
     // Stage 3: pr_analyst. Throws on hard failure.
     await runPrAnalyst({
-      taskId, repo: task.repo, nwo, prNumber, headRef,
-      artifactsDir, worktreePath, sendTelegram, chatId,
+      taskId,
+      repo: task.repo,
+      nwo,
+      prNumber,
+      headRef,
+      artifactsDir,
+      worktreePath,
+      sendTelegram,
+      chatId,
+      impactAvailable,
+      fallbackMemory: impactAvailable ? "" : fullMemory,
     });
 
-    await queries.updateTask(taskId, { status: "complete", completedAt: new Date() });
-    emit({ type: "task_update", taskId, status: "complete" });
+    await completeTask(taskId);
   } catch (err) {
-    if (err instanceof TaskCancelledError) {
-      log.info(`Task ${taskId} cancelled mid-pipeline; halting`);
-      return;
-    }
-    await failTask(taskId, toErrorMessage(err), sendTelegram, chatId);
+    await handlePipelineError({
+      taskId,
+      err,
+      sendTelegram,
+      chatId,
+      logCancelled: () => log.info(`Task ${taskId} cancelled mid-pipeline; halting`),
+    });
   } finally {
     clearActiveSession(taskId);
     await removeWorktree(repo.localPath, worktreePath);

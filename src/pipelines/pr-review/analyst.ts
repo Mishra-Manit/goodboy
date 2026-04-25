@@ -7,12 +7,9 @@
  * Throws on hard failure so the pipeline maps it to `failTask`.
  */
 
-import { existsSync } from "node:fs";
-import path from "node:path";
 import { createLogger } from "../../shared/logger.js";
 import { resolveModel } from "../../shared/config.js";
 import { runStage, type SendTelegram } from "../../core/stage.js";
-import { memoryBlock } from "../../shared/agent-prompts.js";
 import { subagentCapability } from "../../core/subagents/index.js";
 import { prAnalystSystemPrompt, prAnalystInitialPrompt } from "./analyst-prompts.js";
 
@@ -32,22 +29,32 @@ export interface PrAnalystOptions {
   worktreePath: string;
   sendTelegram: SendTelegram;
   chatId: string | null;
+  impactAvailable: boolean;
+  fallbackMemory: string;
 }
 
 /** Throws on failure -- pipeline catches and fails the task. */
 export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
-  const { taskId, repo, nwo, prNumber, headRef, artifactsDir, worktreePath, sendTelegram, chatId } = opts;
+  const {
+    taskId,
+    repo,
+    nwo,
+    prNumber,
+    headRef,
+    artifactsDir,
+    worktreePath,
+    sendTelegram,
+    chatId,
+    impactAvailable,
+    fallbackMemory,
+  } = opts;
   const cap = subagentCapability();
 
-  // Prefer pr-impact.md. Fall back to the full memory block only if the
-  // impact stage failed to produce one. `memoryBlock` already wraps itself
-  // in a "CODEBASE MEMORY:" header so the analyst can recognize the prefix.
-  const impactExists = existsSync(path.join(artifactsDir, "pr-impact.md"));
-  if (!impactExists) {
+  if (!impactAvailable) {
     log.warn(`pr-impact.md missing for ${taskId}; analyst running with full memory fallback`);
   }
-  const fallback = impactExists ? "" : await memoryBlock(repo);
-  const systemPrompt = (fallback.trim() ? `${fallback}\n\n` : "")
+
+  const systemPrompt = (impactAvailable || !fallbackMemory.trim() ? "" : `${fallbackMemory}\n\n`)
     + prAnalystSystemPrompt({ repo, nwo, headRef, prNumber, artifactsDir, worktreePath });
 
   await runStage({
