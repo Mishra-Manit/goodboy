@@ -113,6 +113,62 @@ export async function getPrReviewComments(
   }
 }
 
+export interface PrFileChange {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface PrMetadata {
+  number: number;
+  title: string;
+  body: string;
+  labels: readonly string[];
+  author: string;
+  baseRef: string;
+  headRef: string;
+  changedFiles: readonly PrFileChange[];
+}
+
+/** Fetch PR metadata needed by the pr-review pipeline. Throws on gh failure. */
+export async function getPrMetadata(nwo: string, prNumber: number): Promise<PrMetadata> {
+  const { stdout } = await exec("gh", [
+    "pr", "view", String(prNumber),
+    "--repo", nwo,
+    "--json", "number,title,body,labels,author,baseRefName,headRefName,files",
+  ]);
+  const data = JSON.parse(stdout) as {
+    number: number;
+    title: string;
+    body: string | null;
+    labels: Array<{ name: string }>;
+    author: { login: string };
+    baseRefName: string;
+    headRefName: string;
+    files: Array<{ path: string; additions: number; deletions: number }>;
+  };
+  return {
+    number: data.number,
+    title: data.title,
+    body: data.body ?? "",
+    labels: data.labels.map((l) => l.name),
+    author: data.author.login,
+    baseRef: data.baseRefName,
+    headRef: data.headRefName,
+    changedFiles: data.files.map((f) => ({
+      path: f.path,
+      additions: f.additions,
+      deletions: f.deletions,
+    })),
+  };
+}
+
+/** Unified diff for a PR. Throws on gh failure. */
+export async function getPrDiff(nwo: string, prNumber: number): Promise<string> {
+  const { stdout } = await exec("gh", ["pr", "diff", String(prNumber), "--repo", nwo]);
+  return stdout;
+}
+
 /** True if the PR is merged or closed. Returns `false` on error (logged). */
 export async function isPrClosed(
   nwo: string,
