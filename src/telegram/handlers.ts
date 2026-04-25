@@ -52,7 +52,15 @@ export async function handleIntent(intent: Intent, ctx: Ctx): Promise<void> {
     case "codebase_question":
       return createAndStart({ kind: "codebase_question", repo: intent.repo, description: intent.question }, ctx);
     case "pr_review":
-      return ctx.reply("PR review is not implemented yet.");
+      return createAndStart(
+        {
+          kind: "pr_review",
+          repo: intent.repo,
+          description: intent.prIdentifier,
+          prIdentifier: intent.prIdentifier,
+        },
+        ctx,
+      );
     case "task_status":
       return handleTaskStatus(intent, ctx);
     case "task_cancel":
@@ -132,7 +140,7 @@ async function handleTaskRetry(intent: Extract<Intent, { type: "task_retry" }>, 
 
   await queries.updateTask(task.id, { status: "queued", error: null });
   await ctx.reply(`Retrying task ${shortId(task.id)}...`);
-  runPipeline(task.id, ctx.sendTelegram).catch((err) => {
+  PIPELINES[task.kind](task.id, ctx.sendTelegram).catch((err) => {
     log.error(`Pipeline error for task ${task.id}`, err);
   });
 }

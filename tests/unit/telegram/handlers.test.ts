@@ -178,15 +178,21 @@ describe("handleIntent — codebase_question", () => {
 });
 
 describe("handleIntent — pr_review", () => {
-  it("replies with a 'not implemented' notice and does not touch queries or pipelines", async () => {
+  it("creates a pr_review task and dispatches to runPrReview", async () => {
     const ctx = makeCtx();
     await handleIntent(
       { type: "pr_review", repo: "myrepo", prIdentifier: "#1" },
       ctx,
     );
-    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("not implemented"));
-    expect(queriesHandler.createTask.calls).toHaveLength(0);
-    expect(pipelineHandlers.runPrReview.calls).toHaveLength(0);
+    expect(queriesHandler.createTask.calls).toHaveLength(1);
+    const createArg = queriesHandler.createTask.calls[0][0] as {
+      kind: string; description: string; prIdentifier?: string;
+    };
+    expect(createArg.kind).toBe("pr_review");
+    expect(createArg.description).toBe("#1");
+    expect(createArg.prIdentifier).toBe("#1");
+    expect(pipelineHandlers.runPrReview.calls).toHaveLength(1);
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("PR review queued"));
   });
 });
 

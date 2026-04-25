@@ -5,6 +5,9 @@
  * string unions elsewhere.
  */
 
+import { z } from "zod";
+import type { FileEntry } from "./session.js";
+
 // --- Task kinds ---
 
 export const TASK_KINDS = ["coding_task", "codebase_question", "pr_review"] as const;
@@ -37,7 +40,8 @@ export const STAGE_NAMES = [
   // codebase_question
   "answering",
   // pr_review
-  "pr_reviewing",
+  "pr_impact",
+  "pr_analyst",
 ] as const;
 
 export type StageName = (typeof STAGE_NAMES)[number];
@@ -61,8 +65,6 @@ export const MEMORY_RUN_SOURCES = ["task", "manual_test"] as const;
 export type MemoryRunSource = (typeof MEMORY_RUN_SOURCES)[number];
 
 // --- SSE events ---
-
-import type { FileEntry } from "./session.js";
 
 /**
  * Wire format for every server-sent event the dashboard consumes.
@@ -101,3 +103,47 @@ export type SSEEvent =
       id: string;
       entry: FileEntry;
     };
+
+// --- PR review contract ---
+
+export const PR_REVIEW_SEVERITIES = ["blocker", "major", "minor", "nit"] as const;
+export const PR_REVIEW_CATEGORIES = ["correctness", "style", "tests", "security"] as const;
+
+/**
+ * Single reviewer finding. `suggested_fix` is prose, not a patch -- the
+ * analyst decides whether to auto-apply it based on severity + category.
+ */
+export const prReviewIssueSchema = z.object({
+  file: z.string().min(1),
+  line_start: z.number().int().nonnegative(),
+  line_end: z.number().int().nonnegative(),
+  severity: z.enum(PR_REVIEW_SEVERITIES),
+  category: z.enum(PR_REVIEW_CATEGORIES),
+  title: z.string().min(1),
+  rationale: z.string().min(1),
+  suggested_fix: z.string().min(1),
+});
+export type PrReviewIssue = z.infer<typeof prReviewIssueSchema>;
+
+/** One subagent's report, written to artifacts/<taskId>/reports/<subagent_id>.json. */
+export const prReviewReportSchema = z.object({
+  subagent_id: z.string().min(1),
+  files_reviewed: z.array(z.string()),
+  dimensions: z.array(z.enum(PR_REVIEW_CATEGORIES)).min(1),
+  issues: z.array(prReviewIssueSchema),
+  notes: z.string().default(""),
+});
+export type PrReviewReport = z.infer<typeof prReviewReportSchema>;
+
+/** Analyst's fan-out plan, written to artifacts/<taskId>/review-plan.json. */
+export const prReviewPlanSchema = z.object({
+  groups: z.array(z.object({
+    id: z.string().min(1),
+    files: z.array(z.string()).min(1),
+    dimensions: z.array(z.enum(PR_REVIEW_CATEGORIES)).min(1),
+    focus: z.string().default(""),
+  })).min(1),
+  skipped: z.array(z.string()),
+  focus_notes: z.string(),
+});
+export type PrReviewPlan = z.infer<typeof prReviewPlanSchema>;

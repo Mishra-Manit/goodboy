@@ -29,7 +29,10 @@ export const TASK_KIND_CONFIG: Record<TaskKind, TaskKindConfig> = {
   },
   pr_review: {
     label: "PR review",
-    stages: ["memory", "pr_reviewing"],
-    artifacts: [{ key: "pr-review.md", label: "review" }],
+    stages: ["memory", "pr_impact", "pr_analyst"],
+    artifacts: [
+      { key: "pr-impact.md", label: "impact" },
+      { key: "summary.md", label: "summary" },
+    ],
   },
 };

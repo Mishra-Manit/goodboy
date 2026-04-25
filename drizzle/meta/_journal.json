@@ -50,6 +50,13 @@
       "when": 1776983297690,
       "tag": "0006_lyrical_bullseye",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777133120420,
+      "tag": "0007_sad_secret_warriors",
+      "breakpoints": true
     }
   ]
 }
