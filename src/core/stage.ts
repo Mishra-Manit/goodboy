@@ -16,6 +16,7 @@ import { spawnPiSession, type PiSession } from "./pi/spawn.js";
 import { ensureSessionDir, taskSessionPath } from "./pi/session-file.js";
 import { broadcastSessionFile } from "./pi/session-broadcast.js";
 import { withStageSpan, bridgeSessionToOtel } from "../observability/index.js";
+import { releaseMemoryLockForTask } from "./memory/index.js";
 import type { StageName } from "../shared/types.js";
 
 const log = createLogger("stage");
@@ -58,17 +59,31 @@ export function clearActiveSession(taskId: string): void {
 
 /**
  * Mark a task as cancelled and kill its live pi session if one is registered.
- * Returns `true` if a session was killed. The cancelled flag persists until
- * `resetTaskCancellation` is called (typically by a retry), so any stage
- * spawned after this point short-circuits via `runStage`'s entry check.
+ * Killing the pi child causes `runStage` to throw `TaskCancelledError`, which
+ * propagates out of any wrapper (e.g. `withMemoryRun`) so that wrapper's own
+ * finally blocks release their resources — including the memory `.lock`
+ * file. This function also best-effort removes the lock itself as a safety
+ * net in case that finally never ran (e.g. pipeline crashed between lock
+ * acquisition and entering the try block).
+ *
+ * Returns `true` if a session was killed or a memory lock was released.
+ * The cancelled flag persists until `resetTaskCancellation` is called
+ * (typically by a retry), so any stage spawned after this point short-
+ * circuits via `runStage`'s entry check.
  */
-export function cancelTask(taskId: string): boolean {
+export async function cancelTask(taskId: string): Promise<boolean> {
   cancelledTasks.add(taskId);
+
   const session = activeSessions.get(taskId);
-  if (!session) return false;
-  session.kill();
-  activeSessions.delete(taskId);
-  return true;
+  if (session) {
+    session.kill();
+    activeSessions.delete(taskId);
+  }
+
+  const lockReleased = await releaseMemoryLockForTask(taskId);
+  if (lockReleased) log.info(`Released memory lock for cancelled task ${taskId}`);
+
+  return !!session || lockReleased;
 }
 
 /** True if `cancelTask` has been called for this task and it has not been reset. */

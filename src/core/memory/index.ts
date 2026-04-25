@@ -75,11 +75,12 @@ export const zonesSidecarSchema = z.object({
 });
 export type ZonesSidecar = z.infer<typeof zonesSidecarSchema>;
 
-const lockSchema = z.object({
+export const lockSchema = z.object({
   taskId: z.string(),
   pid: z.number(),
   timestamp: z.string(),
 });
+export type Lock = z.infer<typeof lockSchema>;
 
 // --- Pure helpers ---
 
@@ -121,6 +122,117 @@ export function isLockStale(
   const age = now.getTime() - new Date(timestamp).getTime();
   if (age > LOCK_STALE_MS) return true;
   return !pidAlive(pid);
+}
+
+// --- Lock inspection (shared by tryAcquireLock, cancelTask, and startup sweep) ---
+
+/**
+ * Discriminated inspection of a repo's `.lock` file. The one place that
+ * reads + parses + staleness-checks the lock, so `tryAcquireLock`, the
+ * cancellation path, and the startup sweep cannot drift.
+ */
+export type LockInspection =
+  | { type: "absent" }
+  | { type: "corrupt" }
+  | { type: "stale"; data: Lock }
+  | { type: "fresh"; data: Lock };
+
+export async function inspectLock(repo: string): Promise<LockInspection> {
+  let raw: string;
+  try {
+    raw = await readFile(memoryLockPath(repo), "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { type: "absent" };
+    throw err;
+  }
+
+  let parsed: ReturnType<typeof lockSchema.safeParse>;
+  try {
+    parsed = lockSchema.safeParse(JSON.parse(raw));
+  } catch {
+    return { type: "corrupt" };
+  }
+  if (!parsed.success) return { type: "corrupt" };
+
+  return isLockStale(parsed.data.timestamp, parsed.data.pid)
+    ? { type: "stale", data: parsed.data }
+    : { type: "fresh", data: parsed.data };
+}
+
+// --- In-process registry of locks currently held by tasks ---
+//
+// `withMemoryRun` populates this between `tryAcquireLock` and its
+// `finally`-release. `cancelTask` consults it so it can drop the `.lock`
+// file on disk if the pipeline crashes before `withMemoryRun`'s finally
+// runs. Happy-path cancellation already cleans up via `runStage` killing
+// the pi child -> `withMemoryRun` finally -> `releaseLock`; this map is
+// the belt-and-suspenders recovery path.
+
+const locksHeldByTask = new Map<string, string>(); // taskId -> repo
+
+export function registerHeldLock(taskId: string, repo: string): void {
+  locksHeldByTask.set(taskId, repo);
+}
+
+export function unregisterHeldLock(taskId: string): void {
+  locksHeldByTask.delete(taskId);
+}
+
+/**
+ * Release any memory lock currently held by `taskId`. No-op when the task
+ * is not a lock holder. Does NOT signal any process: the lock's `pid` is
+ * always the goodboy server itself (see `tryAcquireLock`), so signalling
+ * it would SIGTERM our own server.
+ */
+export async function releaseMemoryLockForTask(taskId: string): Promise<boolean> {
+  const repo = locksHeldByTask.get(taskId);
+  if (!repo) return false;
+  locksHeldByTask.delete(taskId);
+  try {
+    await rm(memoryLockPath(repo), { force: true });
+    return true;
+  } catch (err) {
+    log.warn(`Failed to release memory lock for task ${taskId} repo ${repo}`, err);
+    return false;
+  }
+}
+
+/**
+ * Sweep all repos for stale memory locks on startup. A lock is stale if
+ * its timestamp is older than `LOCK_STALE_MS` or its recorded pid is no
+ * longer alive. After a server restart every previously-recorded pid is
+ * dead, so this is effectively how we recover from unclean shutdowns.
+ *
+ * Corrupt lock files are also removed. Fresh locks (held by *another*
+ * live goodboy on the same machine) are left alone.
+ */
+export async function cleanupStaleMemoryLocks(
+  repos: readonly string[],
+): Promise<Array<{ repo: string; previousTaskId: string | null; reason: "stale" | "corrupt" }>> {
+  const cleared: Array<{ repo: string; previousTaskId: string | null; reason: "stale" | "corrupt" }> = [];
+  for (const repo of repos) {
+    let inspection: LockInspection;
+    try {
+      inspection = await inspectLock(repo);
+    } catch (err) {
+      log.warn(`inspectLock failed for ${repo} during startup sweep`, err);
+      continue;
+    }
+    if (inspection.type === "absent" || inspection.type === "fresh") continue;
+
+    try {
+      await rm(memoryLockPath(repo), { force: true });
+    } catch (err) {
+      log.warn(`Failed to remove ${inspection.type} lock for ${repo}`, err);
+      continue;
+    }
+    cleared.push({
+      repo,
+      previousTaskId: inspection.type === "stale" ? inspection.data.taskId : null,
+      reason: inspection.type,
+    });
+  }
+  return cleared;
 }
 
 function pidIsAlive(pid: number): boolean {
@@ -246,17 +358,11 @@ export async function tryAcquireLock(repo: string, taskId: string): Promise<bool
   const first = await tryCreate();
   if (first === "acquired") return true;
 
-  // Holder present. Check staleness.
-  let stale = false;
-  try {
-    const parsed = lockSchema.safeParse(JSON.parse(await readFile(p, "utf8")));
-    if (!parsed.success) stale = true;
-    else stale = isLockStale(parsed.data.timestamp, parsed.data.pid);
-  } catch { stale = true; /* corrupt → treat as stale */ }
+  // Holder present. Delegate staleness check to the shared inspector.
+  const inspection = await inspectLock(repo);
+  if (inspection.type === "fresh") return false;
 
-  if (!stale) return false;
-
-  // Stale: remove and retry exactly once.
+  // Absent/corrupt/stale: remove and retry exactly once.
   try { await rm(p, { force: true }); } catch { /* ignore */ }
   const second = await tryCreate();
   return second === "acquired";
@@ -402,6 +508,7 @@ export async function withMemoryRun(
 ): Promise<"ran" | "lock_held"> {
   const acquired = await tryAcquireLock(repo, taskId);
   if (!acquired) return "lock_held";
+  registerHeldLock(taskId, repo);
 
   try {
     await mkdir(memoryDir(repo), { recursive: true });
@@ -413,6 +520,7 @@ export async function withMemoryRun(
       await resetMemoryWorktree(repo);
     }
   } finally {
+    unregisterHeldLock(taskId);
     await releaseLock(repo);
   }
   return "ran";

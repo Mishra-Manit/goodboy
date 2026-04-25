@@ -107,7 +107,7 @@ export function createApi(): Hono {
   app.post("/api/tasks/:id/cancel", async (c) => {
     const task = await queries.getTask(c.req.param("id"));
     if (!task) return notFound(c);
-    cancelRunningTask(task.id);
+    await cancelRunningTask(task.id);
     await queries.updateTask(task.id, { status: "cancelled" });
     return c.json({ ok: true });
   });

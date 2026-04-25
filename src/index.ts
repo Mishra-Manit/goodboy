@@ -16,7 +16,7 @@ import type { SendTelegram } from "./core/stage.js";
 import { loadEnv } from "./shared/config.js";
 import { createLogger } from "./shared/logger.js";
 import { initObservability, shutdownObservability, emitStartupEvent } from "./observability/index.js";
-import { findOrphanedMemoryDirs } from "./core/memory/index.js";
+import { findOrphanedMemoryDirs, cleanupStaleMemoryLocks } from "./core/memory/index.js";
 import { pruneWorktrees } from "./core/git/worktree.js";
 import { listRepos, listRepoNames } from "./shared/repos.js";
 const log = createLogger("main");
@@ -29,6 +29,23 @@ async function main(): Promise<void> {
   // deleted memory checkouts don't linger and block future `worktree add`.
   for (const repo of listRepos()) {
     await pruneWorktrees(repo.localPath);
+  }
+
+  // Release memory `.lock` files left over from a previous unclean shutdown.
+  // After a restart every previously-recorded pid is dead, so any lock whose
+  // holder pid no longer exists (or whose timestamp is older than the stale
+  // threshold, or that is outright corrupt) is swept here. Fresh locks held
+  // by another live goodboy process on the same host are left alone.
+  const staleLocks = await cleanupStaleMemoryLocks(listRepoNames());
+  if (staleLocks.length > 0) {
+    log.info(`Cleaned ${staleLocks.length} stale memory lock(s) on startup`, staleLocks);
+    for (const lock of staleLocks) {
+      emitStartupEvent("goodboy.memory.lock_cleared", {
+        "goodboy.memory.repo": lock.repo,
+        "goodboy.memory.previousTaskId": lock.previousTaskId ?? "",
+        "goodboy.memory.reason": lock.reason,
+      });
+    }
   }
 
   // Warn (but do not delete) memory dirs whose repo is no longer registered.
