@@ -1,42 +1,38 @@
 # PR Review Pipeline Implementation Plan
 
-**Goal:** Turn `pr_review` from a stub into a real pipeline: run the `memory` stage, run a memory-derived `pr_impact_analyzer` stage, then hand off to one pi session with subagent capability that plans a review, fans out to N file-group subagents + 1 holistic subagent, aggregates reports, auto-fixes the safe issues with commits pushed back to the PR, and posts a single summary comment.
+**Goal:** Turn `pr_review` from a stub into a real pipeline with three stages:
 
-**Approach:** Thin outer pipeline in `pr-review/pipeline.ts` does repo sync → `runMemory` → `gh` context fetch → `runImpactAnalyzer`, then hands off to `startExternalReview` in `pr-session/session.ts`. The real changes are:
+1. **`memory`** — standard memory run, identical to coding/question pipelines.
+2. **`pr_impact`** — memory-derived synthesis pass. Reads memory + diff, produces `pr-impact.md`, a PR-scoped pre-filter of memory for the analyst.
+3. **`pr_analyst`** — the heavy stage. Reads the full PR, fans out a fleet of subagents to review every file group + cross-cutting concerns, aggregates all reports, applies every auto-fixable issue with real commits pushed back to the PR branch, and posts a single structured comment summarizing everything it fixed and everything the author still needs to address.
 
-1. **Integrate the memory system** that landed after this plan was first written: call `runMemory` like `coding` and `question` pipelines do, and inject `memoryBlock(repo)` into the review orchestrator's system prompt (the `pr-review TODO` from commit `6b2f797`).
-2. **Memory-derived impact analyzer**: new `pr_impact_analyzer` stage. It has NO repo access — its entire knowledge of the codebase is the injected `memoryBlock(repo)` plus the PR diff. Produces `pr-impact.md`, a PR-scoped pre-filter of memory for the reviewer.
-3. **Orchestrator**: the review-mode system prompt is rewritten into a full orchestrator. It receives memory (full repo view) + `pr-impact.md` (PR-scoped pre-filter). It plans, spawns subagents with per-group focus strings distilled from the impact report, aggregates, applies auto-fix-eligible issues, pushes, and posts a single `gh pr comment`.
-
-All downstream infra (session file, poller, `resumePrSession` for human replies, memory run records + SSE events) is untouched.
-
-**Stack:** TypeScript + pi-RPC (`runStage`), pi-subagents extension (same as coding planner), `gh` CLI, Zod at every trust boundary, one additive DB migration for the `pr_impact_analyzer` stage name.
+**Approach:** Thin outer pipeline in `pr-review/pipeline.ts`: `syncRepo → runMemory → fetch PR context → runImpactAnalyzer → runPrAnalyst`. The real work is in `pr_analyst`, which runs as a pi session with `pi-subagents` capability, full memory injected, and `pr-impact.md` as its primary lens.
 
 ---
 
-## Locked invariants (from brainstorming + memory integration)
+## Locked invariants
 
-1. **Same-repo (always commit-back).** Fork PRs are out of scope for v1.
-2. **One writer, many readers.** Main agent edits files; subagents are read-only and return structured JSON reports only.
-3. **Fan-out:** N file-group subagents (N = `ceil(changedFiles / 2)`, capped at 10) covering `correctness` + `style`. Plus 1 holistic subagent covering `tests` + `security` + cross-cutting.
-4. **Auto-fix rule:** `style` at any severity and `correctness` at `minor`/`nit` are auto-fixed. `correctness` at `major`/`blocker`, any `security`, and anything needing a design choice are flag-only.
+1. **Same-repo only (v1).** Fork PRs are out of scope. Because it's always same-repo, the PR's head branch exists at `origin/<headRef>` and can be fetched and pushed to directly — no `pull/<N>/head` gymnastics needed.
+2. **One writer, many readers.** The analyst edits files and commits. Every subagent it spawns is read-only and returns a structured JSON report only.
+3. **Fan-out:** N file-group subagents (`ceil(changedFiles / 2)`, capped at 10) for `correctness` + `style`. Plus 1 holistic subagent for `tests` + `security` + cross-cutting.
+4. **Auto-fix rule:** `style` at any severity and `correctness` at `minor`/`nit` are auto-fixed. `correctness` at `major`/`blocker`, any `security`, and anything requiring a design choice are flag-only — described in the final comment, not touched.
 5. **Output:** one `gh pr comment` summary. No `gh pr review --approve/--request-changes`. No inline line comments in v1.
-6. **Memory always runs first.** `runMemory` is invoked after `syncRepo` and before worktree creation, matching the coding + question pipelines. Soft-fails (never propagates). The resulting memory is injected into every stage prompt that needs it.
-7. **Impact analyzer is memory-derived and repo-isolated.** cwd is `artifactsDir` (so `read` sees only `pr.diff` + `pr-context.json`). No grep, no call-site walking, no file opens outside the artifacts directory. Its entire understanding of the codebase comes from the injected `memoryBlock(repo)`. Always runs — even if memory is stale or incomplete, it produces a degraded-but-useful report. Soft-fails like memory: on failure the orchestrator proceeds without `pr-impact.md`.
-8. **Impact report is the reviewer's context.** Downstream reviewer gets BOTH `memoryBlock(repo)` (full repo view) and `pr-impact.md` (PR-scoped pre-filter). Only the main orchestrator reads `pr-impact.md`; it distills per-group focus strings into the subagent spawn prompts so the subagents stay lean.
-9. **Follow-up:** humans reply to the summary → existing poller + `resumePrSession` loop handles it. `resumePrSession` already injects memory.
-10. **Subagent capability stays on** in resumed turns.
+6. **Memory always runs first.** `runMemory` runs after `syncRepo`, before everything else. Soft-fails always.
+7. **Impact stage is memory-derived and repo-isolated.** Its cwd is `artifactsDir` — it sees only `pr.diff` + `pr-context.json`. No grep, no file opens outside artifacts. All codebase knowledge comes from the injected `memoryBlock`. Always runs; soft-fails on LLM error/timeout (analyst proceeds without `pr-impact.md`).
+8. **Analyst gets both context layers.** Full `memoryBlock` (repo-wide view) + `pr-impact.md` (PR-scoped pre-filter). Analyst distills per-group focus strings from `pr-impact.md` before spawning subagents. Subagents get the distilled focus, not the full memory block — they stay lean.
+9. **Commit-back before comment.** Fixes are committed (1–3 logical commits, conventional prefixes) and pushed to the PR branch before the final comment is posted. The comment's "Fixes pushed" section cites the short SHAs.
+10. **Follow-up replies:** humans reply to the summary comment → existing poller + `resumePrSession` loop handles it. No new wiring needed.
 
 ---
 
 ## What the memory system gives us (already landed)
 
-The following is already in the codebase — this plan depends on it, does not build it:
+Already in the codebase — this plan depends on it, does not build it:
 
-- `runMemory({ taskId, repo, repoPath, source: "task", sendTelegram, chatId })` in `src/pipelines/memory/pipeline.ts`. Soft-fail.
-- `memoryBlock(repo)` in `src/shared/agent-prompts.ts`. Async. Returns `""` if no memory exists yet. Otherwise concatenates `_root/` + every zone's `.md` files into a single prompt block.
-- `memory` is already in `STAGE_NAMES`. Memory runs persist to `memory_runs`. `memory_run_update` SSE events stream to the dashboard automatically.
-- `resumePrSession` already uses `memory + prSessionPrompt({...})`. The external review turn and the new impact analyzer need the same treatment — that's what this plan adds.
+- `runMemory({ taskId, repo, repoPath, source, sendTelegram, chatId })` in `src/pipelines/memory/pipeline.ts`. Soft-fail.
+- `memoryBlock(repo)` in `src/shared/agent-prompts.ts`. Async. Returns `""` if no memory exists. Concatenates every zone's `.md` files into a single prompt block.
+- `memory` is already in `STAGE_NAMES`. Memory run records + `memory_run_update` SSE events stream to the dashboard automatically.
+- `resumePrSession` already injects `memoryBlock` + subagent capability. The new `pr_analyst` turn uses the same pattern.
 
 ---
 
@@ -45,39 +41,40 @@ The following is already in the codebase — this plan depends on it, does not b
 ```
 src/
   shared/types.ts                                  MODIFIED: PrReviewIssue, PrReviewReport, PrReviewPlan
-                                                             add "pr_impact_analyzer" to STAGE_NAMES
+                                                             add "pr_impact", "pr_analyst" to STAGE_NAMES
+                                                             remove "pr_reviewing" (replace with pr_analyst)
   db/schema.ts                                     MODIFIED: stageNameEnum
-  shared/config.ts                                 MODIFIED: add PI_MODEL_PR_IMPACT
-  core/git/github.ts                               MODIFIED: getPrMetadata, getPrDiff helpers
+  shared/config.ts                                 MODIFIED: add PI_MODEL_PR_IMPACT, PI_MODEL_PR_ANALYST
+  core/git/github.ts                               MODIFIED: add getPrMetadata, getPrDiff helpers
+  core/git/worktree.ts                             MODIFIED: createPrWorktree — fetch actual branch instead of pull/<N>/head
   pipelines/pr-review/pipeline.ts                  MODIFIED: stub -> real thin pipeline
-                                                             (runMemory -> fetch context -> runImpactAnalyzer -> startExternalReview)
+                                                             (runMemory -> fetch context -> runImpactAnalyzer -> runPrAnalyst)
   pipelines/pr-review/impact-analyzer.ts           NEW: runImpactAnalyzer (memory-derived, no repo access)
   pipelines/pr-review/impact-prompts.ts            NEW: impactAnalyzerSystemPrompt, impactAnalyzerInitialPrompt
-  pipelines/pr-session/prompts.ts                  MODIFIED: rewrite review-mode prompt (references memory + pr-impact.md)
-  pipelines/pr-session/session.ts                  MODIFIED: startExternalReview takes artifactsDir,
-                                                             prepends memoryBlock, passes subagentCapability()
+  pipelines/pr-review/analyst.ts                   NEW: runPrAnalyst — pi session with subagents, commits, comment
+  pipelines/pr-review/analyst-prompts.ts           NEW: prAnalystSystemPrompt, prAnalystInitialPrompt
   telegram/handlers.ts                             MODIFIED: remove pr_review short-circuit, route to createAndStart
-.env.example                                       MODIFIED: PI_MODEL_PR_IMPACT
+.env.example                                       MODIFIED: PI_MODEL_PR_IMPACT, PI_MODEL_PR_ANALYST
 drizzle/
-  <next>_pr_impact_stage.sql                       NEW: generated migration (number follows current sequence)
+  <next>_pr_analyst_stages.sql                     NEW: generated migration
 tests/
   unit/shared/pr-review-schemas.test.ts            NEW
   unit/core/git/pr-context.test.ts                 NEW
   unit/pipelines/pr-review/impact-prompts.test.ts  NEW
-  unit/pipelines/pr-review-prompts.test.ts         NEW
+  unit/pipelines/pr-review/analyst-prompts.test.ts NEW
 ```
 
-`TASK_KINDS` already includes `pr_review`; `STAGE_NAMES` already includes `pr_reviewing` and `memory`. The only stage addition is `pr_impact_analyzer`.
+`TASK_KINDS` already includes `pr_review`. `STAGE_NAMES` already includes `memory`. The two additions are `pr_impact` and `pr_analyst` (replacing `pr_reviewing`).
 
 ---
 
-## Task 1: Add `pr_impact_analyzer` to stage registry + generate migration
+## Task 1: Add `pr_impact` and `pr_analyst` to stage registry + generate migration
 
 **Files:**
 - Modify: `src/shared/types.ts`
 - Modify: `src/db/schema.ts`
 
-In `shared/types.ts`, add `"pr_impact_analyzer"` to `STAGE_NAMES`, grouped under the `pr_review` section:
+In `shared/types.ts`, update `STAGE_NAMES` under the `pr_review` section:
 
 ```ts
 export const STAGE_NAMES = [
@@ -92,12 +89,12 @@ export const STAGE_NAMES = [
   // codebase_question
   "answering",
   // pr_review
-  "pr_impact_analyzer",
-  "pr_reviewing",
+  "pr_impact",
+  "pr_analyst",
 ] as const;
 ```
 
-Mirror in `db/schema.ts`'s `stageNameEnum`.
+Mirror in `db/schema.ts`'s `stageNameEnum` (remove `pr_reviewing`, add `pr_impact` + `pr_analyst`).
 
 Then generate the migration:
 
@@ -105,11 +102,11 @@ Then generate the migration:
 npm run db:generate
 ```
 
-This produces the next-numbered `drizzle/NNNN_pr_impact_stage.sql` — an additive `ALTER TYPE ... ADD VALUE`. Do NOT `db:migrate` yet — human applies from laptop before the code that reads the new value merges.
+Do NOT `db:migrate` yet — human applies from laptop before the code that reads the new values merges.
 
 **Verify:** `npm run build` clean.
 
-**Commit:** `feat(pr-review): add pr_impact_analyzer stage name + drizzle migration`
+**Commit:** `feat(pr-review): add pr_impact + pr_analyst stage names, drop pr_reviewing + drizzle migration`
 
 ---
 
@@ -118,14 +115,10 @@ This produces the next-numbered `drizzle/NNNN_pr_impact_stage.sql` — an additi
 **Files:**
 - Modify: `src/shared/types.ts`
 
-**Implementation:**
-
 Append a new section. Keep existing sections untouched.
 
 ```ts
 // --- PR review contract ---
-
-import { z } from "zod";
 
 export const PR_REVIEW_SEVERITIES = ["blocker", "major", "minor", "nit"] as const;
 export const PR_REVIEW_CATEGORIES = ["correctness", "style", "tests", "security"] as const;
@@ -157,7 +150,7 @@ export const prReviewPlanSchema = z.object({
     id: z.string(),
     files: z.array(z.string()).min(1),
     dimensions: z.array(z.enum(PR_REVIEW_DIMENSIONS)).min(1),
-    focus: z.string().default(""),  // distilled from pr-impact.md; empty if analyzer skipped
+    focus: z.string().default(""),
   })),
   skipped: z.array(z.string()),
   focus_notes: z.string(),
@@ -171,14 +164,77 @@ export type PrReviewPlan = z.infer<typeof prReviewPlanSchema>;
 
 ---
 
-## Task 3: gh CLI helpers for PR context
+## Task 3: Fix `createPrWorktree` to check out the real branch
+
+**Files:**
+- Modify: `src/core/git/worktree.ts`
+
+**Problem with the current implementation:**
+
+```ts
+// current — fetches the anonymous head ref into a throwaway local branch
+await exec("git", ["fetch", "origin", `pull/${prNumber}/head:${localBranch}`], { cwd: repoPath });
+```
+
+This creates a local branch named `pr-review-<N>-<taskId>` that has no connection to the real remote branch. Since we're same-repo only, the PR's branch always exists at `origin/<headRef>` — just check it out directly.
+
+**New signature:**
+
+```ts
+/** Create a worktree checked out to a PR's head branch. Same-repo only. */
+export async function createPrWorktree(
+  repoPath: string,
+  headRef: string,   // the actual branch name, e.g. "feature/my-thing"
+  taskId: string,
+): Promise<string>
+```
+
+**Implementation:**
+
+```ts
+export async function createPrWorktree(
+  repoPath: string,
+  headRef: string,
+  taskId: string,
+): Promise<string> {
+  const dir = path.join(repoPath, "..", `goodboy-pr-${taskId.slice(0, 8)}`);
+
+  await forceRemoveWorktree(repoPath, dir);
+  // Wipe any stale local copy of the branch so the fetch is clean.
+  await forceDeleteBranch(repoPath, headRef);
+
+  // Fetch the real branch from origin into a same-named local branch.
+  // `${headRef}:${headRef}` means: remote branch headRef -> local branch headRef.
+  await exec("git", ["fetch", "origin", `${headRef}:${headRef}`], { cwd: repoPath });
+  await exec("git", ["worktree", "add", dir, headRef], { cwd: repoPath });
+
+  log.info(`Created PR worktree at ${dir} on branch ${headRef}`);
+  await stageSubagentAssets(dir);
+  return dir;
+}
+```
+
+Now the worktree is on the real PR branch. The analyst does `git push origin ${headRef}` — no refspec magic.
+
+Update the one existing call site in `session.ts`:
+
+```ts
+// was: createPrWorktree(repoConfig.localPath, String(prNumber), taskId)
+const worktreePath = await createPrWorktree(repoConfig.localPath, options.headRef, taskId);
+```
+
+**Verify:** `npm run build`
+
+**Commit:** `fix(worktree): createPrWorktree fetches actual branch instead of pull/<N>/head`
+
+---
+
+## Task 4: gh CLI helpers for PR context
 
 **Files:**
 - Modify: `src/core/git/github.ts`
 
-**Implementation:**
-
-Add to the `// --- gh CLI wrappers ---` section. Keep the pure-parsers section on top.
+Add to the `// --- gh CLI wrappers ---` section:
 
 ```ts
 export interface PrMetadata {
@@ -192,7 +248,7 @@ export interface PrMetadata {
   changedFiles: Array<{ path: string; additions: number; deletions: number }>;
 }
 
-/** Fetch PR metadata needed for the review orchestrator prompt. Throws on failure. */
+/** Fetch PR metadata needed for the analyst prompt. Throws on failure. */
 export async function getPrMetadata(nwo: string, prNumber: number): Promise<PrMetadata> {
   const { stdout } = await exec("gh", [
     "pr", "view", String(prNumber),
@@ -200,13 +256,9 @@ export async function getPrMetadata(nwo: string, prNumber: number): Promise<PrMe
     "--json", "number,title,body,labels,author,baseRefName,headRefName,files",
   ]);
   const data = JSON.parse(stdout) as {
-    number: number;
-    title: string;
-    body: string;
-    labels: Array<{ name: string }>;
-    author: { login: string };
-    baseRefName: string;
-    headRefName: string;
+    number: number; title: string; body: string;
+    labels: Array<{ name: string }>; author: { login: string };
+    baseRefName: string; headRefName: string;
     files: Array<{ path: string; additions: number; deletions: number }>;
   };
   return {
@@ -234,32 +286,30 @@ export async function getPrDiff(nwo: string, prNumber: number): Promise<string> 
 
 ---
 
-## Task 4: Memory-derived impact analyzer
+## Task 5: Memory-derived impact stage
 
 **Files:**
 - Create: `src/pipelines/pr-review/impact-prompts.ts`
 - Create: `src/pipelines/pr-review/impact-analyzer.ts`
-- Modify: `src/shared/config.ts` (add `PI_MODEL_PR_IMPACT`)
+- Modify: `src/shared/config.ts` — add `PI_MODEL_PR_IMPACT`
 - Modify: `.env.example`
 
 ### Design
 
-The analyzer is a **pure synthesis step**. Inputs: the repo's injected `memoryBlock(repo)` and the raw unified diff. Outputs: `pr-impact.md` — a PR-scoped pre-filter of memory for the reviewer.
+The `pr_impact` stage is a **pure synthesis step**. Inputs: `memoryBlock(repo)` + the staged diff. Output: `pr-impact.md` — five sections the analyst reads as its primary lens.
 
-**No repo access.** cwd is `artifactsDir`, so the agent's `read` / `bash` only see `pr.diff` and `pr-context.json`. It cannot open source files, cannot grep the codebase, cannot verify memory claims against live code. This is deliberate: the analyzer's value is that it forces a memory-grounded reasoning pass, and isolates the orchestrator from a giant tool-use preamble.
+**No repo access.** cwd is `artifactsDir`, so the agent's tools only see `pr.diff` and `pr-context.json`. This is deliberate: it forces memory-grounded reasoning and prevents a giant tool-use preamble before the analyst starts.
 
-**No subagents.** One reasoning pass.
+**No subagents.** One reasoning pass. Fast, cheap model preferred.
 
-**Always runs** — even on stale or missing memory. If `memoryBlock` returns `""`, the prompt notes this and the agent produces a "Memory Gaps" section that flags every touched area as uncovered. If the stage fails (timeout, LLM error), soft-fail: `pr-impact.md` is absent and the orchestrator proceeds without it.
+**Always runs.** If `memoryBlock` returns `""`, the agent still runs and produces a "flying blind" degraded report. On LLM error/timeout, soft-fail — analyst proceeds without `pr-impact.md`.
 
 ### `src/pipelines/pr-review/impact-prompts.ts`
 
 ```ts
 /**
- * Prompts for the pr_impact_analyzer stage. A memory-derived synthesis pass:
- * the agent sees ONLY the injected memory block and the PR diff. It has no
- * repo access. Its job is to pre-filter memory down to the parts relevant to
- * this PR and hand the reviewer a tight, PR-scoped context document.
+ * Prompts for the pr_impact stage. Memory-derived synthesis: the agent sees
+ * only the injected memory block and the staged PR diff. No repo access.
  */
 
 export function impactAnalyzerSystemPrompt(
@@ -269,83 +319,70 @@ export function impactAnalyzerSystemPrompt(
 ): string {
   const memorySection = memoryBody
     ? memoryBody
-    : `NO MEMORY AVAILABLE for ${repo}. The codebase memory is empty or failed to
-load. Produce the report from the diff alone. Every section will be thin —
-that is fine. The "Memory Gaps" section should flag every touched area as
-uncovered so the reviewer knows to work harder.`;
+    : `NO MEMORY AVAILABLE for ${repo}. Produce the report from the diff alone.
+Every section will be thin — that is fine. The "Memory Gaps" section should
+flag every touched area as uncovered so the analyst knows to work harder.`;
 
   return `You are the PR Impact Analyzer for "${repo}".
 
-Your job: produce a PR-scoped pre-filter of the codebase memory. The review
-orchestrator will read your report as its primary lens on this PR. You are
-upstream of the reviewer; be tight, structured, and memory-grounded.
+Your job: produce a PR-scoped pre-filter of the codebase memory. The pr_analyst
+stage reads your report as its primary lens on this PR. Be tight, structured,
+and memory-grounded.
 
 WHAT YOU HAVE:
-- The full codebase memory (injected below). This is your ONLY view of the
-  repository. You cannot open source files. You cannot grep. Do not try.
-- The PR's raw unified diff at ${artifactsDir}/pr.diff
-- PR metadata (title, body, labels, changed file list) at ${artifactsDir}/pr-context.json
+- The full codebase memory (injected below). Your ONLY view of the repo.
+  You cannot open source files. You cannot grep. Do not try.
+- PR diff at ${artifactsDir}/pr.diff
+- PR metadata at ${artifactsDir}/pr-context.json
 
 WHAT YOU DO NOT HAVE:
-- Access to any file outside ${artifactsDir}. Attempts to read the repo will
-  fail silently. Do not attempt them.
+- Access to any file outside ${artifactsDir}. Do not attempt it.
 
 ${memorySection}
 
 YOUR TASK:
-1. Read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff in full.
-2. Reason about the diff in light of the memory above. You are NOT rediscovering
-   the codebase — the memory already encodes it. Your job is to *project* memory
-   onto this specific diff.
-3. Write ${artifactsDir}/pr-impact.md using EXACTLY these five section headers
-   in this order. If a section has nothing to say, write "None identified." under
-   it — do not drop the header.
+Read both artifact files, reason about the diff in light of the memory above,
+then write ${artifactsDir}/pr-impact.md using EXACTLY these five section headers
+in this order. If a section has nothing to say, write "None identified."
 
-   # Impact Analysis — PR #<number>: <title>
+  # Impact Analysis — PR #<number>: <title>
 
-   ## Summary
-   One paragraph. What the PR changes, which memory zones it touches, and the
-   single biggest risk area *according to memory*.
+  ## Summary
+  One paragraph. What the PR changes, which memory zones it touches, and the
+  single biggest risk area according to memory.
 
-   ## Touched Zones
-   For every zone (from the memory above) that this PR's changed files fall into:
-   zone name, zone summary (quoted verbatim from memory), and the files in this
-   PR that land there. If files fall outside every zone, list them under "_root".
+  ## Touched Zones
+  For every memory zone this PR's changed files fall into: zone name, zone
+  summary (quoted verbatim from memory), and the PR files that land there.
+  Files outside every zone go under "_root".
 
-   ## Affected Symbols & Concepts
-   Exported symbols or architectural concepts the diff changes. For each one,
-   cite the memory claim that mentions it (quote the memory line and its
-   [path:line] citation). If a changed symbol is not mentioned anywhere in
-   memory, list it under "Not in memory" inside this section — that is a signal
-   the reviewer will want.
+  ## Affected Symbols & Concepts
+  Exported symbols or architectural concepts the diff changes. For each, cite
+  the memory line that mentions it (quote + [path:line]). Changed symbols
+  absent from memory go under "Not in memory" — a signal for the analyst.
 
-   ## Risks per Memory
-   Invariants, patterns, and gotchas the memory records for the touched zones,
-   projected onto what the diff does. Format each risk as:
-     - [zone] <one-line risk> — memory says: "<quote>" [path:line from memory]
-       diff impact: <one-line assessment of whether the diff respects it>
-   Only list risks where the diff actually interacts with the memory claim.
-   Do not pad.
+  ## Risks per Memory
+  Invariants and patterns the memory records for touched zones, projected onto
+  what the diff does. Format:
+    - [zone] <one-line risk> — memory says: "<quote>" [path:line]
+      diff impact: <one-line assessment>
+  Only list risks where the diff actually interacts with the memory claim.
 
-   ## Memory Gaps
-   Places the PR touches that memory does NOT cover well. Be specific: "zone X
-   has no overview.md", "memory says nothing about the error-handling pattern
-   in src/foo/", "changed file src/bar.ts is outside every zone". This section
-   is a signal to the reviewer: "here, you are flying blind — be extra careful."
+  ## Memory Gaps
+  Places the PR touches that memory does NOT cover well. Be specific. This
+  tells the analyst: "here, you are flying blind — be extra careful."
 
 CONSTRAINTS:
-- You are READ-ONLY. You MAY ONLY write to ${artifactsDir}/pr-impact.md.
-- Every concrete claim about the repo must cite the memory line it came from
-  (memory lines already carry [path:line] citations — reuse them).
-- You may NOT cite [path:line] from first-hand file inspection — you cannot
-  inspect files. If a memory line doesn't say it, don't claim it.
-- The five section headers above are a fixed contract — do not rename or reorder.
+- READ-ONLY. You may ONLY write to ${artifactsDir}/pr-impact.md.
+- Every concrete claim must cite the memory line it came from.
+- Do NOT cite from first-hand file inspection. You cannot inspect files.
+- Do not rename or reorder the five section headers.
 
-When done, end your output with "IMPACT_ANALYSIS_DONE".`;
+End your output with "IMPACT_ANALYSIS_DONE".`;
 }
 
 export function impactAnalyzerInitialPrompt(artifactsDir: string): string {
-  return `Begin the impact analysis. Read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff, then write the complete ${artifactsDir}/pr-impact.md covering all five sections. Project the memory above onto this specific diff. Do not attempt to read source files — you don't have access. Do not stop until every section header is written.`;
+  return `Begin the impact analysis. Read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff, then write the complete ${artifactsDir}/pr-impact.md covering all five sections. Project the memory above onto this specific diff. Do not attempt to read source files.`;
 }
 ```
 
@@ -353,13 +390,8 @@ export function impactAnalyzerInitialPrompt(artifactsDir: string): string {
 
 ```ts
 /**
- * PR impact analyzer stage. Memory-derived synthesis: the agent reads only
- * the injected memory and the PR diff, and produces pr-impact.md — a
- * PR-scoped pre-filter of memory for the review orchestrator. Soft-fails
- * always — the review pipeline proceeds without the report on failure.
- *
- * Intentionally has no repo access (cwd = artifactsDir). When memory is
- * missing, the stage still runs and produces a degraded report.
+ * pr_impact stage. Memory-derived synthesis: reads memory + PR diff,
+ * produces pr-impact.md. Soft-fails always. cwd = artifactsDir (sandboxed).
  */
 
 import { createLogger } from "../../shared/logger.js";
@@ -368,7 +400,7 @@ import { runStage, type SendTelegram } from "../../core/stage.js";
 import { memoryBlock } from "../../shared/agent-prompts.js";
 import { impactAnalyzerSystemPrompt, impactAnalyzerInitialPrompt } from "./impact-prompts.js";
 
-const log = createLogger("pr-impact-analyzer");
+const log = createLogger("pr-impact");
 
 const IMPACT_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -381,9 +413,8 @@ export interface ImpactAnalyzerOptions {
 }
 
 /**
- * Run the impact analyzer. Always soft-fails — never throws. Writes
- * `<artifactsDir>/pr-impact.md` on success; leaves it absent on failure so
- * the orchestrator can detect the missing-file case gracefully.
+ * Run the pr_impact stage. Never throws. Writes pr-impact.md on success;
+ * leaves it absent on failure so the analyst can detect and degrade gracefully.
  */
 export async function runImpactAnalyzer(opts: ImpactAnalyzerOptions): Promise<void> {
   const { taskId, repo, artifactsDir, sendTelegram, chatId } = opts;
@@ -391,23 +422,22 @@ export async function runImpactAnalyzer(opts: ImpactAnalyzerOptions): Promise<vo
     const memoryBody = await memoryBlock(repo);
     await runStage({
       taskId,
-      stage: "pr_impact_analyzer",
+      stage: "pr_impact",
       cwd: artifactsDir,
       systemPrompt: impactAnalyzerSystemPrompt(repo, artifactsDir, memoryBody),
       initialPrompt: impactAnalyzerInitialPrompt(artifactsDir),
-      model: modelForImpactAnalysis(),
+      model: modelForImpact(),
       sendTelegram,
       chatId,
       stageLabel: "PR Impact Analysis",
       timeoutMs: IMPACT_TIMEOUT_MS,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.warn(`Impact analyzer failed for task ${taskId}: ${message} — proceeding without report`);
+    log.warn(`pr_impact failed for ${taskId}: ${err instanceof Error ? err.message : String(err)} — analyst proceeds without report`);
   }
 }
 
-function modelForImpactAnalysis(): string {
+function modelForImpact(): string {
   const env = loadEnv();
   return env.PI_MODEL_PR_IMPACT ?? env.PI_MODEL;
 }
@@ -415,262 +445,332 @@ function modelForImpactAnalysis(): string {
 
 ### Config + env
 
-In `src/shared/config.ts`, add to the env schema:
+In `src/shared/config.ts`:
 ```ts
 PI_MODEL_PR_IMPACT: z.string().optional(),
 ```
 
 In `.env.example`:
 ```
-# Model for PR impact analyzer. Use a light, fast model — it's a pure
-# memory+diff synthesis pass with no tool use. Falls back to PI_MODEL.
+# Light, fast model for the pr_impact synthesis pass. Falls back to PI_MODEL.
 PI_MODEL_PR_IMPACT=
 ```
 
-**Implementation notes:**
-- cwd is `artifactsDir` so `read` sees `pr.diff` + `pr-context.json` and nothing else. The agent cannot open source files — this is the sandbox that makes "memory-derived" real.
-- No subagent capability passed — this stage doesn't spawn subagents.
-- The stage runs AFTER `runMemory` in the pipeline, so `memoryBlock(repo)` reflects the latest indexed state for this run.
-
 **Verify:** `npm run build`
 
-**Commit:** `feat(pr-review): memory-derived impact analyzer stage (no repo access)`
+**Commit:** `feat(pr-review): pr_impact stage — memory-derived synthesis, sandboxed cwd`
 
 ---
 
-## Task 5: Rewrite the review-mode prompts
+## Task 6: The pr_analyst stage
+
+This is the core of the pipeline. The `pr_analyst` receives the full memory block and `pr-impact.md`, fans out a fleet of subagents to review every file group, aggregates all their JSON reports, applies every auto-fixable issue with real commits pushed to the PR branch, then posts a single structured comment.
 
 **Files:**
-- Modify: `src/pipelines/pr-session/prompts.ts`
+- Create: `src/pipelines/pr-review/analyst-prompts.ts`
+- Create: `src/pipelines/pr-review/analyst.ts`
+- Modify: `src/shared/config.ts` — add `PI_MODEL_PR_ANALYST`
+- Modify: `.env.example`
 
-**Implementation:**
-
-Keep `mode: "own"` untouched. Replace the `mode: "review"` branch and replace `externalReviewPrompt` with an orchestrator prompt. The `artifactsDir` parameter is new. Memory is NOT embedded here — it's prepended at the call site by `startExternalReview`, matching the `resumePrSession` pattern.
+### `src/pipelines/pr-review/analyst-prompts.ts`
 
 ```ts
-// in prSessionPrompt options: add artifactsDir?: string
-// in prSessionPrompt, mode === "review" branch:
-return `${shared}
-MODE: You are reviewing PR #${prNumber} on ${repo}. You own this review end to end.
+/**
+ * Prompts for the pr_analyst stage — the main PR review orchestrator.
+ * Receives full memory + pr-impact.md, fans out subagents, commits fixes,
+ * and posts the final comment.
+ *
+ * Memory is NOT embedded here; it is prepended at the call site via
+ * memoryBlock(repo), matching the coding/question/resumePrSession pattern.
+ */
 
-RULES OF ENGAGEMENT (non-negotiable):
-- You have the pi-subagents tool. Use it. Do NOT attempt to review large PRs alone.
-- One writer: you. Subagents are read-only. They return JSON reports; you apply fixes.
-- Always commit-back: for fixes you apply, commit (conventional prefix, 1-3 logical commits) and push to ${branch}. Never --force.
-- Auto-fix vs flag-only: fix locally only for category=style (any severity) or category=correctness severity in {minor, nit}. EVERYTHING else (major/blocker correctness, any security, anything requiring a design choice) goes into the summary as "for author to address" -- do NOT touch that code.
-- Do NOT run gh pr review. Post a single plain issue comment with gh pr comment.
+export interface PrAnalystPromptOptions {
+  repo: string;
+  nwo: string;
+  /** The PR's head branch name (e.g. "feature/my-thing"). The worktree is
+   * checked out directly on this branch — git push just works. */
+  headRef: string;
+  prNumber: number;
+  artifactsDir: string;
+  worktreePath: string;
+}
+
+export function prAnalystSystemPrompt(opts: PrAnalystPromptOptions): string {
+  const { repo, nwo, headRef, prNumber, artifactsDir, worktreePath } = opts;
+  return `You are the PR Analyst for "${repo}", PR #${prNumber}.
+
+You own this review end to end: read the PR, launch a fleet of subagents to
+review every part of it, aggregate their findings, fix everything auto-fixable
+with real commits pushed to the branch, and post a single summary comment.
+
+YOU HAVE THE PI-SUBAGENTS TOOL. Use it. Do not attempt to review a non-trivial
+PR alone — you will miss things. Spawn aggressively.
+
+---
 
 CONTEXT YOU HAVE:
-- Codebase memory (the "CODEBASE MEMORY" block above): the full agent-maintained
-  knowledge base for this repo. Use it to understand WHY code is written the way
-  it is, what patterns the repo follows, and what invariants it holds.
-- PR impact report at ${artifactsDir}/pr-impact.md (if present): a memory-derived,
-  PR-scoped pre-filter. Start here — it tells you which memory zones and risks are
-  actually relevant to this diff. If absent, fall back to the full memory block.
-- PR metadata at ${artifactsDir}/pr-context.json and diff at ${artifactsDir}/pr.diff.
-- AGENTS.md and CLAUDE.md in the worktree (optional supplement; memory is primary).
+- Codebase memory (the "CODEBASE MEMORY" block prepended above): full agent-
+  maintained knowledge base for this repo. Understand WHY code is written the
+  way it is, which patterns and invariants the repo holds.
+- PR impact report at ${artifactsDir}/pr-impact.md (if present): memory-derived,
+  PR-scoped pre-filter. Start here — it tells you which zones and risks are
+  relevant to this diff. If absent, fall back to the full memory block.
+- PR metadata at ${artifactsDir}/pr-context.json
+- PR diff at ${artifactsDir}/pr.diff
+- Full worktree at ${worktreePath} (for applying fixes).
 
-WORKFLOW:
-1. Read ${artifactsDir}/pr-impact.md if it exists. This is your PR-scoped lens.
-   Note the touched zones, memory-grounded risks, and memory gaps. If it does NOT
-   exist (analyzer failed), proceed using the full memory block above.
-2. Read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff.
-3. Plan the review. Write ${artifactsDir}/review-plan.json matching this shape:
+---
+
+AUTO-FIX RULE (non-negotiable):
+- AUTO-FIX: category=style (any severity), category=correctness severity in {minor, nit}.
+- FLAG-ONLY: category=correctness severity in {major, blocker}, any category=security,
+  anything that requires a design choice or author judgement.
+  DO NOT TOUCH flag-only code. Describe it in the comment for the author.
+
+---
+
+COMMIT RULE:
+- Your worktree is checked out directly on ${headRef} — the real PR branch.
+  Push with: git push origin ${headRef}
+- Group fixes into 1–3 logical commits. Conventional prefixes (fix:, style:,
+  refactor:, test:). Never --force.
+- Commit BEFORE posting the comment. The comment's "Fixes pushed" section
+  cites the short SHAs.
+
+---
+
+COMMENT RULE:
+- Post exactly one plain comment: gh pr comment ${prNumber} --repo ${nwo} --body-file ${artifactsDir}/summary.md
+- Do NOT run gh pr review. No inline line comments in v1.
+
+---
+
+WORKFLOW — follow this order exactly:
+
+1. READ THE IMPACT REPORT.
+   Check if ${artifactsDir}/pr-impact.md exists. If yes, read it — this is
+   your primary lens. Note the Touched Zones, Risks per Memory, Memory Gaps.
+   If absent (impact stage failed), note this and proceed with the full memory
+   block above as your only context.
+
+2. READ THE PR.
+   Read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff in full.
+
+3. PLAN THE REVIEW.
+   Write ${artifactsDir}/review-plan.json:
    {
      "groups": [
        {
          "id": "group-01",
          "files": ["src/a.ts", "src/a.test.ts"],
          "dimensions": ["correctness", "style"],
-         "focus": "one paragraph distilled from pr-impact.md: which memory-recorded invariants apply to these files, which risks from 'Risks per Memory' land here, any 'Memory Gaps' entries for this area. If the impact report is missing, say so here and give your own one-paragraph focus."
+         "focus": "paragraph distilled from pr-impact.md: which memory-recorded
+                   invariants apply here, which risks land here, any memory gaps.
+                   If the impact report is missing, write your own focus paragraph."
        },
        ...
      ],
-     "skipped": ["package-lock.json", "dist/*"],
-     "focus_notes": "one paragraph: what this PR does and where the risky surface is, grounded in memory"
+     "skipped": ["package-lock.json"],
+     "focus_notes": "one paragraph: what the PR does and where the risk surface is"
    }
-   Rules for planning:
-   - Group related files (implementation + its test) in the same group.
-   - 2 files per group typical; at most 10 groups. Larger PRs: cover highest-churn groups, list the rest in skipped.
-   - Always skip: lockfiles, generated code, vendored deps, massive data migrations.
-   - Every group MUST have a focus string. Don't leave it empty unless the impact
-     report is missing AND you have nothing specific to say.
-4. Spawn subagents via the pi-subagents tool:
-   - One FILE-GROUP subagent per group. Pass its group.focus into the spawn prompt
-     verbatim (template below). It reviews those files for correctness + style and
-     returns JSON per the PrReviewReport schema. Writes to ${artifactsDir}/reports/<group-id>.json.
-   - One HOLISTIC subagent. Covers tests + security + cross-cutting. Pass it the
-     "Memory Gaps" section from pr-impact.md (or "no impact report available" if
-     it's missing) as its focus. Writes ${artifactsDir}/reports/holistic.json.
-   - Subagents do NOT receive the full memory block. You (the orchestrator) hold
-     that context and distill it into the per-group focus strings.
-5. Wait for all subagents to complete. Read every report back.
-6. Aggregate: dedupe issues that appear in multiple reports, sort by severity, split into auto-fix and flag-only buckets per the rule above.
-7. Apply the auto-fixable issues. Commit in 1-3 logical commits (feat:/fix:/refactor:/style:/test:). Push.
-8. Post a single summary via: gh pr comment ${prNumber} --repo ${repo} --body-file ${artifactsDir}/summary.md
-9. Write the body yourself into ${artifactsDir}/summary.md first. Structure:
-     Line 1: one-line verdict ("N fixes pushed; M issues flagged for author.")
-     ## Fixes pushed
-     - <short-sha> <conventional message> -- what it addressed
-     ## Issues for author
-     - [severity] path:line -- title. rationale. suggested fix.
-     ## Skipped files
-     - path -- reason (only if non-empty)
+   Rules:
+   - Group related files (implementation + test) together.
+   - 2 files per group typical; at most 10 groups. For large PRs, cover the
+     highest-churn groups and list the rest in skipped.
+   - Always skip: lockfiles, generated code, vendored deps, large data migrations.
+   - Every group MUST have a non-empty focus string.
+
+4. SPAWN A FLEET OF SUBAGENTS.
+   Use the pi-subagents tool to launch ALL of the following in parallel:
+
+   a) One FILE-GROUP subagent per group. Use this prompt template:
+      ---
+      You are reviewing a slice of a pull request. Read-only.
+      Files assigned: <group.files>
+      Dimensions: <group.dimensions>
+      FOCUS (from the repo's memory and PR impact report — your primary lens):
+      <group.focus>
+      The full diff is at ${artifactsDir}/pr.diff; your files' hunks are inside it.
+      You MAY open adjacent files in the worktree to understand callers/imports.
+      You may NOT edit anything.
+      Produce a report matching the schema below and write it to
+      ${artifactsDir}/reports/<group-id>.json. No prose outside the JSON.
+      <schema below>
+      ---
+
+   b) One HOLISTIC subagent. Use this prompt template:
+      ---
+      You are the cross-cutting reviewer for this pull request. Read-only.
+      Cover: tests (coverage added/updated?), security (authN/Z, secrets,
+      injection, unsafe deserialization), cross-cutting concerns (duplicate
+      helpers, layering violations, API contract drift).
+      Do NOT duplicate file-local correctness or style — those belong to file-group subagents.
+      FOCUS (memory gaps the orchestrator flagged):
+      <paste the "Memory Gaps" section from pr-impact.md, or "no impact report available">
+      Inputs: ${artifactsDir}/pr-context.json, ${artifactsDir}/pr.diff, and any
+      files you want to grep/read in the worktree.
+      You MAY grep/read any file in the repo. You may NOT edit anything.
+      Write your report to ${artifactsDir}/reports/holistic.json.
+      <schema below>
+      ---
+
+   Subagents do NOT receive the full memory block. You hold that context and
+   distill it into the per-group focus strings. Keep subagents lean.
+
+   SUBAGENT REPORT SCHEMA (every subagent must produce this):
+   {
+     "subagent_id": "group-01" | "holistic",
+     "files_reviewed": ["src/..."],
+     "dimensions": ["correctness", "style"],
+     "issues": [
+       {
+         "file": "src/...",
+         "line_start": 42,
+         "line_end": 48,
+         "severity": "blocker" | "major" | "minor" | "nit",
+         "category": "correctness" | "style" | "tests" | "security",
+         "title": "one line",
+         "rationale": "why this is an issue",
+         "suggested_fix": "prose, not a patch"
+       }
+     ],
+     "notes": ""
+   }
+
+5. WAIT FOR ALL SUBAGENTS. Read every report back from ${artifactsDir}/reports/.
+
+6. AGGREGATE.
+   - Dedupe issues that appear in multiple reports.
+   - Sort by severity (blocker → major → minor → nit).
+   - Split into auto-fix bucket (style any severity; correctness minor/nit) and
+     flag-only bucket (everything else).
+
+7. APPLY ALL AUTO-FIXABLE ISSUES.
+   For each auto-fix issue: open the file in ${worktreePath}, make the fix,
+   save. Group into 1–3 logical commits (fix:, style:, refactor:, test:) and
+   push to ${branch}. Note the short SHAs.
+
+8. WRITE THE SUMMARY.
+   Write ${artifactsDir}/summary.md:
+
+   <one-line verdict: "N fixes pushed; M issues flagged for author.">
+
+   ## Fixes pushed
+   - <short-sha> <conventional message> — what it addressed
+
+   ## Issues for author
+   - [severity][category] path:line — title. Rationale. Suggested fix.
+
+   ## Skipped files
+   - path — reason  (omit section if empty)
+
+9. POST THE COMMENT.
+   gh pr comment ${prNumber} --repo ${nwo} --body-file ${artifactsDir}/summary.md
+
 10. End with: {"status": "complete"}
-
-SUBAGENT REPORT SCHEMA (every subagent MUST produce this):
-{
-  "subagent_id": "group-01" | "holistic",
-  "files_reviewed": ["src/..."],
-  "dimensions": ["correctness", "style"],   // or ["tests", "security"] for holistic
-  "issues": [
-    {
-      "file": "src/...",
-      "line_start": 42,
-      "line_end": 48,
-      "severity": "blocker" | "major" | "minor" | "nit",
-      "category": "correctness" | "style" | "tests" | "security",
-      "title": "one line",
-      "rationale": "why this is an issue",
-      "suggested_fix": "prose, not a patch"
-    }
-  ],
-  "notes": ""
-}
-
-SUBAGENT PROMPT TEMPLATES (use these verbatim when spawning):
-
-[FILE-GROUP SUBAGENT]
-You are reviewing a slice of a pull request. Read-only.
-Files assigned: <group.files>
-Dimensions to cover: <group.dimensions>
-FOCUS (distilled from the repo's memory and the PR impact report — this is
-your primary lens; do NOT re-derive it):
-<group.focus>
-The full diff is at ${artifactsDir}/pr.diff; your files' hunks are inside it.
-You MAY open adjacent files in the worktree to understand callers/imports.
-You may NOT edit anything.
-Produce a report strictly matching the schema above and write it to
-${artifactsDir}/reports/<your-group-id>.json. Do not include prose outside the JSON file.
-
-[HOLISTIC SUBAGENT]
-You are the cross-cutting reviewer for this pull request. Read-only.
-Cover: tests (is coverage added/updated?), security (authN/Z, secrets, injection,
-unsafe deserialization), and cross-cutting concerns (duplicate helpers, layering
-violations).
-Do NOT duplicate file-local correctness or style issues — those belong to the
-file-group subagents.
-FOCUS (the memory gaps the orchestrator flagged for this PR — places where the
-reviewer is flying blind):
-<holistic.focus>
-Inputs: ${artifactsDir}/pr-context.json, ${artifactsDir}/pr.diff, and any files
-in the worktree you want to grep/read.
-You MAY grep/read any file in the repo. You may NOT edit anything.
-Write your report to ${artifactsDir}/reports/holistic.json matching the schema above.
-`;
-```
-
-And the exported initial prompt:
-
-```ts
-/** Initial prompt for an external PR review turn. Points the orchestrator at the artifact files the pipeline wrote. */
-export function externalReviewPrompt(artifactsDir: string): string {
-  return `Begin the review. Start by reading ${artifactsDir}/pr-impact.md (if it exists — it's your PR-scoped lens on the repo's memory). Then read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff. Plan, fan out with per-group focus strings, aggregate, fix, push, and comment per the workflow. End with {"status": "complete"}.`;
-}
-```
-
-**Verify:** `npm run build`
-
-**Commit:** `feat(pr-review): orchestrator prompt with memory + impact-report context and per-group focus`
 
 ---
 
-## Task 6: Thread subagent capability + memory + artifactsDir into the external-review turn
+This is not optional. You MUST spawn subagents. You MUST commit fixes before
+commenting. You MUST post the comment. A review that only reads and reports
+without fixing and commenting is incomplete.`;
+}
 
-**Files:**
-- Modify: `src/pipelines/pr-session/session.ts`
-
-**Implementation:**
-
-Import the capability and the memory block at the top:
-```ts
-import { subagentCapability } from "../../core/subagents/index.js";
-import { memoryBlock } from "../../shared/agent-prompts.js";
-```
-
-Extend `SessionTurn` with the capability fields. `spawnPiSession` already accepts `extensions` + `envOverrides` (verified in `core/pi/spawn.ts`), so the plumbing just needs to thread them through.
-
-```ts
-interface SessionTurn {
-  prSessionId: string;
-  labelSuffix: string;
-  cwd: string;
-  systemPrompt: string;
-  model: string;
-  prompt: string;
-  run: { id: string };
-  timeoutLabel: string;
-  extensions?: string[];
-  envOverrides?: Record<string, string>;
+export function prAnalystInitialPrompt(artifactsDir: string): string {
+  return `Begin the PR review. Check for ${artifactsDir}/pr-impact.md first (your primary lens), then read ${artifactsDir}/pr-context.json and ${artifactsDir}/pr.diff. Plan, fan out your subagents, wait for all reports, aggregate, fix everything auto-fixable, commit and push, then post the summary comment. Follow the workflow in order. End with {"status": "complete"}.`;
 }
 ```
 
-In `runSessionTurnInner`, forward them to `spawnPiSession`:
-```ts
-const session = spawnPiSession({
-  id: `pr-session-${prSessionId.slice(0, 8)}-${labelSuffix}`,
-  cwd,
-  systemPrompt,
-  model,
-  sessionPath: filePath,
-  extensions: turn.extensions,
-  envOverrides: turn.envOverrides,
-});
-```
+### `src/pipelines/pr-review/analyst.ts`
 
-Change `startExternalReview`'s signature to take `artifactsDir: string`:
 ```ts
-export async function startExternalReview(options: {
-  repo: string;
-  prNumber: number;
-  artifactsDir: string;      // NEW
-  sendTelegram: SendTelegram;
-  chatId: string;
+/**
+ * pr_analyst stage. The heavy lifter: reads the PR, fans out a fleet of
+ * subagents, aggregates their reports, commits all auto-fixable issues to
+ * the PR branch, and posts a single summary comment.
+ *
+ * Runs as a pi session with pi-subagents capability. Memory is injected at
+ * invocation time. Throws on hard failure so the pipeline can failTask.
+ */
+
+import { createLogger } from "../../shared/logger.js";
+import { loadEnv } from "../../shared/config.js";
+import { runStage, type SendTelegram } from "../../core/stage.js";
+import { memoryBlock } from "../../shared/agent-prompts.js";
+import { subagentCapability } from "../../core/subagents/index.js";
+import { prAnalystSystemPrompt, prAnalystInitialPrompt } from "./analyst-prompts.js";
+
+const log = createLogger("pr-analyst");
+
+// Give the analyst plenty of time — it fans out many subagents and applies fixes.
+const ANALYST_TIMEOUT_MS = 45 * 60 * 1000;
+
+export interface PrAnalystOptions {
   taskId: string;
-}): Promise<void> {
+  repo: string;
+  nwo: string;
+  prNumber: number;
+  headRef: string;
+  artifactsDir: string;
+  worktreePath: string;
+  sendTelegram: SendTelegram;
+  chatId: string | null;
+}
+
+/**
+ * Run the pr_analyst stage. Throws on failure — pipeline catches and calls failTask.
+ */
+export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
+  const { taskId, repo, nwo, prNumber, headRef, artifactsDir, worktreePath, sendTelegram, chatId } = opts;
+
+  const memory = await memoryBlock(repo);
+  const cap = subagentCapability();
+
+  const systemPrompt = memory
+    + "\n\n"
+    + prAnalystSystemPrompt({ repo, nwo, headRef, prNumber, artifactsDir, worktreePath });
+
+  await runStage({
+    taskId,
+    stage: "pr_analyst",
+    cwd: worktreePath,
+    systemPrompt,
+    initialPrompt: prAnalystInitialPrompt(artifactsDir),
+    model: modelForAnalyst(),
+    sendTelegram,
+    chatId,
+    stageLabel: "PR Analyst",
+    timeoutMs: ANALYST_TIMEOUT_MS,
+    extensions: cap.extensions,
+    envOverrides: cap.envOverrides,
+  });
+
+  log.info(`pr_analyst complete for task ${taskId}`);
+}
+
+function modelForAnalyst(): string {
+  const env = loadEnv();
+  return env.PI_MODEL_PR_ANALYST ?? env.PI_MODEL;
+}
 ```
 
-Then update its `runSessionTurn` call to inject memory + capability + artifactsDir:
+### Config + env
 
+In `src/shared/config.ts`:
 ```ts
-const cap = subagentCapability();
-const memory = await memoryBlock(repo);
-
-await runSessionTurn({
-  prSessionId: prSession.id,
-  labelSuffix: "review",
-  cwd: worktreePath,
-  systemPrompt: memory + prSessionPrompt({
-    mode: "review",
-    repo: nwo ?? repo,
-    branch,
-    prNumber,
-    artifactsDir,
-  }),
-  model: modelFor("PI_MODEL_REVIEWER"),
-  prompt: externalReviewPrompt(artifactsDir),
-  run,
-  timeoutLabel: "PR session (external review)",
-  extensions: cap.extensions,
-  envOverrides: cap.envOverrides,
-});
+PI_MODEL_PR_ANALYST: z.string().optional(),
 ```
 
-Leave `resumePrSession` alone structurally — it already prepends `memoryBlock`. Optionally add the same `extensions`/`envOverrides` there so the resumed turn keeps subagent capability for follow-up reviews. Recommended, low cost.
+In `.env.example`:
+```
+# Model for the pr_analyst stage. Use your best model — it plans, fans out
+# subagents, applies fixes, and writes the comment. Falls back to PI_MODEL.
+PI_MODEL_PR_ANALYST=
+```
 
 **Verify:** `npm run build`
 
-**Commit:** `feat(pr-review): inject memory + subagent capability into external review session`
+**Commit:** `feat(pr-review): pr_analyst stage — subagent fleet, commit fixes, post comment`
 
 ---
 
@@ -679,16 +779,13 @@ Leave `resumePrSession` alone structurally — it already prepends `memoryBlock`
 **Files:**
 - Modify: `src/pipelines/pr-review/pipeline.ts`
 
-**Implementation:**
-
-Replace the file wholesale. Note: `queries` imports from `../../db/repository.js` (not `db/queries.js`).
+Replace the file wholesale. The pipeline is purely orchestration — every heavy operation delegates to a named stage.
 
 ```ts
 /**
- * PR review pipeline. Thin outer wrapper: syncs the repo, runs the memory
- * stage, fetches PR context, runs the memory-derived impact analyzer, then
- * hands off to `startExternalReview` which runs the orchestrator session
- * with pi-subagents capability and memory injected.
+ * PR review pipeline. Thin outer wrapper: syncs the repo, runs memory,
+ * fetches PR context, runs the impact stage, then runs the analyst stage
+ * which fans out subagents, commits fixes, and posts the summary comment.
  */
 
 import path from "node:path";
@@ -696,25 +793,20 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
 import { config } from "../../shared/config.js";
 import { getRepo } from "../../shared/repos.js";
-import { syncRepo } from "../../core/git/worktree.js";
+import { syncRepo, createPrWorktree, cleanupWorktree } from "../../core/git/worktree.js";
 import { getPrMetadata, getPrDiff, parseNwo, parsePrIdentifier } from "../../core/git/github.js";
 import { runMemory } from "../memory/pipeline.js";
 import { runImpactAnalyzer } from "./impact-analyzer.js";
-import { startExternalReview } from "../pr-session/session.js";
+import { runPrAnalyst } from "./analyst.js";
 import { failTask, notifyTelegram, type SendTelegram } from "../../core/stage.js";
 import { withPipelineSpan } from "../../observability/index.js";
 import * as queries from "../../db/repository.js";
 
 const log = createLogger("pr-review");
 
-/** Entry point for pr_review tasks. Errors surface via `failTask`; never throws. */
 export async function runPrReview(taskId: string, sendTelegram: SendTelegram): Promise<void> {
   const task = await queries.getTask(taskId);
-  if (!task) {
-    log.error(`Task ${taskId} not found`);
-    return;
-  }
-
+  if (!task) { log.error(`Task ${taskId} not found`); return; }
   return withPipelineSpan(
     { taskId, kind: "pr_review", repo: task.repo },
     () => runPrReviewInner(taskId, task, sendTelegram),
@@ -733,16 +825,15 @@ async function runPrReviewInner(
     return;
   }
 
-  const identifier = task.prIdentifier ?? task.description;
-  const prNumber = parsePrIdentifier(identifier);
+  const prNumber = parsePrIdentifier(task.prIdentifier ?? task.description);
   if (!prNumber) {
-    await failTask(taskId, `Could not parse PR identifier: ${identifier}`, sendTelegram, chatId);
+    await failTask(taskId, `Could not parse PR identifier: ${task.prIdentifier ?? task.description}`, sendTelegram, chatId);
     return;
   }
 
   const nwo = repo.githubUrl ? parseNwo(repo.githubUrl) : null;
   if (!nwo) {
-    await failTask(taskId, `Repo '${task.repo}' is missing a githubUrl; cannot resolve nwo`, sendTelegram, chatId);
+    await failTask(taskId, `Repo '${task.repo}' is missing a githubUrl`, sendTelegram, chatId);
     return;
   }
 
@@ -760,9 +851,7 @@ async function runPrReviewInner(
     return;
   }
 
-  // Run the memory stage before anything else. Soft-fail: never throws.
-  // Matches the coding + question pipeline pattern. Memory is consumed by
-  // the impact analyzer and by the review orchestrator.
+  // Stage 1: memory. Always runs first. Soft-fail.
   await runMemory({
     taskId,
     repo: task.repo,
@@ -772,13 +861,14 @@ async function runPrReviewInner(
     chatId,
   });
 
-  // Fetch PR context and stage it into artifacts so the analyzer and the
-  // orchestrator can point at stable absolute paths.
+  // Fetch PR context before the impact stage so pr.diff is on disk for it.
   let metadata: Awaited<ReturnType<typeof getPrMetadata>>;
   let diff: string;
+  let branch: string;
   try {
     metadata = await getPrMetadata(nwo, prNumber);
     diff = await getPrDiff(nwo, prNumber);
+    branch = metadata.headRef;
   } catch (err) {
     await failTask(taskId, `Failed to fetch PR context: ${err instanceof Error ? err.message : String(err)}`, sendTelegram, chatId);
     return;
@@ -786,8 +876,7 @@ async function runPrReviewInner(
   await writeFile(path.join(artifactsDir, "pr-context.json"), JSON.stringify(metadata, null, 2));
   await writeFile(path.join(artifactsDir, "pr.diff"), diff);
 
-  // Run the memory-derived impact analyzer. Soft-fail: on failure, pr-impact.md
-  // is absent and the orchestrator proceeds using just the memory block.
+  // Stage 2: pr_impact. Memory-derived synthesis. Soft-fail.
   await runImpactAnalyzer({
     taskId,
     repo: task.repo,
@@ -796,34 +885,44 @@ async function runPrReviewInner(
     chatId: chatId ?? null,
   });
 
+  // Create the worktree the analyst will commit from.
+  // createPrWorktree now takes headRef and fetches the real branch from origin,
+  // so the worktree is directly on the PR branch. git push just works.
+  let worktreePath: string;
+  try {
+    worktreePath = await createPrWorktree(repo.localPath, branch, taskId);
+  } catch (err) {
+    await failTask(taskId, `Failed to create worktree: ${err instanceof Error ? err.message : String(err)}`, sendTelegram, chatId);
+    return;
+  }
+
   await queries.updateTask(taskId, { prNumber, status: "running" });
 
-  // Hand off. The PR session owns the rest of the lifecycle.
+  // Stage 3: pr_analyst. Fans out subagents, commits fixes, posts comment. Throws on failure.
   try {
-    await startExternalReview({
-      repo: task.repo,
-      prNumber,
-      artifactsDir,
-      sendTelegram,
-      chatId: chatId ?? "",
+    await runPrAnalyst({
       taskId,
+      repo: task.repo,
+      nwo,
+      prNumber,
+      headRef: branch,  // real PR branch — worktree is checked out to it directly
+      artifactsDir,
+      worktreePath,
+      sendTelegram,
+      chatId: chatId ?? null,
     });
     await queries.updateTask(taskId, { status: "complete", completedAt: new Date() });
   } catch (err) {
     await failTask(taskId, err instanceof Error ? err.message : String(err), sendTelegram, chatId);
+  } finally {
+    await cleanupWorktree(worktreePath).catch((e) => log.warn(`Worktree cleanup failed: ${e}`));
   }
 }
 ```
 
-**Implementation notes:**
-- Order: `syncRepo → runMemory → fetch PR context → runImpactAnalyzer → startExternalReview`. Memory must run before the analyzer so the analyzer sees the freshest memory block. PR context fetch runs before the analyzer so `pr.diff` is on disk for it to read.
-- The analyzer takes `artifactsDir` only — no `repoPath`. Its cwd is `artifactsDir` (sandboxed).
-- `startExternalReview` creates the worktree internally via `createPrWorktree` (already stages subagent assets). The new `artifactsDir` parameter is threaded down to the review system prompt.
-- Memory run records + SSE events are handled by `runMemory` itself — no extra wiring needed.
-
 **Verify:** `npm run build`
 
-**Commit:** `feat(pr-review): real thin pipeline with memory, impact analyzer, and context hand-off`
+**Commit:** `feat(pr-review): real thin pipeline — memory → pr_impact → pr_analyst`
 
 ---
 
@@ -832,9 +931,7 @@ async function runPrReviewInner(
 **Files:**
 - Modify: `src/telegram/handlers.ts`
 
-**Implementation:**
-
-In `handleIntent`, replace:
+Replace:
 ```ts
 case "pr_review":
   return ctx.reply("PR review is not implemented yet.");
@@ -848,15 +945,7 @@ case "pr_review":
   );
 ```
 
-`createAndStart` already forwards `prIdentifier`; the `PIPELINES` map already routes `pr_review` to `runPrReview`.
-
-**Verify:**
-```bash
-npm run build
-# manual, once all tasks land:
-# Telegram: "review https://github.com/<owner>/<repo>/pull/123"
-# Expect: "PR review queued: <id>" then within a few minutes a comment on the PR.
-```
+**Verify:** `npm run build`
 
 **Commit:** `feat(pr-review): route pr_review intents to the real pipeline`
 
@@ -868,68 +957,78 @@ npm run build
 - Create: `tests/unit/shared/pr-review-schemas.test.ts`
 - Create: `tests/unit/core/git/pr-context.test.ts`
 - Create: `tests/unit/pipelines/pr-review/impact-prompts.test.ts`
-- Create: `tests/unit/pipelines/pr-review-prompts.test.ts`
+- Create: `tests/unit/pipelines/pr-review/analyst-prompts.test.ts`
 
-**Implementation:**
+### `pr-review-schemas.test.ts`
 
-**`pr-review-schemas.test.ts`** — assert `prReviewIssueSchema`, `prReviewReportSchema`, `prReviewPlanSchema` accept well-formed examples and reject:
+Assert all three schemas accept well-formed inputs and reject:
 - unknown category / severity
-- missing `line_start` or negative numbers
+- missing `line_start` or negative line numbers
 - empty `dimensions` array on a report
-- empty `groups[].files` array
-- a plan with `focus` omitted should still parse (defaults to `""`)
+- empty `files` array on a group
+- `focus` omitted defaults to `""`
 
-**`pr-context.test.ts`** — mock `execFile` via `vi.mock("node:child_process")`:
-- `getPrMetadata` parses `gh pr view --json ...` output into `PrMetadata`; label and file arrays map correctly; missing `body` falls back to `""`
+### `pr-context.test.ts`
+
+Mock `execFile` via `vi.mock("node:child_process")`:
+- `getPrMetadata` parses `gh pr view --json` output correctly; missing `body` falls back to `""`; labels and files map
 - `getPrDiff` returns raw stdout
 - Both throw on non-zero exit
 
-**`impact-prompts.test.ts`** — construct `impactAnalyzerSystemPrompt("o/r", "/tmp/artifacts", "<memory body>")`:
-- contains all five required section headers: `## Summary`, `## Touched Zones`, `## Affected Symbols & Concepts`, `## Risks per Memory`, `## Memory Gaps`
-- contains the `"IMPACT_ANALYSIS_DONE"` sentinel
-- contains the read-only + no-repo-access constraint strings
-- contains the embedded memory body verbatim
-- calling with an empty memory body produces a prompt that contains the "NO MEMORY AVAILABLE" fallback
-- does NOT contain any instruction to grep, open source files, or walk call sites
-- `impactAnalyzerInitialPrompt("/tmp/artifacts")` references the correct absolute path
+### `impact-prompts.test.ts`
 
-**`pr-review-prompts.test.ts`** — construct `prSessionPrompt({ mode: "review", repo: "o/r", branch: "main", prNumber: 42, artifactsDir: "/tmp/a" })`:
-- contains the auto-fix rule string (search for `category=style`)
-- contains `gh pr comment 42 --repo o/r`
-- does NOT contain `gh pr review` anywhere
-- contains both subagent template markers (`[FILE-GROUP SUBAGENT]` and `[HOLISTIC SUBAGENT]`)
-- contains `pr-impact.md` reference in the workflow section
-- contains the `group.focus` field reference (per-group focus is mandatory)
-- contains the "Subagents do NOT receive the full memory block" line (context-hiding contract)
+Construct `impactAnalyzerSystemPrompt("o/r", "/tmp/a", "<memory>")` and assert:
+- Contains all five section headers (`## Summary`, `## Touched Zones`, `## Affected Symbols & Concepts`, `## Risks per Memory`, `## Memory Gaps`)
+- Contains `"IMPACT_ANALYSIS_DONE"` sentinel
+- Contains the read-only constraint string
+- Contains the memory body verbatim
+- Empty memory produces a prompt with `"NO MEMORY AVAILABLE"` fallback
+- Does NOT contain any instruction to grep or open source files
+- `impactAnalyzerInitialPrompt` references the correct absolute path
+
+### `analyst-prompts.test.ts`
+
+Construct `prAnalystSystemPrompt({ repo: "o/r", nwo: "o/r", headRef: "feature/fix", prNumber: 42, artifactsDir: "/tmp/a", worktreePath: "/tmp/w" })` and assert:
+- Contains the auto-fix rule string (`category=style`)
+- Contains `gh pr comment 42 --repo o/r`
+- Contains `git push origin feature/fix` (direct push — worktree is on the real branch)
+- Does NOT contain `gh pr review`
+- Contains both subagent template markers (`FILE-GROUP subagent`, `HOLISTIC subagent`)
+- Contains `pr-impact.md` reference
+- Contains `"Subagents do NOT receive the full memory block"` (context-hiding contract)
+- Contains `{"status": "complete"}` end sentinel
+- `prAnalystInitialPrompt` references `pr-impact.md`
 
 **Verify:** `npm test`
 
-**Commit:** `test(pr-review): schemas, gh wrappers, impact prompts, and orchestrator prompt`
+**Commit:** `test(pr-review): schemas, gh wrappers, impact prompts, analyst prompts`
 
 ---
 
 ## Task 10: Manual verification
 
-No commit for this task. Definition of Done requires manual run per AGENTS.md.
+No commit. Required before declaring done (per AGENTS.md definition of done).
 
 1. `npm run dev`
-2. Ensure memory has been built for your test repo (first run on the repo will cold-build automatically; subsequent runs will noop if nothing changed).
-3. Open a small, live PR on a registered repo where you have push access.
-4. Telegram: `review <PR URL>`.
-5. Watch dashboard + logs in order:
-   - `memory` stage runs (cold on a fresh repo, warm/noop after).
-   - `pr-review` pipeline writes `artifacts/<taskId>/{pr-context.json, pr.diff}`.
-   - `pr_impact_analyzer` stage runs with cwd = artifactsDir. Confirm `artifacts/<taskId>/pr-impact.md` appears with all five section headers, zone names quoted from memory, and no [path:line] citations the agent couldn't have gotten from memory.
-   - A PR session spawns. The sessionfile shows the orchestrator reading `pr-impact.md` first, then writing `review-plan.json` with a non-empty `focus` on every group.
-   - Subagent tool calls appear. Confirm their prompts include the distilled focus string but NOT the full memory block.
-   - `artifacts/<taskId>/reports/*.json` appears.
-   - 1-3 commits land on the PR branch.
-   - A single `gh pr comment` shows up with the structured summary.
-6. Negative tests:
-   - **Missing memory:** `rm -rf artifacts/memory-<INSTANCE>-<repo>/` before running. Confirm memory cold-builds, then the analyzer runs with the fresh memory (not the empty case — memory will have rebuilt by then). To actually hit the empty case, mock `memoryBlock` to return `""` once and confirm the analyzer produces a report where "Memory Gaps" lists every touched area.
-   - **Failed analyzer:** SIGKILL the pi subprocess for the analyzer stage. Confirm the review orchestrator starts anyway, logs "proceeding without report", and every group falls back to a focus string that says "impact report missing".
-7. Reply to the PR comment on GitHub. Verify the poller picks it up and `resumePrSession` runs (existing loop, no new code).
-8. Close the PR or revert the commits before merging; this was a test run.
+2. Open a small live PR on a registered repo where you have push access.
+3. Telegram: `review <PR URL>`
+4. Watch in order:
+   - `memory` stage runs (cold-builds on first run for the repo).
+   - Pipeline writes `artifacts/<taskId>/{pr-context.json, pr.diff}`.
+   - `pr_impact` stage runs with cwd = artifactsDir. Confirm `pr-impact.md` appears with all five section headers and no citations the agent couldn't have gotten from memory.
+   - `pr_analyst` stage starts in the worktree. Session file shows it reading `pr-impact.md` first, then writing `review-plan.json` with non-empty `focus` on every group.
+   - Subagent tool calls appear. Confirm prompts include the distilled focus but NOT the full memory block.
+   - `artifacts/<taskId>/reports/*.json` files appear.
+   - 1–3 commits land on the PR branch.
+   - A single `gh pr comment` appears on the PR with the structured summary.
+
+5. Negative tests:
+   - **Failed impact stage:** kill the pi subprocess for `pr_impact`. Confirm the analyst starts anyway, reads the missing-file case, and every group focus says "impact report missing".
+   - **Empty memory:** mock `memoryBlock` to return `""`. Confirm the impact stage produces a report where "Memory Gaps" lists every touched file.
+
+6. Reply to the PR comment on GitHub. Verify the poller picks it up and `resumePrSession` runs.
+
+7. Revert or close the test PR before merging.
 
 If any step regresses: stop, surface the log line verbatim, do not paper over with try/catch.
 
@@ -937,13 +1036,9 @@ If any step regresses: stop, surface the log line verbatim, do not paper over wi
 
 ## Explicit non-goals for v1
 
-- Inline review comments on specific lines (`gh pr review` with line-anchored comments). Punt until line-number drift is solved.
-- Fork PRs / PRs where push is denied. Assumed same-repo.
+- Inline review comments on specific lines. Punt until line-number drift is solved.
+- Fork PRs / PRs where push is denied.
 - Dimensions beyond `correctness / style / tests / security`.
-- Auto-fix of `major`/`blocker` correctness or any `security` issue. Always flagged.
-- Giving the impact analyzer repo access. Locked to memory + diff for v1; if memory turns out to be too thin in practice we revisit (per #1 answer: "let's start with A and then we will change it").
-- Full memory block inside subagent prompts. The orchestrator distills per-group focus; subagents stay lean.
-
----
-
-Plan updated to reflect the landed memory system. Ready to execute, or want another pass?
+- Auto-fix of `major`/`blocker` correctness or any `security` issue.
+- Full memory block inside subagent prompts — analyst distills per-group focus; subagents stay lean.
+- Removing the `pr-session/` layer for follow-up replies — `resumePrSession` already handles that and is left untouched.
