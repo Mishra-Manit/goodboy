@@ -1,0 +1,13 @@
+{
+  "number": 42,
+  "title": "Add feature X",
+  "body": "This PR adds X.",
+  "labels": [{ "name": "enhancement" }, { "name": "backend" }],
+  "author": { "login": "alice" },
+  "baseRefName": "main",
+  "headRefName": "feature/x",
+  "files": [
+    { "path": "src/a.ts", "additions": 10, "deletions": 2 },
+    { "path": "src/a.test.ts", "additions": 20, "deletions": 0 }
+  ]
+}
