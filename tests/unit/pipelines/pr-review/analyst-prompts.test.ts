@@ -16,9 +16,10 @@ const OPTS = {
 describe("prAnalystSystemPrompt", () => {
   const prompt = prAnalystSystemPrompt(OPTS);
 
-  it("contains the auto-fix rule covering style and correctness minor/nit", () => {
+  it("contains the auto-fix rule covering style, correctness minor/nit, and factual doc drift", () => {
     expect(prompt).toContain("category=style");
     expect(prompt).toContain("correctness severity in {minor, nit}");
+    expect(prompt).toContain("stale docstrings, comments, CLI banners, help text, or docs");
   });
 
   it("embeds the concrete gh pr comment command", () => {
@@ -37,6 +38,19 @@ describe("prAnalystSystemPrompt", () => {
   it("references both FILE-GROUP and HOLISTIC subagent templates", () => {
     expect(prompt).toContain("FILE-GROUP subagent");
     expect(prompt).toContain("HOLISTIC subagent");
+  });
+
+  it("tells the analyst to calibrate severity conservatively", () => {
+    expect(prompt).toContain("Calibrate severity conservatively");
+    expect(prompt).toContain("Do not inflate severity for stale docs");
+  });
+
+  it("requires a short, readable markdown comment with color indicators", () => {
+    expect(prompt).toContain("SHORT, clean GitHub markdown comment");
+    expect(prompt).toContain("Conversational, calm, easy to scan");
+    expect(prompt).toContain("🔴 blocker, 🟠 major, 🟡 minor, 🔵 nit");
+    expect(prompt).toContain("## Needs author action");
+    expect(prompt).toContain("## Follow-ups");
   });
 
   it("names pr-impact.md as the primary context", () => {
