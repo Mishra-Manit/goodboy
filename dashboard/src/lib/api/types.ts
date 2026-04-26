@@ -9,6 +9,7 @@ import type {
   MemoryRunKind,
   MemoryRunStatus,
   MemoryRunSource,
+  PrSessionWatchStatus,
 } from "@dashboard/shared";
 
 export type {
@@ -33,6 +34,7 @@ export type {
   MemoryRunKind,
   MemoryRunStatus,
   MemoryRunSource,
+  PrSessionWatchStatus,
 } from "@dashboard/shared";
 
 export { TASK_KIND_CONFIG } from "@dashboard/shared";
@@ -92,6 +94,7 @@ export interface PrSession {
   branch: string | null;
   worktreePath: string | null;
   status: PrSessionStatus;
+  watchStatus: PrSessionWatchStatus;
   originTaskId: string | null;
   telegramChatId: string | null;
   lastPolledAt: string | null;

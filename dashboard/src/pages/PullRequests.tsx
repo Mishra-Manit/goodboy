@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchPRs, fetchPrSessions } from "@dashboard/lib/api";
+import { fetchPRs, fetchPrSessions, setPrSessionWatchStatus, type PrSession } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSE, useSSERefresh } from "@dashboard/hooks/use-sse";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
@@ -15,6 +15,7 @@ export function PullRequests() {
   const { data: sessions, loading: sessionsLoading, refetch: refetchSessions } = useQuery(() => fetchPrSessions());
 
   const [runningSessions, setRunningSessions] = useState<Set<string>>(new Set());
+  const [updatingSessionId, setUpdatingSessionId] = useState<string | null>(null);
 
   const refetchAll = () => {
     refetchPrs();
@@ -41,6 +42,18 @@ export function PullRequests() {
   const allPrs = prs ?? [];
   const loading = prsLoading || sessionsLoading;
 
+  async function handleToggleWatch(session: PrSession) {
+    if (updatingSessionId) return;
+    const nextStatus = session.watchStatus === "muted" ? "watching" : "muted";
+    setUpdatingSessionId(session.id);
+    try {
+      await setPrSessionWatchStatus(session.id, nextStatus);
+      refetchSessions();
+    } finally {
+      setUpdatingSessionId(null);
+    }
+  }
+
   return (
     <div>
       <header className="mb-8">
@@ -62,7 +75,9 @@ export function PullRequests() {
                 key={session.id}
                 session={session}
                 running={runningSessions.has(session.id)}
+                updatingWatch={updatingSessionId === session.id}
                 onClick={() => navigate(`/prs/${session.id}`)}
+                onToggleWatch={handleToggleWatch}
                 onTaskClick={
                   session.originTaskId ? () => navigate(`/tasks/${session.originTaskId}`) : undefined
                 }
@@ -93,7 +108,9 @@ export function PullRequests() {
                   key={session.id}
                   session={session}
                   running={false}
+                  updatingWatch={false}
                   onClick={() => navigate(`/prs/${session.id}`)}
+                  onToggleWatch={handleToggleWatch}
                   onTaskClick={
                     session.originTaskId ? () => navigate(`/tasks/${session.originTaskId}`) : undefined
                   }

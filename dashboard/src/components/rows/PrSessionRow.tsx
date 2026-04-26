@@ -10,18 +10,42 @@ import type { PrSession } from "@dashboard/lib/api";
 interface PrSessionRowProps {
   session: PrSession;
   running: boolean;
+  updatingWatch: boolean;
   onClick: () => void;
+  onToggleWatch: (session: PrSession) => void;
   onTaskClick?: () => void;
 }
 
-export function PrSessionRow({ session, running, onClick, onTaskClick }: PrSessionRowProps) {
+export function PrSessionRow({
+  session,
+  running,
+  updatingWatch,
+  onClick,
+  onToggleWatch,
+  onTaskClick,
+}: PrSessionRowProps) {
   const now = useNow();
   const Icon = session.originTaskId ? MessageSquare : Eye;
   const iconTitle = session.originTaskId ? "Own PR" : "External review";
+  const status = running
+    ? "running"
+    : session.status === "closed"
+      ? "closed"
+      : session.watchStatus === "muted"
+        ? "muted"
+        : session.status;
+  const watchLabel = session.watchStatus === "muted" ? "Resume watching" : "Stop watching";
 
   return (
-    <button
+    <div
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        onClick();
+      }}
+      role="button"
+      tabIndex={0}
       className={cn(
         "group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left",
         "transition-colors hover:bg-glass animate-fade-up",
@@ -35,16 +59,16 @@ export function PrSessionRow({ session, running, onClick, onTaskClick }: PrSessi
       )}
 
       {onTaskClick && session.originTaskId && (
-        <span
+        <button
           onClick={(e) => {
             e.stopPropagation();
             onTaskClick();
           }}
-          className="flex items-center gap-0.5 font-mono text-[10px] text-text-ghost hover:text-text-dim cursor-pointer"
+          className="flex items-center gap-0.5 font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim"
         >
           {shortId(session.originTaskId)}
           <ArrowUpRight size={9} />
-        </span>
+        </button>
       )}
 
       {session.branch && (
@@ -58,15 +82,28 @@ export function PrSessionRow({ session, running, onClick, onTaskClick }: PrSessi
 
       <span className="flex-1" />
 
-      <StatusBadge status={running ? "running" : session.status} />
+      <StatusBadge status={status} />
 
-      {session.lastPolledAt && !running && (
+      {session.lastPolledAt && !running && session.watchStatus === "watching" && (
         <span title="Last polled" className="font-mono text-[9px] text-text-void">
           polled {timeAgo(session.lastPolledAt, now)}
         </span>
       )}
 
+      {session.status === "active" && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleWatch(session);
+          }}
+          disabled={updatingWatch}
+          className="font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim disabled:opacity-40"
+        >
+          {watchLabel}
+        </button>
+      )}
+
       <span className="font-mono text-[10px] text-text-void">{timeAgo(session.createdAt, now)}</span>
-    </button>
+    </div>
   );
 }

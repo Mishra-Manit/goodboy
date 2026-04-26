@@ -9,8 +9,10 @@ import { Navigate, useNavigate, useParams } from "react-router-dom";
 import {
   fetchPrSessionDetail,
   fetchPrSessionTranscript,
+  setPrSessionWatchStatus,
   type FileEntry,
   type PrSessionRun,
+  type PrSessionWithRuns,
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSERefresh } from "@dashboard/hooks/use-sse";
@@ -31,6 +33,7 @@ export function PrSessionDetail() {
   const navigate = useNavigate();
   const now = useNow();
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
+  const [updatingWatch, setUpdatingWatch] = useState(false);
 
   const { data: session, loading, error, refetch } = useQuery(
     () => fetchPrSessionDetail(sessionId),
@@ -55,6 +58,18 @@ export function PrSessionDetail() {
   const entriesForRun = (run: PrSessionRun): FileEntry[] =>
     allEntries.filter((e) => isEntryInRun(e, run));
 
+  async function handleToggleWatch(session: PrSessionWithRuns) {
+    if (updatingWatch) return;
+    const nextStatus = session.watchStatus === "muted" ? "watching" : "muted";
+    setUpdatingWatch(true);
+    try {
+      await setPrSessionWatchStatus(session.id, nextStatus);
+      refetch();
+    } finally {
+      setUpdatingWatch(false);
+    }
+  }
+
   return (
     <div className="animate-fade-in">
       <BackLink label="back to PRs" onClick={() => navigate("/prs")} />
@@ -65,8 +80,10 @@ export function PrSessionDetail() {
             <SessionHeader
               session={session}
               running={session.runs.some((r) => r.status === "running")}
+              updatingWatch={updatingWatch}
               now={now}
               onOriginTaskClick={(taskId) => navigate(`/tasks/${taskId}`)}
+              onToggleWatch={handleToggleWatch}
             />
 
             <SectionDivider label="runs" detail={`${session.runs.length}`} />

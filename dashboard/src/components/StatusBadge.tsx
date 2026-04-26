@@ -15,6 +15,7 @@ const STATUS_CONFIG: Record<string, BadgeConfig> = {
   failed:    { label: "failed",    color: "text-fail" },
   cancelled: { label: "cancelled", color: "text-text-dim" },
   active:    { label: "watching",  color: "text-text-dim" },
+  muted:     { label: "muted",     color: "text-warn" },
   closed:    { label: "closed",    color: "text-text-void" },
 };
 

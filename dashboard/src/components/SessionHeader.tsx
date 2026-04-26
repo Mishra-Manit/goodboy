@@ -9,12 +9,29 @@ import type { PrSessionWithRuns } from "@dashboard/lib/api";
 interface SessionHeaderProps {
   session: PrSessionWithRuns;
   running: boolean;
+  updatingWatch: boolean;
   now: number;
   onOriginTaskClick: (taskId: string) => void;
+  onToggleWatch: (session: PrSessionWithRuns) => void;
 }
 
-export function SessionHeader({ session, running, now, onOriginTaskClick }: SessionHeaderProps) {
+export function SessionHeader({
+  session,
+  running,
+  updatingWatch,
+  now,
+  onOriginTaskClick,
+  onToggleWatch,
+}: SessionHeaderProps) {
   const Icon = session.originTaskId ? MessageSquare : Eye;
+  const status = running
+    ? "running"
+    : session.status === "closed"
+      ? "closed"
+      : session.watchStatus === "muted"
+        ? "muted"
+        : session.status;
+  const watchLabel = session.watchStatus === "muted" ? "Resume watching" : "Stop watching";
 
   return (
     <div className="mb-8">
@@ -24,7 +41,7 @@ export function SessionHeader({ session, running, now, onOriginTaskClick }: Sess
         {session.prNumber && (
           <span className="font-mono text-[13px] text-text-dim">#{session.prNumber}</span>
         )}
-        <StatusBadge status={running ? "running" : session.status} />
+        <StatusBadge status={status} />
       </div>
 
       <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 font-mono text-[10px] text-text-void">
@@ -39,8 +56,20 @@ export function SessionHeader({ session, running, now, onOriginTaskClick }: Sess
             <ArrowUpRight size={9} />
           </button>
         )}
-        {session.lastPolledAt && <span>last polled {timeAgo(session.lastPolledAt, now)}</span>}
+        {session.lastPolledAt && session.watchStatus === "watching" && (
+          <span>last polled {timeAgo(session.lastPolledAt, now)}</span>
+        )}
       </div>
+
+      {session.status === "active" && (
+        <button
+          onClick={() => onToggleWatch(session)}
+          disabled={updatingWatch}
+          className="mt-2 font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim disabled:opacity-40"
+        >
+          {watchLabel}
+        </button>
+      )}
 
       {session.prUrl && (
         <a
