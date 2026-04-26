@@ -1,0 +1,2 @@
+CREATE TYPE "public"."pr_session_watch_status" AS ENUM('watching', 'muted');--> statement-breakpoint
+ALTER TABLE "pr_sessions" ADD COLUMN "watch_status" "pr_session_watch_status" DEFAULT 'watching' NOT NULL;
