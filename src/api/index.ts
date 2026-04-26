@@ -10,6 +10,7 @@ import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
 import { subscribe } from "../shared/events.js";
 import * as queries from "../db/repository.js";
 import { listRepos, buildPrUrl, getRepo } from "../shared/repos.js";
@@ -24,7 +25,12 @@ import { deleteRepoMemoryArtifacts } from "../core/memory/delete.js";
 import { config } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
 import { toErrorMessage } from "../shared/errors.js";
-import { TASK_STATUSES, TASK_KINDS, MEMORY_RUN_KINDS } from "../shared/types.js";
+import {
+  TASK_STATUSES,
+  TASK_KINDS,
+  MEMORY_RUN_KINDS,
+  PR_SESSION_WATCH_STATUSES,
+} from "../shared/types.js";
 import {
   readSessionFile,
   taskSessionPath,
@@ -42,6 +48,9 @@ const SSE_PING_INTERVAL_MS = 30_000;
 const MEMORY_RUN_STATUS_POLL_MS = 1_000;
 const UUID_PATTERN = /^[0-9a-f-]{36}$/;
 const ARTIFACT_NAME_PATTERN = /^[\w.-]+$/;
+const prSessionWatchBodySchema = z.object({
+  watchStatus: z.enum(PR_SESSION_WATCH_STATUSES),
+});
 
 // Dashboard-triggered retries don't have bot access; skip Telegram.
 const noopSend: SendTelegram = async () => {};
@@ -295,6 +304,22 @@ export function createApi(): Hono {
     if (!UUID_PATTERN.test(id)) return notFound(c);
     const entries = await readSessionFile(prSessionPath(id));
     return c.json({ entries });
+  });
+
+  app.post("/api/pr-sessions/:id/watch", async (c) => {
+    const session = await queries.getPrSession(c.req.param("id"));
+    if (!session) return notFound(c);
+
+    const parsed = prSessionWatchBodySchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid watchStatus" }, 400);
+
+    const updated = await queries.updatePrSession(session.id, {
+      watchStatus: parsed.data.watchStatus,
+      lastPolledAt: new Date(),
+    });
+    if (!updated) return notFound(c);
+
+    return c.json({ ...updated, prUrl: buildPrUrl(updated.repo, updated.prNumber) });
   });
 
   // --- SSE ---
