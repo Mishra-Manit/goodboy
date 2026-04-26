@@ -73,6 +73,12 @@ export const MEMORY_RUN_SOURCES = ["task", "manual_test"] as const;
 
 export type MemoryRunSource = (typeof MEMORY_RUN_SOURCES)[number];
 
+// --- PR sessions ---
+
+export const PR_SESSION_WATCH_STATUSES = ["watching", "muted"] as const;
+
+export type PrSessionWatchStatus = (typeof PR_SESSION_WATCH_STATUSES)[number];
+
 // --- SSE events ---
 
 /**

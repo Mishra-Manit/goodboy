@@ -57,6 +57,13 @@
       "when": 1777133120420,
       "tag": "0007_sad_secret_warriors",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777167528556,
+      "tag": "0008_supreme_surge",
+      "breakpoints": true
     }
   ]
 }

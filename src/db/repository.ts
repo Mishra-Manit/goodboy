@@ -15,6 +15,7 @@ import type {
   MemoryRunKind,
   MemoryRunStatus,
   MemoryRunSource,
+  PrSessionWatchStatus,
 } from "../shared/types.js";
 import { loadEnv } from "../shared/config.js";
 import { TEST_INSTANCE_PREFIX } from "../shared/test-instance.js";
@@ -206,6 +207,7 @@ export async function updatePrSession(
   id: string,
   data: Partial<{
     status: "active" | "closed";
+    watchStatus: PrSessionWatchStatus;
     prNumber: number;
     lastPolledAt: Date;
     worktreePath: string | null;

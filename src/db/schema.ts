@@ -25,6 +25,9 @@ export const stageNameEnum = pgEnum("stage_name", [
 export const prSessionStatusEnum = pgEnum("pr_session_status", [
   "active", "closed",
 ]);
+export const prSessionWatchStatusEnum = pgEnum("pr_session_watch_status", [
+  "watching", "muted",
+]);
 /**
  * Memory run kinds. `cold` and `warm` spawn a pi session and produce a
  * transcript; `skip` (lock held) and `noop` (repo up-to-date) are no-op
@@ -84,6 +87,7 @@ export const prSessions = pgTable("pr_sessions", {
   branch: text("branch"),
   worktreePath: text("worktree_path"),
   status: prSessionStatusEnum("status").notNull().default("active"),
+  watchStatus: prSessionWatchStatusEnum("watch_status").notNull().default("watching"),
   /** The coding task that originated this PR (null for external reviews) */
   originTaskId: uuid("origin_task_id").references(() => tasks.id),
   /** Telegram chat ID for notifications */
