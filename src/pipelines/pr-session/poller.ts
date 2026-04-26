@@ -49,7 +49,8 @@ export function stopPrPoller(): void {
 
 // --- Poll cycle ---
 
-async function pollOnce(sendTelegram: SendTelegram): Promise<void> {
+/** Run one poll cycle across every active PR session. */
+export async function pollOnce(sendTelegram: SendTelegram): Promise<void> {
   const sessions = await queries.listActivePrSessions();
   for (const session of sessions) {
     await processSession(session, sendTelegram);
@@ -70,6 +71,8 @@ async function processSession(session: PrSession, sendTelegram: SendTelegram): P
     await cleanupPrSession(session.id);
     return;
   }
+
+  if (session.watchStatus === "muted") return;
 
   const comments = await fetchNewHumanComments(nwo, session);
   if (comments.length === 0) {
