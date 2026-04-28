@@ -79,6 +79,10 @@ export const PR_SESSION_WATCH_STATUSES = ["watching", "muted"] as const;
 
 export type PrSessionWatchStatus = (typeof PR_SESSION_WATCH_STATUSES)[number];
 
+export const PR_SESSION_MODES = ["own", "review"] as const;
+
+export type PrSessionMode = (typeof PR_SESSION_MODES)[number];
+
 // --- SSE events ---
 
 /**

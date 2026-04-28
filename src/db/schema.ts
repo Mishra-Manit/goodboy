@@ -28,6 +28,7 @@ export const prSessionStatusEnum = pgEnum("pr_session_status", [
 export const prSessionWatchStatusEnum = pgEnum("pr_session_watch_status", [
   "watching", "muted",
 ]);
+export const prSessionModeEnum = pgEnum("pr_session_mode", ["own", "review"]);
 /**
  * Memory run kinds. `cold` and `warm` spawn a pi session and produce a
  * transcript; `skip` (lock held) and `noop` (repo up-to-date) are no-op
@@ -88,8 +89,10 @@ export const prSessions = pgTable("pr_sessions", {
   worktreePath: text("worktree_path"),
   status: prSessionStatusEnum("status").notNull().default("active"),
   watchStatus: prSessionWatchStatusEnum("watch_status").notNull().default("watching"),
-  /** The coding task that originated this PR (null for external reviews) */
-  originTaskId: uuid("origin_task_id").references(() => tasks.id),
+  /** Lifecycle mode: own = goodboy created the PR, review = external PR being reviewed. */
+  mode: prSessionModeEnum("mode").notNull(),
+  /** The task that produced this session (coding_task for own, pr_review for review). */
+  sourceTaskId: uuid("source_task_id").references(() => tasks.id),
   /** Telegram chat ID for notifications */
   telegramChatId: text("telegram_chat_id"),
   /** Timestamp of last poll cycle (used to detect new comments) */
