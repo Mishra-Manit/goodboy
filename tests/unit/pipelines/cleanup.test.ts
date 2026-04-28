@@ -18,7 +18,7 @@ const { execHandler, worktreeHandler, fsHandler, queriesHandler, eventsHandler }
   queriesHandler: {
     getTask:                  { calls: [] as unknown[][], impl: async (_id: string): Promise<unknown> => null },
     getPrSession:             { calls: [] as unknown[][], impl: async (_id: string): Promise<unknown> => null },
-    getPrSessionByOriginTask: { calls: [] as unknown[][], impl: async (_id: string): Promise<unknown> => null },
+    getPrSessionBySourceTask: { calls: [] as unknown[][], impl: async (_id: string): Promise<unknown> => null },
     updateTask:               { calls: [] as unknown[][], impl: async (_id: string, _d: unknown): Promise<void> => undefined },
     updatePrSession:          { calls: [] as unknown[][], impl: async (_id: string, _d: unknown): Promise<void> => undefined },
   },
@@ -67,9 +67,9 @@ vi.mock("@src/db/repository.js", () => ({
     queriesHandler.getPrSession.calls.push([id]);
     return queriesHandler.getPrSession.impl(id);
   },
-  getPrSessionByOriginTask: (id: string) => {
-    queriesHandler.getPrSessionByOriginTask.calls.push([id]);
-    return queriesHandler.getPrSessionByOriginTask.impl(id);
+  getPrSessionBySourceTask: (id: string) => {
+    queriesHandler.getPrSessionBySourceTask.calls.push([id]);
+    return queriesHandler.getPrSessionBySourceTask.impl(id);
   },
   updateTask: (id: string, data: unknown) => {
     queriesHandler.updateTask.calls.push([id, data]);
@@ -111,7 +111,8 @@ function mkPrSession(overrides: Record<string, unknown> = {}): Record<string, un
     status: "open",
     worktreePath: "/tmp/wt",
     branch: "goodboy/x",
-    originTaskId: null,
+    sourceTaskId: null,
+    mode: "own",
     ...overrides,
   };
 }
@@ -128,7 +129,7 @@ beforeEach(() => {
   }
   queriesHandler.getTask.impl = async () => null;
   queriesHandler.getPrSession.impl = async () => null;
-  queriesHandler.getPrSessionByOriginTask.impl = async () => null;
+  queriesHandler.getPrSessionBySourceTask.impl = async () => null;
   queriesHandler.updateTask.impl = async () => undefined;
   queriesHandler.updatePrSession.impl = async () => undefined;
   eventsHandler.emitted.length = 0;
@@ -188,7 +189,7 @@ describe("dismissTask", () => {
   it("delegates to PR-session cleanup when one exists for the task", async () => {
     queriesHandler.getTask.impl = async () =>
       mkTask({ status: "complete", worktreePath: "/tmp/task-wt", branch: "goodboy/x" });
-    queriesHandler.getPrSessionByOriginTask.impl = async () =>
+    queriesHandler.getPrSessionBySourceTask.impl = async () =>
       mkPrSession({ id: "ps1", worktreePath: "/tmp/pr-wt", branch: "goodboy/x" });
     queriesHandler.getPrSession.impl = async () =>
       mkPrSession({ id: "ps1", worktreePath: "/tmp/pr-wt", branch: "goodboy/x" });
@@ -201,6 +202,16 @@ describe("dismissTask", () => {
     // PR session status flipped to closed.
     const prUpdate = queriesHandler.updatePrSession.calls[0];
     expect(prUpdate[1]).toMatchObject({ status: "closed", worktreePath: null, branch: null });
+  });
+
+  it("never closes the upstream PR or remote branch for pr_review tasks", async () => {
+    queriesHandler.getTask.impl = async () =>
+      mkTask({ kind: "pr_review", status: "complete", prNumber: 99, worktreePath: "/tmp/wt" });
+    await dismissTask("t1");
+    const closeCall = execHandler.calls.find(
+      (c) => Array.isArray(c[1]) && (c[1] as string[]).includes("close"),
+    );
+    expect(closeCall).toBeUndefined();
   });
 
   it("proceeds without git cleanup when the repo is not in the registry", async () => {
@@ -255,11 +266,11 @@ describe("cleanupPrSession", () => {
     });
   });
 
-  it("also clears origin-task metadata when present", async () => {
+  it("also clears source-task metadata when present", async () => {
     queriesHandler.getPrSession.impl = async () =>
-      mkPrSession({ worktreePath: "/tmp/wt", originTaskId: "origin-1" });
+      mkPrSession({ worktreePath: "/tmp/wt", sourceTaskId: "source-1" });
     await cleanupPrSession("ps1");
-    const taskUpdate = queriesHandler.updateTask.calls.find((c) => c[0] === "origin-1");
+    const taskUpdate = queriesHandler.updateTask.calls.find((c) => c[0] === "source-1");
     expect(taskUpdate).toBeDefined();
     expect(taskUpdate?.[1]).toEqual({ worktreePath: null, branch: null });
   });
