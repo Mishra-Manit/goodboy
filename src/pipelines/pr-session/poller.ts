@@ -11,6 +11,7 @@ import type { PrSession } from "../../db/repository.js";
 import {
   getPrComments,
   getPrReviewComments,
+  getPrReviews,
   isPrClosed,
   type PrComment,
 } from "../../core/git/github.js";
@@ -22,6 +23,11 @@ const log = createLogger("pr-poller");
 
 const POLL_INTERVAL_MS = 3 * 60 * 1000;
 const INITIAL_DELAY_MS = 10_000;
+
+// Cushion against clock drift + within-window writes between fetch and
+// cursor advancement: rewind the cursor a few seconds. Idempotent because
+// resumed comments are also filtered by id at higher layers (best-effort).
+const COMMENT_CURSOR_SAFETY_MS = 5_000;
 
 // Sessions currently being resumed; guards against double-processing.
 const inFlight = new Set<string>();
@@ -74,9 +80,14 @@ async function processSession(session: PrSession, sendTelegram: SendTelegram): P
 
   if (session.watchStatus === "muted") return;
 
+  // Capture the start of this poll cycle BEFORE fetching, so any comment
+  // posted during the fetch window is still picked up next tick.
+  const pollStartedAt = new Date();
   const comments = await fetchNewHumanComments(nwo, session);
+  const nextCursor = new Date(pollStartedAt.getTime() - COMMENT_CURSOR_SAFETY_MS);
+
   if (comments.length === 0) {
-    await queries.updatePrSession(session.id, { lastPolledAt: new Date() });
+    await queries.updatePrSession(session.id, { lastPolledAt: nextCursor });
     return;
   }
 
@@ -84,6 +95,7 @@ async function processSession(session: PrSession, sendTelegram: SendTelegram): P
   inFlight.add(session.id);
   try {
     await resumePrSession({ prSessionId: session.id, comments, sendTelegram });
+    await queries.updatePrSession(session.id, { lastPolledAt: nextCursor });
   } catch (err) {
     log.error(`Failed to resume PR session ${session.id}`, err);
   } finally {
@@ -94,11 +106,14 @@ async function processSession(session: PrSession, sendTelegram: SendTelegram): P
 // --- Comment fetching + filtering ---
 
 async function fetchNewHumanComments(nwo: string, session: PrSession): Promise<PrComment[]> {
-  const [issue, review] = await Promise.all([
+  const [issue, inline, summaries] = await Promise.all([
     getPrComments(nwo, session.prNumber!),
     getPrReviewComments(nwo, session.prNumber!),
+    getPrReviews(nwo, session.prNumber!),
   ]);
-  return [...issue, ...review].filter((c) => isNew(c, session.lastPolledAt) && isHuman(c));
+  return [...issue, ...inline, ...summaries].filter(
+    (c) => isNew(c, session.lastPolledAt) && isHuman(c),
+  );
 }
 
 function isNew(comment: PrComment, lastPolledAt: Date | null): boolean {

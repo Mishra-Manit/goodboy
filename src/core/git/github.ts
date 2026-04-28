@@ -7,6 +7,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createLogger } from "../../shared/logger.js";
+import type { PrComment, PrReviewState } from "../../shared/types.js";
+
+export type { PrComment, PrReviewState } from "../../shared/types.js";
+export { PR_REVIEW_STATES } from "../../shared/types.js";
 
 // --- Pure parsers ---
 
@@ -39,17 +43,6 @@ export function parsePrIdentifier(identifier: string): number | null {
 const exec = promisify(execFile);
 const log = createLogger("pr-session-gh");
 
-export interface PrComment {
-  id: string;
-  author: string;
-  body: string;
-  createdAt: string;
-  /** File path; present only on inline review comments. */
-  path?: string;
-  /** Line number; present only on inline review comments. */
-  line?: number;
-}
-
 /** Top-level issue comments on a PR. Returns `[]` on error (logged). */
 export async function getPrComments(
   nwo: string,
@@ -70,6 +63,7 @@ export async function getPrComments(
       }>;
     };
     return data.comments.map((c) => ({
+      kind: "conversation" as const,
       id: String(c.id),
       author: c.author.login,
       body: c.body,
@@ -100,17 +94,58 @@ export async function getPrReviewComments(
       line?: number;
     }>;
     return data.map((c) => ({
+      kind: "inline" as const,
       id: String(c.id),
       author: c.user.login,
       body: c.body,
       createdAt: c.created_at,
-      path: c.path,
-      line: c.line ?? undefined,
+      path: c.path ?? "",
+      line: c.line ?? null,
     }));
   } catch (err) {
     log.warn(`Failed to fetch review comments for ${nwo}#${prNumber}`, err);
     return [];
   }
+}
+
+/** Submitted PR reviews with non-empty top-level bodies. Returns `[]` on error (logged). */
+export async function getPrReviews(
+  nwo: string,
+  prNumber: number,
+): Promise<PrComment[]> {
+  try {
+    const { stdout } = await exec("gh", [
+      "api", `/repos/${nwo}/pulls/${prNumber}/reviews`,
+      "--paginate",
+    ]);
+    const data = JSON.parse(stdout) as Array<{
+      id: number;
+      user: { login: string } | null;
+      body: string;
+      state: string;
+      submitted_at: string | null;
+    }>;
+    return data
+      .filter((r) => r.body.trim().length > 0 && r.user)
+      .map((r) => ({
+        kind: "review_summary" as const,
+        id: String(r.id),
+        author: r.user!.login,
+        body: r.body,
+        createdAt: r.submitted_at ?? new Date().toISOString(),
+        state: mapReviewState(r.state),
+      }));
+  } catch (err) {
+    log.warn(`Failed to fetch PR reviews for ${nwo}#${prNumber}`, err);
+    return [];
+  }
+}
+
+function mapReviewState(raw: string): PrReviewState {
+  const upper = raw.toUpperCase();
+  if (upper === "APPROVED") return "approved";
+  if (upper === "CHANGES_REQUESTED") return "changes_requested";
+  return "commented";
 }
 
 export interface PrMetadata {

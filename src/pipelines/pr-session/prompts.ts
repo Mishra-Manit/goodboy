@@ -4,6 +4,7 @@
  */
 
 import { SHARED_RULES } from "../../shared/agent-prompts.js";
+import type { PrComment } from "../../core/git/github.js";
 
 export function prSessionPrompt(options: {
   mode: "own" | "review";
@@ -66,19 +67,24 @@ When you are done, end your output with:
   {"status": "complete"}`;
 }
 
-export function formatCommentsPrompt(
-  comments: Array<{ author: string; body: string; path?: string; line?: number }>,
-): string {
-  const formatted = comments.map((c) => {
-    const location = c.path ? ` (${c.path}${c.line ? `:${c.line}` : ""})` : "";
-    return `@${c.author}${location}:\n${c.body}`;
-  }).join("\n\n---\n\n");
+/** Render the new-comments prompt. Each comment carries its own kind tag. */
+export function formatCommentsPrompt(comments: PrComment[]): string {
+  const formatted = comments.map(formatComment).join("\n\n---\n\n");
+  return `New comments on your PR:\n\n${formatted}\n\nAddress the feedback, commit, and push. If a review is an approval with no actionable request, acknowledge politely and do nothing else. When done, end with: {"status": "complete"}`;
+}
 
-  return `New comments on your PR:\n\n${formatted}\n\nAddress the feedback, commit, and push. When done, end with: {"status": "complete"}`;
+function formatComment(c: PrComment): string {
+  switch (c.kind) {
+    case "conversation":
+      return `[conversation comment] @${c.author}:\n${c.body}`;
+    case "inline": {
+      const loc = c.path ? `${c.path}${c.line !== null ? `:${c.line}` : ""}` : "";
+      return `[inline comment] @${c.author}${loc ? ` (${loc})` : ""}:\n${c.body}`;
+    }
+    case "review_summary":
+      return `[review submission -- ${c.state}] @${c.author}:\n${c.body}`;
+  }
 }
 
 /** Initial prompt for the PR creation turn (push branch + open PR). */
 export const prCreationPrompt = `Push the branch and create a PR. Read the artifact files for context on the PR description.`;
-
-/** Initial prompt for an external PR review turn. */
-export const externalReviewPrompt = `Review this PR. Read the diff, understand the changes, and post your review.`;

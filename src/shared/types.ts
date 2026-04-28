@@ -83,6 +83,29 @@ export const PR_SESSION_MODES = ["own", "review"] as const;
 
 export type PrSessionMode = (typeof PR_SESSION_MODES)[number];
 
+// --- PR comments ---
+
+export const PR_REVIEW_STATES = ["approved", "changes_requested", "commented"] as const;
+
+export type PrReviewState = (typeof PR_REVIEW_STATES)[number];
+
+interface PrCommentBase {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+}
+
+/**
+ * Discriminated PR comment from the watcher. `conversation` = top-level
+ * issue comment; `inline` = code-level review comment with file/line;
+ * `review_summary` = the body of a submitted review along with its state.
+ */
+export type PrComment =
+  | (PrCommentBase & { kind: "conversation" })
+  | (PrCommentBase & { kind: "inline"; path: string; line: number | null })
+  | (PrCommentBase & { kind: "review_summary"; state: PrReviewState });
+
 // --- SSE events ---
 
 /**

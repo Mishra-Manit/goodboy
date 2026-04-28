@@ -10,6 +10,8 @@ import type {
   MemoryRunStatus,
   MemoryRunSource,
   PrSessionWatchStatus,
+  PrSessionMode,
+  PrComment,
 } from "@dashboard/shared";
 
 export type {
@@ -35,6 +37,9 @@ export type {
   MemoryRunStatus,
   MemoryRunSource,
   PrSessionWatchStatus,
+  PrSessionMode,
+  PrComment,
+  PrReviewState,
 } from "@dashboard/shared";
 
 export { TASK_KIND_CONFIG } from "@dashboard/shared";
@@ -106,7 +111,7 @@ export interface PrSessionRun {
   id: string;
   prSessionId: string;
   trigger: string;
-  comments: Array<{ author: string; body: string; path?: string; line?: number }> | null;
+  comments: PrComment[] | null;
   status: string;
   error: string | null;
   startedAt: string;

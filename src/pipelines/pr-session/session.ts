@@ -143,7 +143,6 @@ export async function resumePrSession(options: {
       timeoutLabel: "PR session (resume)",
     });
 
-    await queries.updatePrSession(prSessionId, { lastPolledAt: new Date() });
     if (chatId) {
       await notifyTelegram(sendTelegram, chatId,
         `Addressed ${comments.length} comment${pluralS} on PR #${prNumber}. Pushed changes.`);
