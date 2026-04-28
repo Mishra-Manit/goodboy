@@ -584,7 +584,7 @@ has its own pipeline file.
 |---|---|---|
 | `coding_task` | `pipelines/coding/pipeline.ts` | `planner` -> `implementer` -> `reviewer`, then hands off to a PR session |
 | `codebase_question` | `pipelines/question/pipeline.ts` | `answering` (read-only, no worktree) |
-| `pr_review` | `pipelines/pr-review/pipeline.ts` | `pr_reviewing` (delegates to `pr-session/session.ts#startExternalReview`) |
+| `pr_review` | `pipelines/pr-review/pipeline.ts` | `pr_impact` -> `pr_analyst`, then hands off to a PR session via `pr-session/session.ts#handoffExternalReview` |
 
 All three use `core/stage.ts#runStage` to spawn a pi RPC subprocess, tail
 its native session file into SSE, and enforce a 30-minute timeout.
@@ -626,17 +626,30 @@ next to `runStage` in `core/stage.ts`, not inside an individual pipeline.
 
 **Files:** `pipelines/pr-session/session.ts` and `pipelines/pr-session/poller.ts`
 
-Once the coding pipeline finishes, the worktree is not torn down. Instead,
-ownership is handed to a `PrSession` row in the database. Three entry points:
+Once the coding pipeline (or pr-review pipeline) finishes, the worktree is
+not torn down. Instead, ownership is handed to a `PrSession` row whose
+`mode` column distinguishes the two flavors:
 
-- `startPrSession` -- pushes the branch, opens the PR, records `prNumber`.
-- `startExternalReview` -- used by `pr_review` tasks; checks out the PR head
-  via `createPrWorktree` and posts a review.
+- `mode = "own"` -- created by `startPrSession` after the coding reviewer
+  stage. Pushes the branch, opens the PR, records `prNumber`.
+- `mode = "review"` -- created by `handoffExternalReview` after the
+  pr-review pipeline's analyst posts its review. Thin handoff: persists the
+  session row and transfers worktree ownership; pi creates the JSONL on the
+  first comment-resume.
 - `resumePrSession` -- re-opens the same pi session (via `--session <path>`)
-  when the poller detects new human comments. The poller (`poller.ts`) runs
-  every 3 minutes, calls `getPrComments` + `getPrReviewComments` in
-  `core/github.ts`, filters out bots, and fires `resumePrSession` with the
-  unseen comments.
+  when the poller detects new human comments. Reads `prSession.mode` to
+  pick the right system prompt. The poller (`poller.ts`) runs every 3
+  minutes and merges three comment sources from `core/git/github.ts`:
+  - `getPrComments` -- top-level conversation comments (`kind: "conversation"`)
+  - `getPrReviewComments` -- inline code comments with file/line (`kind: "inline"`)
+  - `getPrReviews` -- submitted review bodies with state (`kind: "review_summary"`)
+  Bots are filtered. The cursor advances using a pre-fetch timestamp
+  rewound by a 5s safety window so comments arriving mid-fetch are still
+  picked up on the next tick.
+
+Dismissing a `pr_review` task is mode-aware: it never closes the upstream
+PR or deletes its remote branch, since both belong to the PR author.
+Local-only cleanup (worktree + session JSONL) runs as usual.
 
 Session state lives on disk at `data/pr-sessions/<prSessionId>.jsonl`, which
 is pi's native session file. The resumed pi process gets full conversation
@@ -1028,7 +1041,7 @@ Why refetch instead of mutating state from SSE? SSE is a "something changed" sig
 
 ### API client
 
-`lib/api/` is split by resource (`tasks.ts`, `prs.ts`, `pr-sessions.ts`, `repos.ts`) around a shared `request<T>()` wrapper in `client.ts`. Types live in `types.ts`. A barrel re-exports everything so callers still import from `@dashboard/lib/api`.
+`lib/api/` is split by resource (`tasks.ts`, `pr-sessions.ts`, `repos.ts`, `memory.ts`) around a shared `request<T>()` wrapper in `client.ts`. Types live in `types.ts`. A barrel re-exports everything so callers still import from `@dashboard/lib/api`.
 
 URLs are **relative** (`/api/tasks`, not `http://localhost:3333/api/tasks`):
 - **Production:** Hono serves the built SPA from the same host, so relative paths resolve locally.
