@@ -16,6 +16,7 @@ import { createPrWorktree, removeWorktree } from "../../core/git/worktree.js";
 import { getPrMetadata, getPrDiff, parsePrIdentifier } from "../../core/git/github.js";
 import { runImpactAnalyzer } from "./impact-analyzer.js";
 import { runPrAnalyst } from "./analyst.js";
+import { handoffExternalReview } from "../pr-session/session.js";
 import { failTask, clearActiveSession, completeTask, type SendTelegram } from "../../core/stage.js";
 import * as queries from "../../db/repository.js";
 import { toErrorMessage } from "../../shared/errors.js";
@@ -88,6 +89,11 @@ async function runPrReviewInner(
     return;
   }
 
+  // Once handoffExternalReview persists the pr_sessions row, the worktree
+  // belongs to the session and the pipeline must not delete it. `handedOff`
+  // gates the cleanup in `finally`.
+  let handedOff = false;
+
   try {
     await queries.updateTask(taskId, { prNumber, worktreePath, status: "running" });
 
@@ -119,6 +125,18 @@ async function runPrReviewInner(
       fallbackMemory: impactAvailable ? "" : fullMemory,
     });
 
+    // Promote the finished task into a watchable PR session. The session
+    // takes ownership of the worktree from this point on.
+    await handoffExternalReview({
+      sourceTaskId: taskId,
+      repo: task.repo,
+      prNumber,
+      branch: headRef,
+      worktreePath,
+      chatId: chatId ?? "",
+    });
+    handedOff = true;
+
     await completeTask(taskId);
   } catch (err) {
     await handlePipelineError({
@@ -130,6 +148,8 @@ async function runPrReviewInner(
     });
   } finally {
     clearActiveSession(taskId);
-    await removeWorktree(repo.localPath, worktreePath);
+    if (!handedOff) {
+      await removeWorktree(repo.localPath, worktreePath);
+    }
   }
 }
