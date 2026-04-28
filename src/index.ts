@@ -17,6 +17,7 @@ import { loadEnv } from "./shared/config.js";
 import { createLogger } from "./shared/logger.js";
 import { initObservability, shutdownObservability, emitStartupEvent } from "./observability/index.js";
 import { findOrphanedMemoryDirs, cleanupStaleMemoryLocks } from "./core/memory/index.js";
+import { startArtifactsSweep, stopArtifactsSweep } from "./core/artifacts-cleanup.js";
 import { pruneWorktrees } from "./core/git/worktree.js";
 import { listRepos, listRepoNames } from "./shared/repos.js";
 import { reapRunningRows } from "./db/repository.js";
@@ -120,12 +121,14 @@ async function main(): Promise<void> {
       };
 
       startPrPoller(sendTelegram);
+      startArtifactsSweep();
 
       log.info("Goodboy is running");
 
       const shutdown = async (): Promise<void> => {
         log.info("Shutting down...");
         stopPrPoller();
+        stopArtifactsSweep();
         await telegramBot.stop();
         server.close();
         await shutdownObservability();
