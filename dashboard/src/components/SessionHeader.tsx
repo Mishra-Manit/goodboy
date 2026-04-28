@@ -1,6 +1,7 @@
 /** Title + metadata row at the top of the PR-session detail page. */
 
-import { ArrowUpRight, ExternalLink, Eye, MessageSquare } from "lucide-react";
+import { ArrowUpRight, ExternalLink } from "lucide-react";
+import { prSessionIcon } from "@dashboard/lib/pr-review";
 import { StatusBadge } from "./StatusBadge.js";
 import { shortId } from "@dashboard/lib/utils";
 import { formatDate, timeAgo } from "@dashboard/lib/format";
@@ -23,7 +24,7 @@ export function SessionHeader({
   onSourceTaskClick,
   onToggleWatch,
 }: SessionHeaderProps) {
-  const Icon = session.mode === "own" ? MessageSquare : Eye;
+  const Icon = prSessionIcon(session.mode);
   const status = running
     ? "running"
     : session.status === "closed"

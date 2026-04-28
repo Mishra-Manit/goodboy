@@ -1,6 +1,21 @@
-/** Pure display helpers for PR review tasks. */
+/** Pure display helpers for PR review tasks and PR sessions. */
 
-import type { Task } from "@dashboard/lib/api";
+import { Eye, MessageSquare } from "lucide-react";
+import type { PrSessionMode, Task } from "@dashboard/lib/api";
+
+// --- PR session presentation ---
+
+/** Icon component for a PR session row, picked by mode. */
+export function prSessionIcon(mode: PrSessionMode) {
+  return mode === "own" ? MessageSquare : Eye;
+}
+
+/** Accessible label paired with `prSessionIcon`. */
+export function prSessionIconTitle(mode: PrSessionMode): string {
+  return mode === "own" ? "Own PR" : "External review";
+}
+
+// --- pr_review task display ---
 
 const PR_URL_PREFIX = "http://";
 const PR_URL_PREFIX_SECURE = "https://";

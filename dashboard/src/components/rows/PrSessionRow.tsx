@@ -1,7 +1,8 @@
 /** One row in the PR-session list. Stateless: the page owns navigation. */
 
-import { ArrowUpRight, Eye, MessageSquare } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { cn, shortId } from "@dashboard/lib/utils";
+import { prSessionIcon, prSessionIconTitle } from "@dashboard/lib/pr-review";
 import { timeAgo } from "@dashboard/lib/format";
 import { useNow } from "@dashboard/hooks/use-now";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
@@ -25,8 +26,8 @@ export function PrSessionRow({
   onTaskClick,
 }: PrSessionRowProps) {
   const now = useNow();
-  const Icon = session.mode === "own" ? MessageSquare : Eye;
-  const iconTitle = session.mode === "own" ? "Own PR" : "External review";
+  const Icon = prSessionIcon(session.mode);
+  const iconTitle = prSessionIconTitle(session.mode);
   const status = running
     ? "running"
     : session.status === "closed"
@@ -51,7 +52,7 @@ export function PrSessionRow({
         "transition-colors hover:bg-glass animate-fade-up",
       )}
     >
-      <Icon size={11} className="text-text-ghost shrink-0" title={iconTitle} />
+      <Icon size={11} className="text-text-ghost shrink-0" aria-label={iconTitle} />
       <span className="font-mono text-[10px] text-accent/60">{session.repo}</span>
 
       {session.prNumber && (
