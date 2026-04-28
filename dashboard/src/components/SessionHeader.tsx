@@ -1,6 +1,7 @@
 /** Title + metadata row at the top of the PR-session detail page. */
 
-import { ArrowUpRight, ExternalLink, Eye, MessageSquare } from "lucide-react";
+import { ArrowUpRight, ExternalLink } from "lucide-react";
+import { prSessionIcon } from "@dashboard/lib/pr-review";
 import { StatusBadge } from "./StatusBadge.js";
 import { shortId } from "@dashboard/lib/utils";
 import { formatDate, timeAgo } from "@dashboard/lib/format";
@@ -11,7 +12,7 @@ interface SessionHeaderProps {
   running: boolean;
   updatingWatch: boolean;
   now: number;
-  onOriginTaskClick: (taskId: string) => void;
+  onSourceTaskClick: (taskId: string) => void;
   onToggleWatch: (session: PrSessionWithRuns) => void;
 }
 
@@ -20,10 +21,10 @@ export function SessionHeader({
   running,
   updatingWatch,
   now,
-  onOriginTaskClick,
+  onSourceTaskClick,
   onToggleWatch,
 }: SessionHeaderProps) {
-  const Icon = session.originTaskId ? MessageSquare : Eye;
+  const Icon = prSessionIcon(session.mode);
   const status = running
     ? "running"
     : session.status === "closed"
@@ -47,12 +48,12 @@ export function SessionHeader({
       <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 font-mono text-[10px] text-text-void">
         <span>created {formatDate(session.createdAt)}</span>
         {session.branch && <span>branch: {session.branch}</span>}
-        {session.originTaskId && (
+        {session.sourceTaskId && (
           <button
-            onClick={() => onOriginTaskClick(session.originTaskId!)}
+            onClick={() => onSourceTaskClick(session.sourceTaskId!)}
             className="flex items-center gap-0.5 text-text-ghost hover:text-text-dim transition-colors"
           >
-            task {shortId(session.originTaskId)}
+            task {shortId(session.sourceTaskId)}
             <ArrowUpRight size={9} />
           </button>
         )}

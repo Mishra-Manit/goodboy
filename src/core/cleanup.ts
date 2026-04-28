@@ -33,13 +33,15 @@ export async function dismissTask(taskId: string): Promise<void> {
   const repo = getRepo(task.repo);
   if (!repo) log.warn(`Repo '${task.repo}' not in registry, skipping git cleanup`);
 
-  if (task.prNumber && repo?.githubUrl) {
+  // External-review tasks are not allowed to close the upstream PR or delete
+  // its remote branch -- both belong to the PR author. Local cleanup only.
+  if (task.kind !== "pr_review" && task.prNumber && repo?.githubUrl) {
     const nwo = parseNwo(repo.githubUrl);
     if (nwo) await closePr(nwo, task.prNumber);
   }
 
   // Prefer PR-session teardown when one exists; it owns the worktree now.
-  const prSession = await queries.getPrSessionByOriginTask(taskId);
+  const prSession = await queries.getPrSessionBySourceTask(taskId);
   if (prSession) {
     await cleanupPrSession(prSession.id);
   } else if (repo) {
@@ -85,8 +87,8 @@ export async function cleanupPrSession(prSessionId: string): Promise<void> {
     worktreePath: null,
     branch: null,
   });
-  if (session.originTaskId) {
-    await queries.updateTask(session.originTaskId, { worktreePath: null, branch: null });
+  if (session.sourceTaskId) {
+    await queries.updateTask(session.sourceTaskId, { worktreePath: null, branch: null });
   }
   log.info(`Cleaned up PR session ${prSessionId}`);
 }

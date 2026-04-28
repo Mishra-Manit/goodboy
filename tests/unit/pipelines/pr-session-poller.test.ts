@@ -9,6 +9,7 @@ const { queriesHandler, githubHandler, sessionHandler, cleanupHandler } = vi.hoi
     isPrClosed: vi.fn(),
     getPrComments: vi.fn(),
     getPrReviewComments: vi.fn(),
+    getPrReviews: vi.fn(),
   },
   sessionHandler: {
     resumePrSession: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("@src/core/git/github.js", () => ({
   isPrClosed: (...args: unknown[]) => githubHandler.isPrClosed(...args),
   getPrComments: (...args: unknown[]) => githubHandler.getPrComments(...args),
   getPrReviewComments: (...args: unknown[]) => githubHandler.getPrReviewComments(...args),
+  getPrReviews: (...args: unknown[]) => githubHandler.getPrReviews(...args),
 }));
 
 vi.mock("@src/pipelines/pr-session/session.js", () => ({
@@ -62,6 +64,7 @@ beforeEach(() => {
   githubHandler.isPrClosed.mockResolvedValue(false);
   githubHandler.getPrComments.mockResolvedValue([]);
   githubHandler.getPrReviewComments.mockResolvedValue([]);
+  githubHandler.getPrReviews.mockResolvedValue([]);
   sessionHandler.resumePrSession.mockResolvedValue(undefined);
   cleanupHandler.cleanupPrSession.mockResolvedValue(undefined);
 });
@@ -92,6 +95,7 @@ describe("pollOnce", () => {
 
   it("resumes watching sessions when new comments arrive", async () => {
     const comment = {
+      kind: "conversation" as const,
       id: "c1",
       author: "manit",
       body: "please fix this",
@@ -106,11 +110,32 @@ describe("pollOnce", () => {
 
     expect(githubHandler.getPrComments).toHaveBeenCalledWith("acme/widgets", 42);
     expect(githubHandler.getPrReviewComments).toHaveBeenCalledWith("acme/widgets", 42);
+    expect(githubHandler.getPrReviews).toHaveBeenCalledWith("acme/widgets", 42);
     expect(sessionHandler.resumePrSession).toHaveBeenCalledWith({
       prSessionId: "ps1",
       comments: [comment],
       sendTelegram: expect.any(Function),
     });
+  });
+
+  it("advances lastPolledAt with a safety rewind when comments arrive", async () => {
+    queriesHandler.listActivePrSessions.mockResolvedValue([
+      mkSession({ lastPolledAt: new Date("2026-04-25T11:00:00.000Z") }),
+    ]);
+    githubHandler.getPrComments.mockResolvedValue([
+      { kind: "conversation", id: "c1", author: "manit", body: "x", createdAt: "2026-04-25T12:00:00.000Z" },
+    ]);
+
+    const before = Date.now();
+    await pollOnce(async () => undefined);
+    const after = Date.now();
+
+    const update = queriesHandler.updatePrSession.mock.calls.at(-1);
+    expect(update?.[0]).toBe("ps1");
+    const cursor = (update?.[1] as { lastPolledAt: Date }).lastPolledAt;
+    // Cursor lives in [pollStart - 5s, now]; we just bound it loosely.
+    expect(cursor.getTime()).toBeLessThanOrEqual(after);
+    expect(cursor.getTime()).toBeGreaterThanOrEqual(before - 6_000);
   });
 
   it("updates lastPolledAt when no new comments are found", async () => {

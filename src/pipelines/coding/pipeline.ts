@@ -124,13 +124,13 @@ async function runCodingPipelineInner(
 
     // PR session runs independently; don't await.
     startPrSession({
-      originTaskId: taskId,
+      sourceTaskId: taskId,
       repo: task.repo,
       branch,
       worktreePath,
       artifactsDir,
       sendTelegram,
-      chatId: chatId!,
+      chatId,
     }).catch((err) => {
       log.error(`PR session failed for task ${taskId}`, err);
       notifyTelegram(sendTelegram, chatId,

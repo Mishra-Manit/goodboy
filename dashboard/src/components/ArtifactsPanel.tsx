@@ -12,7 +12,7 @@ interface Artifact {
 
 interface ArtifactsPanelProps {
   taskId: string;
-  artifacts: Artifact[];
+  artifacts: readonly Artifact[];
 }
 
 export function ArtifactsPanel({ taskId, artifacts }: ArtifactsPanelProps) {

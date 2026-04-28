@@ -2,8 +2,9 @@
  * Long-lived PR session: owns a pull request from creation through every
  * comment-driven revision. `startPrSession` is invoked after the coding
  * reviewer stage; `resumePrSession` is driven by the poller; and
- * `startExternalReview` handles drive-by reviews of PRs we did not author.
- * All three share the same pi-session + persistent sessionfile machinery.
+ * `handoffExternalReview` finalizes a pr_review task by promoting it to a
+ * watchable session. All three share the same pi-session + persistent
+ * sessionfile machinery.
  */
 
 import path from "node:path";
@@ -19,13 +20,12 @@ import {
   readSessionFile,
 } from "../../core/pi/session-file.js";
 import { broadcastSessionFile } from "../../core/pi/session-broadcast.js";
-import { createPrWorktree } from "../../core/git/worktree.js";
-import { getRepo, getRepoNwo } from "../../shared/repos.js";
 import * as queries from "../../db/repository.js";
-import { prSessionPrompt, formatCommentsPrompt, prCreationPrompt, externalReviewPrompt } from "./prompts.js";
+import { prSessionPrompt, formatCommentsPrompt, prCreationPrompt } from "./prompts.js";
 import { memoryBlock } from "../../shared/agent-prompts.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
-import { parsePrNumberFromUrl, getPrMetadata, type PrComment } from "../../core/git/github.js";
+import { parsePrNumberFromUrl } from "../../core/git/github.js";
+import type { PrComment } from "../../shared/types.js";
 import { withPipelineSpan, bridgeSessionToOtel } from "../../observability/index.js";
 import { trace } from "@opentelemetry/api";
 import { Goodboy } from "../../observability/attributes.js";
@@ -40,26 +40,28 @@ const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
 /** Called right after the reviewer stage. Creates the PR and persists the session for future rounds. */
 export async function startPrSession(options: {
-  originTaskId: string;
+  sourceTaskId: string;
   repo: string;
   branch: string;
   worktreePath: string;
   artifactsDir: string;
   sendTelegram: SendTelegram;
-  chatId: string;
+  chatId: string | null;
 }): Promise<void> {
-  const { originTaskId, repo, branch, worktreePath, artifactsDir, sendTelegram, chatId } = options;
+  const { sourceTaskId, repo, branch, worktreePath, artifactsDir, sendTelegram, chatId } = options;
 
   const prSession = await queries.createPrSession({
-    repo, branch, worktreePath, originTaskId, telegramChatId: chatId,
+    repo, branch, worktreePath,
+    mode: "own", sourceTaskId,
+    telegramChatId: chatId,
   });
-  await transferTaskGitOwnership(originTaskId, prSession.id);
+  await transferTaskGitOwnership(sourceTaskId, prSession.id);
 
   const run = await queries.createPrSessionRun({
     prSessionId: prSession.id,
     trigger: "pr_creation",
   });
-  log.info(`Starting PR session ${prSession.id} for task ${originTaskId}`);
+  log.info(`Starting PR session ${prSession.id} for task ${sourceTaskId}`);
 
   try {
     await runSessionTurn({
@@ -86,13 +88,13 @@ export async function startPrSession(options: {
     });
 
     if (prNumber && prUrl) {
-      await queries.updateTask(originTaskId, { prUrl, prNumber });
+      await queries.updateTask(sourceTaskId, { prUrl, prNumber });
       await notifyTelegram(sendTelegram, chatId, `PR is up: ${prUrl}\nI will watch for comments.`);
     } else {
       await notifyTelegram(sendTelegram, chatId, "PR session finished, but I could not detect the PR URL from output. Check GitHub.");
     }
   } catch (err) {
-    log.error(`PR session create failed for task ${originTaskId}`, err);
+    log.error(`PR session create failed for task ${sourceTaskId}`, err);
     await notifyTelegram(sendTelegram, chatId, `PR session failed: ${toErrorMessage(err)}`);
   }
 }
@@ -111,17 +113,15 @@ export async function resumePrSession(options: {
     return;
   }
 
-  const { worktreePath, repo, branch, prNumber, originTaskId, telegramChatId: chatId } = prSession;
+  const { worktreePath, repo, branch, prNumber, mode, telegramChatId: chatId } = prSession;
   await pullLatest(worktreePath, prSessionId);
 
   const run = await queries.createPrSessionRun({ prSessionId, trigger: "comments", comments });
   log.info(`Resuming PR session ${prSessionId} with ${comments.length} new comments`);
 
   const pluralS = comments.length === 1 ? "" : "s";
-  if (chatId) {
-    await notifyTelegram(sendTelegram, chatId,
-      `Found ${comments.length} new comment${pluralS} on PR #${prNumber}. Addressing now...`);
-  }
+  await notifyTelegram(sendTelegram, chatId,
+    `Found ${comments.length} new comment${pluralS} on PR #${prNumber}. Addressing now...`);
 
   const memory = await memoryBlock(repo);
 
@@ -131,7 +131,7 @@ export async function resumePrSession(options: {
       labelSuffix: "resume",
       cwd: worktreePath,
       systemPrompt: memory + prSessionPrompt({
-        mode: originTaskId ? "own" : "review",
+        mode,
         repo,
         branch: branch ?? "",
         prNumber: prNumber ?? undefined,
@@ -142,69 +142,42 @@ export async function resumePrSession(options: {
       timeoutLabel: "PR session (resume)",
     });
 
-    await queries.updatePrSession(prSessionId, { lastPolledAt: new Date() });
-    if (chatId) {
-      await notifyTelegram(sendTelegram, chatId,
-        `Addressed ${comments.length} comment${pluralS} on PR #${prNumber}. Pushed changes.`);
-    }
+    await notifyTelegram(sendTelegram, chatId,
+      `Addressed ${comments.length} comment${pluralS} on PR #${prNumber}. Pushed changes.`);
   } catch (err) {
     log.error(`PR session resume failed for ${prSessionId}`, err);
-    if (chatId) {
-      await notifyTelegram(sendTelegram, chatId,
-        `Failed to address comments on PR #${prNumber}: ${toErrorMessage(err)}`);
-    }
+    await notifyTelegram(sendTelegram, chatId,
+      `Failed to address comments on PR #${prNumber}: ${toErrorMessage(err)}`);
   }
 }
 
-/** Review an external PR we did not author. Creates a worktree at the PR head and posts a review. */
-export async function startExternalReview(options: {
+/**
+ * Promote a finished `pr_review` task into a watchable PR session. The
+ * analyst has already posted its review; this only persists the session
+ * row, transfers worktree ownership, and exits. The first comment-driven
+ * resume creates the JSONL on disk.
+ */
+export async function handoffExternalReview(options: {
+  sourceTaskId: string;
   repo: string;
   prNumber: number;
-  sendTelegram: SendTelegram;
-  chatId: string;
-  taskId: string;
-}): Promise<void> {
-  const { repo, prNumber, sendTelegram, chatId, taskId } = options;
-
-  const repoConfig = getRepo(repo);
-  if (!repoConfig) throw new Error(`Repo '${repo}' not found in registry`);
-
-  const nwo = getRepoNwo(repo);
-  if (!nwo) throw new Error(`Repo '${repo}' is missing a githubUrl`);
-
-  // Resolve the PR's real head branch so the worktree lands on origin/<headRef>
-  // and pushes flow back without any refspec gymnastics.
-  const { headRef } = await getPrMetadata(nwo, prNumber);
-  const worktreePath = await createPrWorktree(repoConfig.localPath, headRef, taskId);
-  const branch = await currentBranch(worktreePath) ?? headRef;
+  branch: string;
+  worktreePath: string;
+  chatId: string | null;
+}): Promise<string> {
+  const { sourceTaskId, repo, prNumber, branch, worktreePath, chatId } = options;
 
   const prSession = await queries.createPrSession({
-    repo, prNumber, branch, worktreePath, telegramChatId: chatId,
-    // no originTaskId -- this is an external review
+    repo, prNumber, branch, worktreePath,
+    mode: "review", sourceTaskId,
+    telegramChatId: chatId,
   });
 
-  const run = await queries.createPrSessionRun({ prSessionId: prSession.id, trigger: "external_review" });
-  log.info(`Starting external review for PR #${prNumber} on ${repo}`);
+  await transferTaskGitOwnership(sourceTaskId, prSession.id);
+  await queries.updatePrSession(prSession.id, { lastPolledAt: new Date() });
 
-  try {
-    await runSessionTurn({
-      prSessionId: prSession.id,
-      labelSuffix: "review",
-      cwd: worktreePath,
-      systemPrompt: prSessionPrompt({ mode: "review", repo: nwo, branch, prNumber }),
-      model: resolveModel("PI_MODEL_REVIEWER"),
-      prompt: externalReviewPrompt,
-      run,
-      timeoutLabel: "PR session (external review)",
-    });
-
-    await queries.updatePrSession(prSession.id, { lastPolledAt: new Date() });
-    await notifyTelegram(sendTelegram, chatId,
-      `Review posted for PR #${prNumber}. I will watch for follow-up comments.`);
-  } catch (err) {
-    log.error(`External review failed for PR #${prNumber} on ${repo}`, err);
-    throw err;
-  }
+  log.info(`Handed off task ${sourceTaskId} -> PR session ${prSession.id} (review mode)`);
+  return prSession.id;
 }
 
 // --- Shared session shell ---
@@ -304,16 +277,6 @@ async function pullLatest(worktreePath: string, prSessionId: string): Promise<vo
     await exec("git", ["pull", "--rebase"], { cwd: worktreePath });
   } catch (err) {
     log.warn(`Git pull failed in worktree for PR session ${prSessionId}`, err);
-  }
-}
-
-/** Read the worktree's current branch name. Returns `null` on failure. */
-async function currentBranch(worktreePath: string): Promise<string | null> {
-  try {
-    const { stdout } = await exec("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: worktreePath });
-    return stdout.trim();
-  } catch {
-    return null;
   }
 }
 

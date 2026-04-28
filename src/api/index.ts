@@ -268,26 +268,13 @@ export function createApi(): Hono {
     }
   });
 
-  // --- PRs ---
-
-  app.get("/api/prs", async (c) => {
-    const tasks = await queries.listTasks();
-    const prs = tasks
-      .filter((t) => t.prUrl)
-      .map((t) => ({
-        taskId: t.id,
-        repo: t.repo,
-        prUrl: t.prUrl,
-        prNumber: t.prNumber,
-        status: t.status,
-      }));
-    return c.json(prs);
-  });
-
   // --- PR Sessions ---
 
   app.get("/api/pr-sessions", async (c) => {
-    const sessions = await queries.listPrSessions();
+    const sourceTaskId = c.req.query("sourceTaskId");
+    const sessions = sourceTaskId
+      ? await queries.getPrSessionBySourceTask(sourceTaskId).then((s) => (s ? [s] : []))
+      : await queries.listPrSessions();
     return c.json(sessions.map((s) => ({ ...s, prUrl: buildPrUrl(s.repo, s.prNumber) })));
   });
 

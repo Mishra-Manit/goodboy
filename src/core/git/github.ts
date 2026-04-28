@@ -7,6 +7,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createLogger } from "../../shared/logger.js";
+import type { PrComment, PrReviewState } from "../../shared/types.js";
 
 // --- Pure parsers ---
 
@@ -39,78 +40,87 @@ export function parsePrIdentifier(identifier: string): number | null {
 const exec = promisify(execFile);
 const log = createLogger("pr-session-gh");
 
-export interface PrComment {
-  id: string;
-  author: string;
-  body: string;
-  createdAt: string;
-  /** File path; present only on inline review comments. */
-  path?: string;
-  /** Line number; present only on inline review comments. */
-  line?: number;
+/**
+ * Run `gh` and parse stdout. Returns the fallback (defaults to `null`) on
+ * any failure -- non-zero exit, JSON parse error, or transport error -- and
+ * logs a warning. Centralizes the try/catch every PR fetcher used to repeat.
+ */
+async function ghJson<T>(
+  args: readonly string[],
+  warnLabel: string,
+): Promise<T | null> {
+  try {
+    const { stdout } = await exec("gh", [...args]);
+    return JSON.parse(stdout) as T;
+  } catch (err) {
+    log.warn(`${warnLabel}: ${String(err)}`);
+    return null;
+  }
 }
 
 /** Top-level issue comments on a PR. Returns `[]` on error (logged). */
-export async function getPrComments(
-  nwo: string,
-  prNumber: number,
-): Promise<PrComment[]> {
-  try {
-    const { stdout } = await exec("gh", [
-      "pr", "view", String(prNumber),
-      "--repo", nwo,
-      "--json", "comments",
-    ]);
-    const data = JSON.parse(stdout) as {
-      comments: Array<{
-        id: string;
-        author: { login: string };
-        body: string;
-        createdAt: string;
-      }>;
-    };
-    return data.comments.map((c) => ({
-      id: String(c.id),
-      author: c.author.login,
-      body: c.body,
-      createdAt: c.createdAt,
-    }));
-  } catch (err) {
-    log.warn(`Failed to fetch PR comments for ${nwo}#${prNumber}`, err);
-    return [];
-  }
+export async function getPrComments(nwo: string, prNumber: number): Promise<PrComment[]> {
+  const data = await ghJson<{
+    comments: Array<{ id: string; author: { login: string }; body: string; createdAt: string }>;
+  }>(
+    ["pr", "view", String(prNumber), "--repo", nwo, "--json", "comments"],
+    `Failed to fetch PR comments for ${nwo}#${prNumber}`,
+  );
+  return (data?.comments ?? []).map((c) => ({
+    kind: "conversation",
+    id: String(c.id),
+    author: c.author.login,
+    body: c.body,
+    createdAt: c.createdAt,
+  }));
 }
 
 /** Inline code-level review comments on a PR. Returns `[]` on error (logged). */
-export async function getPrReviewComments(
-  nwo: string,
-  prNumber: number,
-): Promise<PrComment[]> {
-  try {
-    const { stdout } = await exec("gh", [
-      "api", `/repos/${nwo}/pulls/${prNumber}/comments`,
-      "--paginate",
-    ]);
-    const data = JSON.parse(stdout) as Array<{
-      id: number;
-      user: { login: string };
-      body: string;
-      created_at: string;
-      path?: string;
-      line?: number;
-    }>;
-    return data.map((c) => ({
-      id: String(c.id),
-      author: c.user.login,
-      body: c.body,
-      createdAt: c.created_at,
-      path: c.path,
-      line: c.line ?? undefined,
+export async function getPrReviewComments(nwo: string, prNumber: number): Promise<PrComment[]> {
+  const data = await ghJson<Array<{
+    id: number; user: { login: string }; body: string;
+    created_at: string; path?: string; line?: number;
+  }>>(
+    ["api", `/repos/${nwo}/pulls/${prNumber}/comments`, "--paginate"],
+    `Failed to fetch review comments for ${nwo}#${prNumber}`,
+  );
+  return (data ?? []).map((c) => ({
+    kind: "inline",
+    id: String(c.id),
+    author: c.user.login,
+    body: c.body,
+    createdAt: c.created_at,
+    path: c.path ?? "",
+    line: c.line ?? null,
+  }));
+}
+
+/** Submitted PR reviews with non-empty top-level bodies. Returns `[]` on error (logged). */
+export async function getPrReviews(nwo: string, prNumber: number): Promise<PrComment[]> {
+  const data = await ghJson<Array<{
+    id: number; user: { login: string } | null; body: string;
+    state: string; submitted_at: string | null;
+  }>>(
+    ["api", `/repos/${nwo}/pulls/${prNumber}/reviews`, "--paginate"],
+    `Failed to fetch PR reviews for ${nwo}#${prNumber}`,
+  );
+  return (data ?? [])
+    .filter((r) => r.body.trim().length > 0 && r.user)
+    .map((r) => ({
+      kind: "review_summary",
+      id: String(r.id),
+      author: r.user!.login,
+      body: r.body,
+      createdAt: r.submitted_at ?? new Date().toISOString(),
+      state: mapReviewState(r.state),
     }));
-  } catch (err) {
-    log.warn(`Failed to fetch review comments for ${nwo}#${prNumber}`, err);
-    return [];
-  }
+}
+
+function mapReviewState(raw: string): PrReviewState {
+  const upper = raw.toUpperCase();
+  if (upper === "APPROVED") return "approved";
+  if (upper === "CHANGES_REQUESTED") return "changes_requested";
+  return "commented";
 }
 
 export interface PrMetadata {

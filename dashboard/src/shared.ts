@@ -19,6 +19,10 @@ export type {
   MemoryRunStatus,
   MemoryRunSource,
   SSEEvent,
+  PrSessionWatchStatus,
+  PrSessionMode,
+  PrComment,
+  PrReviewState,
 } from "@shared/types.js";
 
 export { TASK_KIND_CONFIG } from "@shared/task-kinds.js";

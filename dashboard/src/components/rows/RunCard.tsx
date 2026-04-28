@@ -59,11 +59,14 @@ export function RunCard({ run, expanded, onToggle, entries, isLive, now }: RunCa
                   <div key={i} className="rounded-md bg-bg-raised px-3 py-2">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-mono text-[10px] font-medium text-text-dim">@{c.author}</span>
-                      {c.path && (
+                      {c.kind === "inline" && c.path && (
                         <span className="font-mono text-[9px] text-text-void">
                           {c.path}
-                          {c.line ? `:${c.line}` : ""}
+                          {c.line !== null ? `:${c.line}` : ""}
                         </span>
+                      )}
+                      {c.kind === "review_summary" && (
+                        <span className="font-mono text-[9px] text-text-void">{c.state}</span>
                       )}
                     </div>
                     <p className="font-mono text-[11px] text-text-secondary whitespace-pre-wrap leading-relaxed">

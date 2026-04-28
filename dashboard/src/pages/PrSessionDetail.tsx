@@ -82,7 +82,7 @@ export function PrSessionDetail() {
               running={session.runs.some((r) => r.status === "running")}
               updatingWatch={updatingWatch}
               now={now}
-              onOriginTaskClick={(taskId) => navigate(`/tasks/${taskId}`)}
+              onSourceTaskClick={(taskId) => navigate(`/tasks/${taskId}`)}
               onToggleWatch={handleToggleWatch}
             />
 

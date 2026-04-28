@@ -1,31 +1,25 @@
-/** Pull-request + PR-session list. */
+/** Single source of truth for every watchable PR -- own and reviewed. */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchPRs, fetchPrSessions, setPrSessionWatchStatus, type PrSession } from "@dashboard/lib/api";
+import { fetchPrSessions, setPrSessionWatchStatus, type PrSession } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSE, useSSERefresh } from "@dashboard/hooks/use-sse";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { PrSessionRow } from "@dashboard/components/rows/PrSessionRow";
-import { PrRow } from "@dashboard/components/rows/PrRow";
+import { cn } from "@dashboard/lib/utils";
+
+const MODE_FILTERS = ["all", "own", "review"] as const;
+type ModeFilter = (typeof MODE_FILTERS)[number];
 
 export function PullRequests() {
   const navigate = useNavigate();
-  const { data: prs, loading: prsLoading, refetch: refetchPrs } = useQuery(() => fetchPRs());
-  const { data: sessions, loading: sessionsLoading, refetch: refetchSessions } = useQuery(() => fetchPrSessions());
-
+  const { data: sessions, loading, refetch } = useQuery(() => fetchPrSessions());
   const [runningSessions, setRunningSessions] = useState<Set<string>>(new Set());
-  const [updatingSessionId, setUpdatingSessionId] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
 
-  const refetchAll = () => {
-    refetchPrs();
-    refetchSessions();
-  };
-
-  useSSERefresh(
-    refetchAll,
-    (e) => e.type === "pr_update" || e.type === "task_update" || e.type === "pr_session_update",
-  );
+  useSSERefresh(refetch, (e) => e.type === "task_update" || e.type === "pr_session_update");
 
   useSSE((event) => {
     if (event.type !== "pr_session_update") return;
@@ -37,85 +31,65 @@ export function PullRequests() {
     });
   });
 
-  const activeSessions = (sessions ?? []).filter((s) => s.status === "active");
-  const closedSessions = (sessions ?? []).filter((s) => s.status === "closed");
-  const allPrs = prs ?? [];
-  const loading = prsLoading || sessionsLoading;
+  const filtered = useMemo(() => {
+    const all = sessions ?? [];
+    return modeFilter === "all" ? all : all.filter((s) => s.mode === modeFilter);
+  }, [sessions, modeFilter]);
+
+  const active = filtered.filter((s) => s.status === "active");
+  const closed = filtered.filter((s) => s.status === "closed");
 
   async function handleToggleWatch(session: PrSession) {
-    if (updatingSessionId) return;
-    const nextStatus = session.watchStatus === "muted" ? "watching" : "muted";
-    setUpdatingSessionId(session.id);
+    if (updatingId) return;
+    const next = session.watchStatus === "muted" ? "watching" : "muted";
+    setUpdatingId(session.id);
     try {
-      await setPrSessionWatchStatus(session.id, nextStatus);
-      refetchSessions();
+      await setPrSessionWatchStatus(session.id, next);
+      refetch();
     } finally {
-      setUpdatingSessionId(null);
+      setUpdatingId(null);
     }
   }
+
+  // Closed sessions can't be running and can't be mid-toggle, so the live
+  // sets read as `false` for them naturally -- no special-case rendering.
+  const renderRow = (session: PrSession) => (
+    <PrSessionRow
+      key={session.id}
+      session={session}
+      running={runningSessions.has(session.id)}
+      updatingWatch={updatingId === session.id}
+      onClick={() => navigate(`/prs/${session.id}`)}
+      onToggleWatch={handleToggleWatch}
+      onTaskClick={
+        session.sourceTaskId ? () => navigate(`/tasks/${session.sourceTaskId}`) : undefined
+      }
+    />
+  );
 
   return (
     <div>
       <header className="mb-8">
-        <h1 className="font-display text-lg font-semibold tracking-tight text-text">PR Sessions</h1>
+        <h1 className="font-display text-lg font-semibold tracking-tight text-text">Pull Requests</h1>
         <p className="mt-1 font-mono text-[11px] text-text-ghost">
-          PRs created by goodboy and active follow-up review sessions
+          Every PR goodboy is watching -- created or reviewed
         </p>
       </header>
 
-      {loading && !prs && !sessions ? (
+      <ModeFilters value={modeFilter} onChange={setModeFilter} />
+
+      {loading && !sessions ? (
         <div className="py-12 text-center">
           <span className="font-mono text-xs text-text-ghost animate-pulse-soft">loading...</span>
         </div>
       ) : (
         <>
-          <Section label="active sessions" count={activeSessions.length} emptyLabel="No active PR sessions">
-            {activeSessions.map((session) => (
-              <PrSessionRow
-                key={session.id}
-                session={session}
-                running={runningSessions.has(session.id)}
-                updatingWatch={updatingSessionId === session.id}
-                onClick={() => navigate(`/prs/${session.id}`)}
-                onToggleWatch={handleToggleWatch}
-                onTaskClick={
-                  session.originTaskId ? () => navigate(`/tasks/${session.originTaskId}`) : undefined
-                }
-              />
-            ))}
+          <Section label="active" count={active.length} emptyLabel="No active PR sessions">
+            {active.map(renderRow)}
           </Section>
-
-          <Section
-            label="pull requests"
-            count={allPrs.length}
-            emptyLabel="No pull requests yet"
-            className="mt-8"
-          >
-            {allPrs.map((pr) => (
-              <PrRow
-                key={pr.taskId}
-                pr={pr}
-                onTaskClick={() => navigate(`/tasks/${pr.taskId}`)}
-                onDismiss={refetchAll}
-              />
-            ))}
-          </Section>
-
-          {closedSessions.length > 0 && (
-            <Section label="closed sessions" count={closedSessions.length} className="mt-8">
-              {closedSessions.map((session) => (
-                <PrSessionRow
-                  key={session.id}
-                  session={session}
-                  running={false}
-                  updatingWatch={false}
-                  onClick={() => navigate(`/prs/${session.id}`)}
-                  onToggleWatch={handleToggleWatch}
-                  onTaskClick={
-                    session.originTaskId ? () => navigate(`/tasks/${session.originTaskId}`) : undefined
-                  }
-                />
-              ))}
+          {closed.length > 0 && (
+            <Section label="closed" count={closed.length} className="mt-8">
+              {closed.map(renderRow)}
             </Section>
           )}
         </>
@@ -125,6 +99,27 @@ export function PullRequests() {
 }
 
 // --- Helpers ---
+
+interface ModeFiltersProps { value: ModeFilter; onChange: (v: ModeFilter) => void }
+
+function ModeFilters({ value, onChange }: ModeFiltersProps) {
+  return (
+    <div className="mb-6 flex gap-1">
+      {MODE_FILTERS.map((m) => (
+        <button
+          key={m}
+          onClick={() => onChange(m)}
+          className={cn(
+            "rounded-full px-3 py-1 font-mono text-[10px] tracking-wide transition-all duration-200",
+            value === m ? "bg-glass text-text" : "text-text-ghost hover:text-text-dim",
+          )}
+        >
+          {m}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 interface SectionProps {
   label: string;

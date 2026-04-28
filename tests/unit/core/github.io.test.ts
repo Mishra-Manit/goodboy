@@ -96,8 +96,9 @@ describe("getPrReviewComments", () => {
       path: "src/core/worktree.ts",
       line: 42,
     });
-    // Second comment has line: null in the fixture → should become undefined.
-    expect(out[1].line).toBeUndefined();
+    // Second comment has line: null in the fixture and stays null on the wire.
+    expect(out[1].kind).toBe("inline");
+    if (out[1].kind === "inline") expect(out[1].line).toBeNull();
   });
 
   it("returns [] on exec error", async () => {
