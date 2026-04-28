@@ -13,8 +13,8 @@ import {
   getPrReviewComments,
   getPrReviews,
   isPrClosed,
-  type PrComment,
 } from "../../core/git/github.js";
+import type { PrComment } from "../../shared/types.js";
 import { resumePrSession } from "./session.js";
 import { cleanupPrSession } from "../../core/cleanup.js";
 import type { SendTelegram } from "../../core/stage.js";

@@ -15,6 +15,8 @@ import type {
 } from "@dashboard/shared";
 
 export type {
+  PrSessionMode,
+  PrComment,
   FileEntry,
   SessionEntry,
   SessionHeader,
@@ -37,9 +39,6 @@ export type {
   MemoryRunStatus,
   MemoryRunSource,
   PrSessionWatchStatus,
-  PrSessionMode,
-  PrComment,
-  PrReviewState,
 } from "@dashboard/shared";
 
 export { TASK_KIND_CONFIG } from "@dashboard/shared";

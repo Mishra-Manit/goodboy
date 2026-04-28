@@ -4,7 +4,7 @@
  */
 
 import { SHARED_RULES } from "../../shared/agent-prompts.js";
-import type { PrComment } from "../../core/git/github.js";
+import type { PrComment } from "../../shared/types.js";
 
 export function prSessionPrompt(options: {
   mode: "own" | "review";
