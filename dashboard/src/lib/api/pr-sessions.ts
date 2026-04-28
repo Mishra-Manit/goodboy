@@ -12,6 +12,12 @@ export async function fetchPrSessions(): Promise<PrSession[]> {
   return request("/api/pr-sessions");
 }
 
+/** Single session linked to a task that produced it (own coding or pr_review). */
+export async function fetchPrSessionBySourceTask(taskId: string): Promise<PrSession | null> {
+  const rows = await request<PrSession[]>(`/api/pr-sessions?sourceTaskId=${encodeURIComponent(taskId)}`);
+  return rows[0] ?? null;
+}
+
 export async function fetchPrSessionDetail(id: string): Promise<PrSessionWithRuns> {
   return request(`/api/pr-sessions/${id}`);
 }

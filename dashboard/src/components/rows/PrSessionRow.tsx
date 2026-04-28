@@ -25,8 +25,8 @@ export function PrSessionRow({
   onTaskClick,
 }: PrSessionRowProps) {
   const now = useNow();
-  const Icon = session.originTaskId ? MessageSquare : Eye;
-  const iconTitle = session.originTaskId ? "Own PR" : "External review";
+  const Icon = session.mode === "own" ? MessageSquare : Eye;
+  const iconTitle = session.mode === "own" ? "Own PR" : "External review";
   const status = running
     ? "running"
     : session.status === "closed"
@@ -58,7 +58,7 @@ export function PrSessionRow({
         <span className="font-mono text-[11px] text-text-dim">#{session.prNumber}</span>
       )}
 
-      {onTaskClick && session.originTaskId && (
+      {onTaskClick && session.sourceTaskId && (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -66,7 +66,7 @@ export function PrSessionRow({
           }}
           className="flex items-center gap-0.5 font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim"
         >
-          {shortId(session.originTaskId)}
+          {shortId(session.sourceTaskId)}
           <ArrowUpRight size={9} />
         </button>
       )}

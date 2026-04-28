@@ -81,14 +81,6 @@ export interface TaskWithStages extends Task {
 
 // --- PR + session resources ---
 
-export interface PR {
-  taskId: string;
-  repo: string;
-  prUrl: string | null;
-  prNumber: number | null;
-  status: TaskStatus;
-}
-
 export type PrSessionStatus = "active" | "closed";
 
 export interface PrSession {
@@ -100,7 +92,8 @@ export interface PrSession {
   worktreePath: string | null;
   status: PrSessionStatus;
   watchStatus: PrSessionWatchStatus;
-  originTaskId: string | null;
+  mode: PrSessionMode;
+  sourceTaskId: string | null;
   telegramChatId: string | null;
   lastPolledAt: string | null;
   createdAt: string;

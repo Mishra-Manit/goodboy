@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import {
   cancelTask,
+  fetchPrSessionBySourceTask,
   fetchTask,
   fetchTaskSession,
   retryTask,
@@ -25,7 +26,8 @@ import { PipelineProgress } from "@dashboard/components/PipelineProgress";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { dedupeById } from "@dashboard/components/log-viewer/helpers";
 import { getPrReviewTarget, getPrReviewUrl } from "@dashboard/lib/pr-review";
-import { cn } from "@dashboard/lib/utils";
+import { cn, shortId } from "@dashboard/lib/utils";
+import { ArrowUpRight } from "lucide-react";
 
 const TERMINAL = new Set(["complete", "failed", "cancelled"]);
 
@@ -142,20 +144,23 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
       )}
 
       {task.kind === "pr_review" && task.prIdentifier && (
-        <div className="mb-6 font-mono text-[11px] text-text-ghost">
-          reviewing:{" "}
-          {prReviewUrl ? (
-            <a
-              href={prReviewUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-text-ghost transition-colors hover:text-accent"
-            >
-              {prReviewTarget}
-            </a>
-          ) : (
-            prReviewTarget
-          )}
+        <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-text-ghost">
+          <span>
+            reviewing:{" "}
+            {prReviewUrl ? (
+              <a
+                href={prReviewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-text-ghost transition-colors hover:text-accent"
+              >
+                {prReviewTarget}
+              </a>
+            ) : (
+              prReviewTarget
+            )}
+          </span>
+          <PrSessionLink taskId={task.id} />
         </div>
       )}
 
@@ -192,5 +197,23 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
       <SectionDivider label="artifacts" className="mt-8" />
       <ArtifactsPanel taskId={taskId} artifacts={kindConfig.artifacts} />
     </>
+  );
+}
+
+// --- Helpers ---
+
+/** Inline link from a `pr_review` task to the watchable PR session it produced. */
+function PrSessionLink({ taskId }: { taskId: string }) {
+  const navigate = useNavigate();
+  const { data: session } = useQuery(() => fetchPrSessionBySourceTask(taskId), [taskId]);
+  if (!session) return null;
+  return (
+    <button
+      onClick={() => navigate(`/prs/${session.id}`)}
+      className="flex items-center gap-1 text-accent transition-colors hover:underline"
+    >
+      PR session ({shortId(session.id)})
+      <ArrowUpRight size={9} />
+    </button>
   );
 }
