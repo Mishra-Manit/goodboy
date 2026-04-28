@@ -148,7 +148,7 @@ export async function createPrSession(data: {
   worktreePath?: string;
   mode: PrSessionMode;
   sourceTaskId?: string;
-  telegramChatId: string;
+  telegramChatId: string | null;
 }): Promise<PrSession> {
   const db = getDb();
   const [session] = await db

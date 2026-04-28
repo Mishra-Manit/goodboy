@@ -107,7 +107,7 @@ export const prSessionRuns = pgTable("pr_session_runs", {
   prSessionId: uuid("pr_session_id")
     .notNull()
     .references(() => prSessions.id),
-  trigger: text("trigger").notNull(),       // "pr_creation" | "comments" | "external_review"
+  trigger: text("trigger").notNull(),       // "pr_creation" | "comments"
   comments: jsonb("comments"),               // PrComment[] that triggered this run, null for non-comment triggers
   status: text("status").notNull(),          // "running" | "complete" | "failed"
   error: text("error"),

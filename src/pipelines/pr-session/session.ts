@@ -39,28 +39,28 @@ const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
 /** Called right after the reviewer stage. Creates the PR and persists the session for future rounds. */
 export async function startPrSession(options: {
-  originTaskId: string;
+  sourceTaskId: string;
   repo: string;
   branch: string;
   worktreePath: string;
   artifactsDir: string;
   sendTelegram: SendTelegram;
-  chatId: string;
+  chatId: string | null;
 }): Promise<void> {
-  const { originTaskId, repo, branch, worktreePath, artifactsDir, sendTelegram, chatId } = options;
+  const { sourceTaskId, repo, branch, worktreePath, artifactsDir, sendTelegram, chatId } = options;
 
   const prSession = await queries.createPrSession({
     repo, branch, worktreePath,
-    mode: "own", sourceTaskId: originTaskId,
+    mode: "own", sourceTaskId,
     telegramChatId: chatId,
   });
-  await transferTaskGitOwnership(originTaskId, prSession.id);
+  await transferTaskGitOwnership(sourceTaskId, prSession.id);
 
   const run = await queries.createPrSessionRun({
     prSessionId: prSession.id,
     trigger: "pr_creation",
   });
-  log.info(`Starting PR session ${prSession.id} for task ${originTaskId}`);
+  log.info(`Starting PR session ${prSession.id} for task ${sourceTaskId}`);
 
   try {
     await runSessionTurn({
@@ -87,13 +87,13 @@ export async function startPrSession(options: {
     });
 
     if (prNumber && prUrl) {
-      await queries.updateTask(originTaskId, { prUrl, prNumber });
+      await queries.updateTask(sourceTaskId, { prUrl, prNumber });
       await notifyTelegram(sendTelegram, chatId, `PR is up: ${prUrl}\nI will watch for comments.`);
     } else {
       await notifyTelegram(sendTelegram, chatId, "PR session finished, but I could not detect the PR URL from output. Check GitHub.");
     }
   } catch (err) {
-    log.error(`PR session create failed for task ${originTaskId}`, err);
+    log.error(`PR session create failed for task ${sourceTaskId}`, err);
     await notifyTelegram(sendTelegram, chatId, `PR session failed: ${toErrorMessage(err)}`);
   }
 }
@@ -119,10 +119,8 @@ export async function resumePrSession(options: {
   log.info(`Resuming PR session ${prSessionId} with ${comments.length} new comments`);
 
   const pluralS = comments.length === 1 ? "" : "s";
-  if (chatId) {
-    await notifyTelegram(sendTelegram, chatId,
-      `Found ${comments.length} new comment${pluralS} on PR #${prNumber}. Addressing now...`);
-  }
+  await notifyTelegram(sendTelegram, chatId,
+    `Found ${comments.length} new comment${pluralS} on PR #${prNumber}. Addressing now...`);
 
   const memory = await memoryBlock(repo);
 
@@ -143,16 +141,12 @@ export async function resumePrSession(options: {
       timeoutLabel: "PR session (resume)",
     });
 
-    if (chatId) {
-      await notifyTelegram(sendTelegram, chatId,
-        `Addressed ${comments.length} comment${pluralS} on PR #${prNumber}. Pushed changes.`);
-    }
+    await notifyTelegram(sendTelegram, chatId,
+      `Addressed ${comments.length} comment${pluralS} on PR #${prNumber}. Pushed changes.`);
   } catch (err) {
     log.error(`PR session resume failed for ${prSessionId}`, err);
-    if (chatId) {
-      await notifyTelegram(sendTelegram, chatId,
-        `Failed to address comments on PR #${prNumber}: ${toErrorMessage(err)}`);
-    }
+    await notifyTelegram(sendTelegram, chatId,
+      `Failed to address comments on PR #${prNumber}: ${toErrorMessage(err)}`);
   }
 }
 
@@ -168,7 +162,7 @@ export async function handoffExternalReview(options: {
   prNumber: number;
   branch: string;
   worktreePath: string;
-  chatId: string;
+  chatId: string | null;
 }): Promise<string> {
   const { sourceTaskId, repo, prNumber, branch, worktreePath, chatId } = options;
 

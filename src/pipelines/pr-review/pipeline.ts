@@ -133,7 +133,7 @@ async function runPrReviewInner(
       prNumber,
       branch: headRef,
       worktreePath,
-      chatId: chatId ?? "",
+      chatId,
     });
     handedOff = true;
 
