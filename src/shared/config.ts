@@ -32,7 +32,7 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   GOOGLE_API_KEY: z.string().optional(),
   FIREWORKS_API_KEY: z.string().min(1),
-  PI_MODEL: z.string().default("openai/gpt-5.4"),
+  PI_MODEL: z.string().default("openai/gpt-5.5"),
   PI_MODEL_PLANNER: z.string().optional(),
   PI_MODEL_IMPLEMENTER: z.string().optional(),
   PI_MODEL_REVIEWER: z.string().optional(),
