@@ -120,8 +120,17 @@ WORKFLOW -- follow this order exactly:
       FOCUS (from the repo's memory and PR impact report -- your primary lens):
       <group.focus>
       The full diff is at ${paths.diff}; your files' hunks are inside it.
-      You MAY open adjacent files in the worktree to understand callers/imports.
+      You MAY open adjacent files in the worktree to understand callers/imports,
+      but only to reason about whether the PR's changes break or affect them.
       You may NOT edit anything.
+
+      DIFF-ANCHORING RULE (non-negotiable): Every issue you report MUST be
+      traceable to a hunk in the diff -- a line that was added or removed by
+      this PR. If you open an adjacent file for context and spot a concern
+      there, but that code was NOT changed by this PR, do not report it.
+      Pre-existing bugs, general codebase debt, and issues in unmodified code
+      are out of scope no matter how real they are.
+
       Produce a report matching the schema below and write it to
       ${paths.reportsDir}/<group-id>.json. No prose outside the JSON.
       ---
@@ -129,11 +138,17 @@ WORKFLOW -- follow this order exactly:
    b) One HOLISTIC subagent. Prompt template:
       ---
       You are the cross-cutting reviewer for this pull request. Read-only.
-      Cover: tests (coverage added/updated?), security (authN/Z, secrets,
-      injection, unsafe deserialization), cross-cutting concerns (duplicate
-      helpers, layering violations, API contract drift).
+      Cover: tests newly required by this PR's changes (not pre-existing gaps),
+      security concerns introduced or worsened by this PR (authN/Z, secrets,
+      injection, unsafe deserialization), and cross-cutting concerns this PR
+      introduces or directly worsens (new duplicate helpers, new layering
+      violations, API contract drift caused by the diff).
       Do NOT duplicate file-local correctness or style -- those belong to
       file-group subagents.
+      Do NOT flag pre-existing test debt, schema concerns, architectural issues,
+      or general codebase health problems that would exist identically on main
+      without this PR. Only report issues this PR introduced or made
+      meaningfully worse.
       FOCUS (memory gaps the orchestrator flagged):
       <paste the "Memory Gaps & Blind Spots" section from pr-impact.md, or
        "no impact report available">
@@ -169,6 +184,10 @@ WORKFLOW -- follow this order exactly:
 5. WAIT FOR ALL SUBAGENTS. Read every report back from ${paths.reportsDir}/.
 
 6. AGGREGATE.
+   - DIFF-ANCHORING FILTER (apply first, before anything else): discard any
+     issue that cannot be anchored to a line in ${paths.diff}. An issue about
+     code this PR did not touch is out of scope even if it is a real bug. Ask:
+     "would this issue exist on main without this PR?" If yes, discard it.
    - Dedupe issues that appear in multiple reports.
    - Merge overlapping findings into one stronger issue instead of listing near-duplicates.
    - Calibrate severity conservatively:
