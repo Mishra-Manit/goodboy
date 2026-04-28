@@ -157,6 +157,35 @@ export async function resumePrSession(options: {
   }
 }
 
+/**
+ * Promote a finished `pr_review` task into a watchable PR session. The
+ * analyst has already posted its review; this only persists the session
+ * row, transfers worktree ownership, and exits. The first comment-driven
+ * resume creates the JSONL on disk.
+ */
+export async function handoffExternalReview(options: {
+  sourceTaskId: string;
+  repo: string;
+  prNumber: number;
+  branch: string;
+  worktreePath: string;
+  chatId: string;
+}): Promise<string> {
+  const { sourceTaskId, repo, prNumber, branch, worktreePath, chatId } = options;
+
+  const prSession = await queries.createPrSession({
+    repo, prNumber, branch, worktreePath,
+    mode: "review", sourceTaskId,
+    telegramChatId: chatId,
+  });
+
+  await transferTaskGitOwnership(sourceTaskId, prSession.id);
+  await queries.updatePrSession(prSession.id, { lastPolledAt: new Date() });
+
+  log.info(`Handed off task ${sourceTaskId} -> PR session ${prSession.id} (review mode)`);
+  return prSession.id;
+}
+
 // --- Shared session shell ---
 
 interface SessionTurn {
