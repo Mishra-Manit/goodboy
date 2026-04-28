@@ -12,7 +12,7 @@ import { config } from "../shared/config.js";
 
 const log = createLogger("artifacts-cleanup");
 
-const TASK_ARTIFACTS_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const TASK_ARTIFACTS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const TASK_DIR_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
