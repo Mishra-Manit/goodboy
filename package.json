@@ -19,7 +19,8 @@
     "test:memory:cold": "tsx tests/scripts/run-memory-cold.ts",
     "test:memory:warm": "tsx tests/scripts/run-memory-warm.ts",
     "test:memory:clean": "tsx tests/scripts/clean-memory-tests.ts",
-    "test:intent-latency": "tsx tests/scripts/run-telegram-intent-latency.ts"
+    "test:intent-latency": "tsx tests/scripts/run-telegram-intent-latency.ts",
+    "dev:release-pr-session": "tsx scripts/dev-release-pr-session.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
