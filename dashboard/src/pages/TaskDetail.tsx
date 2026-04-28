@@ -91,10 +91,18 @@ interface TaskViewProps {
 }
 
 function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: TaskViewProps) {
+  const navigate = useNavigate();
   const kindConfig = TASK_KIND_CONFIG[task.kind] ?? TASK_KIND_CONFIG.coding_task;
   const isActive = !TERMINAL.has(task.status);
   const prReviewUrl = getPrReviewUrl(task);
   const prReviewTarget = getPrReviewTarget(task);
+
+  // Page owns the linked-session fetch so the banner stays a pure component.
+  // Skip the request unless this is a pr_review task.
+  const { data: prSession } = useQuery(
+    () => (task.kind === "pr_review" ? fetchPrSessionBySourceTask(task.id) : Promise.resolve(null)),
+    [task.id, task.kind],
+  );
 
   const stageNames = useMemo(
     () => [
@@ -144,24 +152,12 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
       )}
 
       {task.kind === "pr_review" && task.prIdentifier && (
-        <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-text-ghost">
-          <span>
-            reviewing:{" "}
-            {prReviewUrl ? (
-              <a
-                href={prReviewUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-text-ghost transition-colors hover:text-accent"
-              >
-                {prReviewTarget}
-              </a>
-            ) : (
-              prReviewTarget
-            )}
-          </span>
-          <PrSessionLink taskId={task.id} />
-        </div>
+        <PrReviewBanner
+          prReviewUrl={prReviewUrl}
+          prReviewTarget={prReviewTarget}
+          linkedSession={prSession}
+          onSessionClick={() => prSession && navigate(`/prs/${prSession.id}`)}
+        />
       )}
 
       <SectionDivider label="transcript" />
@@ -202,18 +198,41 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
 
 // --- Helpers ---
 
-/** Inline link from a `pr_review` task to the watchable PR session it produced. */
-function PrSessionLink({ taskId }: { taskId: string }) {
-  const navigate = useNavigate();
-  const { data: session } = useQuery(() => fetchPrSessionBySourceTask(taskId), [taskId]);
-  if (!session) return null;
+interface PrReviewBannerProps {
+  prReviewUrl: string | null;
+  prReviewTarget: string;
+  linkedSession: { id: string } | null;
+  onSessionClick: () => void;
+}
+
+/** Inline header strip for `pr_review` tasks: target + optional session link. */
+function PrReviewBanner({ prReviewUrl, prReviewTarget, linkedSession, onSessionClick }: PrReviewBannerProps) {
   return (
-    <button
-      onClick={() => navigate(`/prs/${session.id}`)}
-      className="flex items-center gap-1 text-accent transition-colors hover:underline"
-    >
-      PR session ({shortId(session.id)})
-      <ArrowUpRight size={9} />
-    </button>
+    <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-text-ghost">
+      <span>
+        reviewing:{" "}
+        {prReviewUrl ? (
+          <a
+            href={prReviewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-text-ghost transition-colors hover:text-accent"
+          >
+            {prReviewTarget}
+          </a>
+        ) : (
+          prReviewTarget
+        )}
+      </span>
+      {linkedSession && (
+        <button
+          onClick={onSessionClick}
+          className="flex items-center gap-1 text-accent transition-colors hover:underline"
+        >
+          PR session ({shortId(linkedSession.id)})
+          <ArrowUpRight size={9} />
+        </button>
+      )}
+    </div>
   );
 }

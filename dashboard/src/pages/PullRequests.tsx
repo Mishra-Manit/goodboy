@@ -33,8 +33,7 @@ export function PullRequests() {
 
   const filtered = useMemo(() => {
     const all = sessions ?? [];
-    if (modeFilter === "all") return all;
-    return all.filter((s) => s.mode === modeFilter);
+    return modeFilter === "all" ? all : all.filter((s) => s.mode === modeFilter);
   }, [sessions, modeFilter]);
 
   const active = filtered.filter((s) => s.status === "active");
@@ -51,6 +50,22 @@ export function PullRequests() {
       setUpdatingId(null);
     }
   }
+
+  // Closed sessions can't be running and can't be mid-toggle, so the live
+  // sets read as `false` for them naturally -- no special-case rendering.
+  const renderRow = (session: PrSession) => (
+    <PrSessionRow
+      key={session.id}
+      session={session}
+      running={runningSessions.has(session.id)}
+      updatingWatch={updatingId === session.id}
+      onClick={() => navigate(`/prs/${session.id}`)}
+      onToggleWatch={handleToggleWatch}
+      onTaskClick={
+        session.sourceTaskId ? () => navigate(`/tasks/${session.sourceTaskId}`) : undefined
+      }
+    />
+  );
 
   return (
     <div>
@@ -70,36 +85,11 @@ export function PullRequests() {
       ) : (
         <>
           <Section label="active" count={active.length} emptyLabel="No active PR sessions">
-            {active.map((session) => (
-              <PrSessionRow
-                key={session.id}
-                session={session}
-                running={runningSessions.has(session.id)}
-                updatingWatch={updatingId === session.id}
-                onClick={() => navigate(`/prs/${session.id}`)}
-                onToggleWatch={handleToggleWatch}
-                onTaskClick={
-                  session.sourceTaskId ? () => navigate(`/tasks/${session.sourceTaskId}`) : undefined
-                }
-              />
-            ))}
+            {active.map(renderRow)}
           </Section>
-
           {closed.length > 0 && (
             <Section label="closed" count={closed.length} className="mt-8">
-              {closed.map((session) => (
-                <PrSessionRow
-                  key={session.id}
-                  session={session}
-                  running={false}
-                  updatingWatch={false}
-                  onClick={() => navigate(`/prs/${session.id}`)}
-                  onToggleWatch={handleToggleWatch}
-                  onTaskClick={
-                    session.sourceTaskId ? () => navigate(`/tasks/${session.sourceTaskId}`) : undefined
-                  }
-                />
-              ))}
+              {closed.map(renderRow)}
             </Section>
           )}
         </>
