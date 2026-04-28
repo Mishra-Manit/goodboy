@@ -1,6 +1,6 @@
 /** Title + metadata row at the top of the PR-session detail page. */
 
-import { ArrowUpRight, ExternalLink } from "lucide-react";
+import { ArrowUpRight, ExternalLink, EyeOff, Eye } from "lucide-react";
 import { prSessionIcon } from "@dashboard/lib/pr-review";
 import { StatusBadge } from "./StatusBadge.js";
 import { shortId } from "@dashboard/lib/utils";
@@ -62,26 +62,30 @@ export function SessionHeader({
         )}
       </div>
 
-      {session.status === "active" && (
-        <button
-          onClick={() => onToggleWatch(session)}
-          disabled={updatingWatch}
-          className="mt-2 font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim disabled:opacity-40"
-        >
-          {watchLabel}
-        </button>
-      )}
-
-      {session.prUrl && (
-        <a
-          href={session.prUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-2 inline-flex items-center gap-1.5 font-mono text-[10px] text-text-ghost hover:text-accent transition-colors"
-        >
-          <ExternalLink size={10} />
-          view on GitHub
-        </a>
+      {(session.status === "active" || session.prUrl) && (
+        <div className="mt-3 flex items-center gap-2">
+          {session.status === "active" && (
+            <button
+              onClick={() => onToggleWatch(session)}
+              disabled={updatingWatch}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-border/40 font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim hover:border-border/70 disabled:opacity-40"
+            >
+              {session.watchStatus === "muted" ? <Eye size={9} /> : <EyeOff size={9} />}
+              {watchLabel}
+            </button>
+          )}
+          {session.prUrl && (
+            <a
+              href={session.prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-border/40 font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim hover:border-border/70 hover:text-accent"
+            >
+              <ExternalLink size={9} />
+              view on GitHub
+            </a>
+          )}
+        </div>
       )}
     </div>
   );

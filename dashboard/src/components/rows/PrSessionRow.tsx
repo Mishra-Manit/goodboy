@@ -86,7 +86,7 @@ export function PrSessionRow({
       <StatusBadge status={status} />
 
       {session.lastPolledAt && !running && session.watchStatus === "watching" && (
-        <span title="Last polled" className="font-mono text-[9px] text-text-void">
+        <span title="Last polled" className="shrink-0 whitespace-nowrap font-mono text-[9px] text-text-void">
           polled {timeAgo(session.lastPolledAt, now)}
         </span>
       )}
@@ -98,13 +98,13 @@ export function PrSessionRow({
             onToggleWatch(session);
           }}
           disabled={updatingWatch}
-          className="font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim disabled:opacity-40"
+          className="shrink-0 whitespace-nowrap font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim disabled:opacity-40"
         >
           {watchLabel}
         </button>
       )}
 
-      <span className="font-mono text-[10px] text-text-void">{timeAgo(session.createdAt, now)}</span>
+      <span className="shrink-0 whitespace-nowrap font-mono text-[10px] text-text-void">{timeAgo(session.createdAt, now)}</span>
     </div>
   );
 }
