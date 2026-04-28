@@ -16,6 +16,7 @@ import type {
   MemoryRunStatus,
   MemoryRunSource,
   PrSessionWatchStatus,
+  PrSessionMode,
 } from "../shared/types.js";
 import { loadEnv } from "../shared/config.js";
 import { TEST_INSTANCE_PREFIX } from "../shared/test-instance.js";
@@ -145,7 +146,8 @@ export async function createPrSession(data: {
   prNumber?: number;
   branch?: string;
   worktreePath?: string;
-  originTaskId?: string;
+  mode: PrSessionMode;
+  sourceTaskId?: string;
   telegramChatId: string;
 }): Promise<PrSession> {
   const db = getDb();
@@ -156,7 +158,8 @@ export async function createPrSession(data: {
       prNumber: data.prNumber ?? null,
       branch: data.branch ?? null,
       worktreePath: data.worktreePath ?? null,
-      originTaskId: data.originTaskId ?? null,
+      mode: data.mode,
+      sourceTaskId: data.sourceTaskId ?? null,
       telegramChatId: data.telegramChatId,
       instance: loadEnv().INSTANCE_ID,
     })
@@ -194,12 +197,12 @@ export async function listPrSessions(): Promise<PrSession[]> {
     .orderBy(desc(schema.prSessions.createdAt));
 }
 
-export async function getPrSessionByOriginTask(originTaskId: string): Promise<PrSession | null> {
+export async function getPrSessionBySourceTask(sourceTaskId: string): Promise<PrSession | null> {
   const db = getDb();
   const [session] = await db
     .select()
     .from(schema.prSessions)
-    .where(eq(schema.prSessions.originTaskId, originTaskId));
+    .where(eq(schema.prSessions.sourceTaskId, sourceTaskId));
   return session ?? null;
 }
 
