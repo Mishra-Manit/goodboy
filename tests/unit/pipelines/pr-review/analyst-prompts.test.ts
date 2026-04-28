@@ -35,9 +35,17 @@ describe("prAnalystSystemPrompt", () => {
     expect(prompt).toContain("Do NOT run gh pr review");
   });
 
-  it("references both FILE-GROUP and HOLISTIC subagent templates", () => {
-    expect(prompt).toContain("FILE-GROUP subagent");
-    expect(prompt).toContain("HOLISTIC subagent");
+  it("forces project-local codebase-explorer in one parallel subagent call", () => {
+    expect(prompt).toContain("Use only the project-scoped 'codebase-explorer' agent");
+    expect(prompt).toContain(`agent: "codebase-explorer"`);
+    expect(prompt).toContain(`agentScope: "project"`);
+    expect(prompt).toContain("Never use reviewer, worker, scout, builtin agents, user agents, or action: \"list\"");
+    expect(prompt).toContain("Set concurrency to the total task count");
+  });
+
+  it("references both FILE-GROUP and HOLISTIC codebase-explorer task templates", () => {
+    expect(prompt).toContain("FILE-GROUP codebase-explorer task");
+    expect(prompt).toContain("HOLISTIC codebase-explorer task");
   });
 
   it("tells the analyst to calibrate severity conservatively", () => {
@@ -58,8 +66,10 @@ describe("prAnalystSystemPrompt", () => {
     expect(prompt).toContain("primary");
   });
 
-  it("documents the context-hiding contract for subagents", () => {
+  it("documents the context-hiding and JSON report contracts for subagents", () => {
     expect(prompt).toContain("Subagents do NOT receive pr-impact.md or the full memory block");
+    expect(prompt).toContain("Return ONLY valid JSON matching the schema below");
+    expect(prompt).toContain("Never continue with a\n   missing report");
   });
 
   it("requires the {\"status\": \"complete\"} end sentinel", () => {

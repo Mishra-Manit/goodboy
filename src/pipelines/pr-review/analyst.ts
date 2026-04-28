@@ -12,6 +12,7 @@ import { resolveModel } from "../../shared/config.js";
 import { runStage, type SendTelegram } from "../../core/stage.js";
 import { subagentCapability } from "../../core/subagents/index.js";
 import { prAnalystSystemPrompt, prAnalystInitialPrompt } from "./analyst-prompts.js";
+import { validatePrAnalystOutput } from "./validate.js";
 
 const log = createLogger("pr-analyst");
 
@@ -70,6 +71,7 @@ export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
     timeoutMs: ANALYST_TIMEOUT_MS,
     extensions: cap.extensions,
     envOverrides: cap.envOverrides,
+    postValidate: () => validatePrAnalystOutput(artifactsDir),
   });
 
   log.info(`pr_analyst complete for task ${taskId} (${nwo}#${prNumber})`);

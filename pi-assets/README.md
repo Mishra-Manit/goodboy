@@ -22,9 +22,9 @@ pi-assets/
 
 ### `agents/codebase-explorer.md`
 
-Read-only Kimi K2.5 subagent invoked by the planner for parallel
-codebase research. Returns a rigid `## Finding / ## Evidence / ## Caveats`
-markdown block per query.
+Read-only Kimi K2.5 subagent invoked by the planner and PR analyst for parallel
+codebase research. Returns `## Finding / ## Evidence / ## Caveats` by default,
+but obeys explicit JSON-only schemas for PR-review report artifacts.
 
 ## Model registry
 
@@ -37,7 +37,7 @@ Fireworks provider there before running a task.
 ## Conventions
 
 - Agent definitions explicitly set `extensions:` (empty value) and
-  `inheritSkills: false` / `inheritProjectContext: false` to prevent user
-  extensions and skills from leaking into subagent processes.
+  `inheritSkills: false` / `inheritProjectContext: false` when supported to
+  prevent user extensions and skills from leaking into subagent processes.
 - Keep subagent system prompts focused, with rigid output formats where the
   parent stage needs to splice findings into its own artifacts.

@@ -33,6 +33,13 @@ with real commits pushed to the branch, and post a single summary comment.
 YOU HAVE THE PI-SUBAGENTS TOOL. Use it. Do not attempt to review a non-trivial
 PR alone -- you will miss things. Spawn aggressively.
 
+SUBAGENT SELECTION IS STRICT:
+- Use only the project-scoped 'codebase-explorer' agent copied into this worktree.
+- Every subagent tool call MUST include agentScope: "project".
+- Never use reviewer, worker, scout, builtin agents, user agents, or action: "list".
+- Launch all file-group and holistic reviewers in one PARALLEL subagent call.
+- Set concurrency to the total task count so no reviewer queues behind another.
+
 ---
 
 CONTEXT YOU HAVE:
@@ -110,11 +117,33 @@ WORKFLOW -- follow this order exactly:
    - Every group MUST have a non-empty focus string.
 
 4. SPAWN A FLEET OF SUBAGENTS.
-   Use the pi-subagents tool to launch ALL of the following in parallel:
+   First create the reports directory with: mkdir -p ${paths.reportsDir}.
 
-   a) One FILE-GROUP subagent per group. Prompt template:
+   Then make exactly ONE pi-subagents tool call in PARALLEL mode. Do not call
+   subagent with action: "list"; you already know the only allowed agent.
+   Every task MUST use:
+   - agent: "codebase-explorer"
+   - output: "${paths.reportsDir}/<report-id>.json"
+   - top-level agentScope: "project"
+   - top-level concurrency: <number of groups + 1>
+   - top-level clarify: false
+
+   The call shape should be equivalent to:
+   {
+     "tasks": [
+       { "agent": "codebase-explorer", "task": "<group-01 prompt>", "output": "${paths.reportsDir}/group-01.json" },
+       { "agent": "codebase-explorer", "task": "<holistic prompt>", "output": "${paths.reportsDir}/holistic.json" }
+     ],
+     "concurrency": <tasks.length>,
+     "agentScope": "project",
+     "cwd": "${worktreePath}",
+     "clarify": false
+   }
+
+   a) One FILE-GROUP codebase-explorer task per group. Prompt template:
       ---
       You are reviewing a slice of a pull request. Read-only.
+      Return ONLY valid JSON matching the schema below. No markdown, no prose.
       Files assigned: <group.files>
       Dimensions: <group.dimensions>
       FOCUS (from the repo's memory and PR impact report -- your primary lens):
@@ -122,7 +151,7 @@ WORKFLOW -- follow this order exactly:
       The full diff is at ${paths.diff}; your files' hunks are inside it.
       You MAY open adjacent files in the worktree to understand callers/imports,
       but only to reason about whether the PR's changes break or affect them.
-      You may NOT edit anything.
+      You may NOT edit repo files.
 
       DIFF-ANCHORING RULE (non-negotiable): Every issue you report MUST be
       traceable to a hunk in the diff -- a line that was added or removed by
@@ -131,13 +160,14 @@ WORKFLOW -- follow this order exactly:
       Pre-existing bugs, general codebase debt, and issues in unmodified code
       are out of scope no matter how real they are.
 
-      Produce a report matching the schema below and write it to
-      ${paths.reportsDir}/<group-id>.json. No prose outside the JSON.
+      The parent tool will write your JSON response to
+      ${paths.reportsDir}/<group-id>.json via the subagent output option.
       ---
 
-   b) One HOLISTIC subagent. Prompt template:
+   b) One HOLISTIC codebase-explorer task. Prompt template:
       ---
       You are the cross-cutting reviewer for this pull request. Read-only.
+      Return ONLY valid JSON matching the schema below. No markdown, no prose.
       Cover: tests newly required by this PR's changes (not pre-existing gaps),
       security concerns introduced or worsened by this PR (authN/Z, secrets,
       injection, unsafe deserialization), and cross-cutting concerns this PR
@@ -154,14 +184,14 @@ WORKFLOW -- follow this order exactly:
        "no impact report available">
       Inputs: ${paths.context}, ${paths.diff}, any
       files you want to grep/read in the worktree.
-      You MAY grep/read any file in the repo. You may NOT edit anything.
-      Write your report to ${paths.reportsDir}/holistic.json.
+      You MAY grep/read any file in the repo. You may NOT edit repo files.
+      The parent tool will write your JSON response to ${paths.reportsDir}/holistic.json.
       ---
 
    Subagents do NOT receive pr-impact.md or the full memory block. You hold
    that context and distill it into per-group focus strings. Keep subagents lean.
 
-   SUBAGENT REPORT SCHEMA (every subagent must produce this):
+   SUBAGENT REPORT SCHEMA (every codebase-explorer task must return this JSON):
    {
      "subagent_id": "group-01" | "holistic",
      "files_reviewed": ["src/..."],
@@ -182,6 +212,12 @@ WORKFLOW -- follow this order exactly:
    }
 
 5. WAIT FOR ALL SUBAGENTS. Read every report back from ${paths.reportsDir}/.
+   Before aggregating, verify that every planned group report plus
+   ${paths.reportsDir}/holistic.json exists and parses as valid JSON. If any
+   report is missing or invalid, rerun only the missing/invalid reports with
+   one more parallel codebase-explorer call using agentScope: "project" and
+   concurrency equal to the number of retry tasks. Never continue with a
+   missing report.
 
 6. AGGREGATE.
    - DIFF-ANCHORING FILTER (apply first, before anything else): discard any
