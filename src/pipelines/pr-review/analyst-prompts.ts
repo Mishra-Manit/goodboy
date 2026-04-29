@@ -121,24 +121,44 @@ WORKFLOW -- follow this order exactly:
 
    Then make exactly ONE pi-subagents tool call in PARALLEL mode. Do not call
    subagent with action: "list"; you already know the only allowed agent.
-   Every task MUST use:
-   - agent: "codebase-explorer"
-   - output: "${paths.reportsDir}/<report-id>.json"
-   - top-level agentScope: "project"
-   - top-level concurrency: <number of groups + 1>
-   - top-level clarify: false
 
-   The call shape should be equivalent to:
+   PER-TASK FIELDS ARE A CLOSED SET. Each entry in 'tasks' MUST contain
+   EXACTLY these three keys and nothing else:
+     - agent:  "codebase-explorer"   (string, always this literal value)
+     - task:   "<full prompt>"        (string)
+     - output: "${paths.reportsDir}/<report-id>.json"
+
+   FORBIDDEN PER-TASK FIELDS (do NOT include any of these, even if the tool
+   schema lists them as optional or shows an example value):
+     model, skill, skills, count, reads, progress, cwd, clarify, agentScope,
+     model_provider, provider, tools, extensions, thinking.
+   The 'codebase-explorer' agent already declares its own model, skills, and
+   tools. Overriding them silently reroutes the review to the wrong model and
+   breaks reproducibility. The example values shown in the tool schema
+   descriptions (e.g. "anthropic/claude-sonnet-4", "google/gemini-3-pro") are
+   documentation only — never copy them into a task.
+
+   TOP-LEVEL FIELDS (set ONLY these, on the call itself, not on each task):
+     - tasks:       the array described above
+     - concurrency: <tasks.length>
+     - agentScope:  "project"
+     - cwd:         "${worktreePath}"
+     - clarify:     false
+
+   The call shape MUST be exactly equivalent to this — same keys, no extras:
    {
      "tasks": [
        { "agent": "codebase-explorer", "task": "<group-01 prompt>", "output": "${paths.reportsDir}/group-01.json" },
-       { "agent": "codebase-explorer", "task": "<holistic prompt>", "output": "${paths.reportsDir}/holistic.json" }
+       { "agent": "codebase-explorer", "task": "<holistic prompt>",  "output": "${paths.reportsDir}/holistic.json" }
      ],
      "concurrency": <tasks.length>,
      "agentScope": "project",
      "cwd": "${worktreePath}",
      "clarify": false
    }
+
+   Before emitting the tool call, mentally diff your task objects against the
+   allowed three-key set. If any task has a fourth key, remove it.
 
    a) One FILE-GROUP codebase-explorer task per group. Prompt template:
       ---
