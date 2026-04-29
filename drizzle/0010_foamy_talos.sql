@@ -1,0 +1,1 @@
+ALTER TYPE "public"."stage_name" ADD VALUE 'pr_display';
