@@ -19,7 +19,7 @@ export const stageStatusEnum = pgEnum("stage_status", [
 export const stageNameEnum = pgEnum("stage_name", [
   "memory",
   "planner", "implementer", "reviewer", "pr_creator", "revision",
-  "answering", "pr_impact", "pr_analyst",
+  "answering", "pr_impact", "pr_analyst", "pr_display",
 ]);
 
 export const prSessionStatusEnum = pgEnum("pr_session_status", [

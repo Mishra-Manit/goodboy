@@ -14,9 +14,12 @@ describe("prReviewArtifactPaths", () => {
 
     expect(paths.context).toBe(path.join(base, PR_REVIEW_FILES.context));
     expect(paths.diff).toBe(path.join(base, PR_REVIEW_FILES.diff));
+    expect(paths.updatedContext).toBe(path.join(base, PR_REVIEW_FILES.updatedContext));
+    expect(paths.updatedDiff).toBe(path.join(base, PR_REVIEW_FILES.updatedDiff));
     expect(paths.impact).toBe(path.join(base, PR_REVIEW_FILES.impact));
     expect(paths.reviewPlan).toBe(path.join(base, PR_REVIEW_FILES.reviewPlan));
     expect(paths.summary).toBe(path.join(base, PR_REVIEW_FILES.summary));
+    expect(paths.review).toBe(path.join(base, PR_REVIEW_FILES.review));
     expect(paths.reportsDir).toBe(path.join(base, PR_REVIEW_DIRS.reports));
   });
 

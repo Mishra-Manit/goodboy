@@ -9,9 +9,12 @@ import { artifactPath } from "../../shared/artifacts.js";
 export const PR_REVIEW_FILES = {
   context: "pr-context.json",
   diff: "pr.diff",
+  updatedContext: "pr-context.updated.json",
+  updatedDiff: "pr.updated.diff",
   impact: "pr-impact.md",
   reviewPlan: "review-plan.json",
   summary: "summary.md",
+  review: "review.json",
 } as const;
 
 export const PR_REVIEW_DIRS = {
@@ -21,9 +24,12 @@ export const PR_REVIEW_DIRS = {
 export interface PrReviewArtifactPaths {
   context: string;
   diff: string;
+  updatedContext: string;
+  updatedDiff: string;
   impact: string;
   reviewPlan: string;
   summary: string;
+  review: string;
   reportsDir: string;
 }
 
@@ -32,9 +38,12 @@ export function prReviewArtifactPaths(artifactsDir: string): PrReviewArtifactPat
   return {
     context: artifactPath(artifactsDir, PR_REVIEW_FILES.context),
     diff: artifactPath(artifactsDir, PR_REVIEW_FILES.diff),
+    updatedContext: artifactPath(artifactsDir, PR_REVIEW_FILES.updatedContext),
+    updatedDiff: artifactPath(artifactsDir, PR_REVIEW_FILES.updatedDiff),
     impact: artifactPath(artifactsDir, PR_REVIEW_FILES.impact),
     reviewPlan: artifactPath(artifactsDir, PR_REVIEW_FILES.reviewPlan),
     summary: artifactPath(artifactsDir, PR_REVIEW_FILES.summary),
+    review: artifactPath(artifactsDir, PR_REVIEW_FILES.review),
     reportsDir: path.join(artifactsDir, PR_REVIEW_DIRS.reports),
   };
 }
