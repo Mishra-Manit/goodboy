@@ -7,6 +7,7 @@
  *     -> createPrWorktree    (checked out on the real head branch)
  *     -> runImpactAnalyzer   (stage 2, soft-fail; produces pr-impact.md)
  *     -> runPrAnalyst        (stage 3, fans out subagents, commits, comments)
+ *     -> runPrDisplay        (stage 4, writes dashboard review.json; soft-fail)
  */
 
 import { writeFile } from "node:fs/promises";
@@ -16,6 +17,7 @@ import { createPrWorktree, removeWorktree } from "../../core/git/worktree.js";
 import { getPrMetadata, getPrDiff, parsePrIdentifier } from "../../core/git/github.js";
 import { runImpactAnalyzer } from "./impact-analyzer.js";
 import { runPrAnalyst } from "./analyst.js";
+import { runPrDisplay } from "./display.js";
 import { handoffExternalReview } from "../pr-session/session.js";
 import { failTask, clearActiveSession, completeTask, type SendTelegram } from "../../core/stage.js";
 import * as queries from "../../db/repository.js";
@@ -68,7 +70,7 @@ async function runPrReviewInner(
   const { artifactsDir } = prepared;
   const paths = prReviewArtifactPaths(artifactsDir);
 
-  // Fetch + persist PR metadata and diff so the impact + analyst stages can read them.
+  // Fetch + persist PR metadata and diff so every downstream stage has stable inputs.
   let headRef: string;
   try {
     const metadata = await getPrMetadata(nwo, prNumber);
@@ -123,6 +125,28 @@ async function runPrReviewInner(
       chatId,
       impactAvailable,
       fallbackMemory: impactAvailable ? "" : fullMemory,
+    });
+
+    // Snapshot post-analyst PR state so pr_display renders the actual reviewed diff.
+    try {
+      const updatedMetadata = await getPrMetadata(nwo, prNumber);
+      const updatedDiff = await getPrDiff(nwo, prNumber);
+      await writeFile(paths.updatedContext, JSON.stringify(updatedMetadata, null, 2));
+      await writeFile(paths.updatedDiff, updatedDiff);
+    } catch (err) {
+      log.warn(`Failed to re-fetch PR state for ${taskId}; pr_display will likely be unavailable`, err);
+    }
+
+    // Stage 4: pr_display. Soft-fail; GitHub summary and PR session still proceed.
+    await runPrDisplay({
+      taskId,
+      repo: task.repo,
+      nwo,
+      prNumber,
+      artifactsDir,
+      worktreePath,
+      sendTelegram,
+      chatId,
     });
 
     // Promote the finished task into a watchable PR session. The session
