@@ -21,6 +21,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
           <p className="font-mono text-sm text-fail">something went wrong</p>
           <p className="mt-2 font-mono text-xs text-text-ghost max-w-md">{this.state.error.message}</p>
           <button
+            type="button"
             onClick={() => window.location.reload()}
             className="mt-4 font-mono text-xs text-text-ghost hover:text-accent"
           >

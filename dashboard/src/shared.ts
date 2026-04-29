@@ -25,6 +25,16 @@ export type {
   PrReviewState,
 } from "@shared/types.js";
 
+export { prReviewPageDtoSchema } from "@shared/pr-review.js";
+
+export type {
+  PrReviewAnnotation,
+  PrReviewAnnotationKind,
+  PrReviewArtifact,
+  PrReviewChapter,
+  PrReviewPageDto,
+} from "@shared/pr-review.js";
+
 export { TASK_KIND_CONFIG } from "@shared/task-kinds.js";
 export type { TaskKindConfig } from "@shared/task-kinds.js";
 

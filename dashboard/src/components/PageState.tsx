@@ -42,6 +42,7 @@ export function PageState<T>({
         <span className="font-mono text-xs text-fail">{error}</span>
         {onRetry && (
           <button
+            type="button"
             onClick={onRetry}
             className="mt-3 block mx-auto font-mono text-xs text-text-ghost hover:text-accent"
           >

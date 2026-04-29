@@ -86,6 +86,16 @@ export function PrSessionDetail() {
               onToggleWatch={handleToggleWatch}
             />
 
+            {session.mode === "review" && (
+              <button
+                type="button"
+                onClick={() => navigate(`/prs/${session.id}/review`)}
+                className="mb-5 font-mono text-[11px] text-accent transition-colors hover:underline"
+              >
+                view review →
+              </button>
+            )}
+
             <SectionDivider label="runs" detail={`${session.runs.length}`} />
 
             {session.runs.length === 0 ? (

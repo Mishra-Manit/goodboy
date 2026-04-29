@@ -1,11 +1,13 @@
 /** PR review session endpoints (watchers + per-session runs). */
 
+import { prReviewPageDtoSchema } from "@dashboard/shared";
 import { request } from "./client.js";
 import type {
   PrSession,
   PrSessionWatchStatus,
   PrSessionWithRuns,
   FileEntry,
+  PrReviewPageDto,
 } from "./types.js";
 
 export async function fetchPrSessions(): Promise<PrSession[]> {
@@ -24,6 +26,12 @@ export async function fetchPrSessionDetail(id: string): Promise<PrSessionWithRun
 
 export async function fetchPrSessionTranscript(id: string): Promise<{ entries: FileEntry[] }> {
   return request(`/api/pr-sessions/${id}/session`);
+}
+
+export async function fetchPrReviewPage(id: string): Promise<PrReviewPageDto> {
+  const result = prReviewPageDtoSchema.safeParse(await request<unknown>(`/api/pr-sessions/${id}/review`));
+  if (!result.success) throw new Error("Unexpected review response from server");
+  return result.data;
 }
 
 export async function setPrSessionWatchStatus(

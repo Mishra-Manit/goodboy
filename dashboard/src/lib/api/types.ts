@@ -12,6 +12,7 @@ import type {
   PrSessionWatchStatus,
   PrSessionMode,
   PrComment,
+  PrReviewPageDto,
 } from "@dashboard/shared";
 
 export type {
@@ -39,6 +40,11 @@ export type {
   MemoryRunStatus,
   MemoryRunSource,
   PrSessionWatchStatus,
+  PrReviewAnnotation,
+  PrReviewAnnotationKind,
+  PrReviewArtifact,
+  PrReviewChapter,
+  PrReviewPageDto,
 } from "@dashboard/shared";
 
 export { TASK_KIND_CONFIG } from "@dashboard/shared";

@@ -30,6 +30,7 @@ import {
   TASK_KINDS,
   MEMORY_RUN_KINDS,
   PR_SESSION_WATCH_STATUSES,
+  STAGE_NAMES,
 } from "../shared/types.js";
 import {
   readSessionFile,
@@ -37,10 +38,13 @@ import {
   prSessionPath,
   watchSessionFile,
 } from "../core/pi/session-file.js";
-import { STAGE_NAMES } from "../shared/types.js";
 import { cancelTask as cancelRunningTask, type SendTelegram } from "../core/stage.js";
 import { PIPELINES } from "../pipelines/index.js";
 import { dismissTask } from "../core/cleanup.js";
+import { taskArtifactsDir } from "../shared/artifacts.js";
+import { prReviewArtifactPaths } from "../pipelines/pr-review/artifacts.js";
+import { readReviewArtifact } from "../pipelines/pr-review/read-review.js";
+import type { PrReviewPageDto } from "../shared/pr-review.js";
 
 const log = createLogger("api");
 
@@ -284,6 +288,46 @@ export function createApi(): Hono {
     if (!session) return notFound(c);
     const runs = await queries.getRunsForPrSession(id);
     return c.json({ ...session, prUrl: buildPrUrl(session.repo, session.prNumber), runs });
+  });
+
+  app.get("/api/pr-sessions/:id/review", async (c) => {
+    const id = c.req.param("id");
+    if (!UUID_PATTERN.test(id)) return notFound(c);
+
+    const session = await queries.getPrSession(id);
+    if (!session) return notFound(c);
+
+    const sessionDto: PrReviewPageDto["session"] = {
+      id: session.id,
+      repo: session.repo,
+      prNumber: session.prNumber,
+      prUrl: buildPrUrl(session.repo, session.prNumber),
+      branch: session.branch,
+      mode: session.mode,
+    };
+
+    if (!session.sourceTaskId) {
+      return c.json({ session: sessionDto, run: null } satisfies PrReviewPageDto);
+    }
+
+    const paths = prReviewArtifactPaths(taskArtifactsDir(session.sourceTaskId));
+    const reviewResult = await readReviewArtifact(paths.review);
+    if (!reviewResult) {
+      return c.json({ session: sessionDto, run: null } satisfies PrReviewPageDto);
+    }
+
+    const diffPatch = await readFile(paths.updatedDiff, "utf8")
+      .catch(() => readFile(paths.diff, "utf8"))
+      .catch(() => "");
+
+    return c.json({
+      session: sessionDto,
+      run: {
+        ...reviewResult.artifact,
+        diffPatch,
+        createdAt: reviewResult.createdAt.toISOString(),
+      },
+    } satisfies PrReviewPageDto);
   });
 
   app.get("/api/pr-sessions/:id/session", async (c) => {
