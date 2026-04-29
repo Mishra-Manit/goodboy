@@ -1,6 +1,6 @@
 /** Shell: floating nav pill + centered single-column content. */
 
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { cn } from "@dashboard/lib/utils";
 
 const NAV_ITEMS = [
@@ -44,14 +44,28 @@ export function Layout() {
         </div>
       </nav>
 
-      <main className="mx-auto max-w-[680px] px-5 pb-24 pt-24">
-        <Outlet />
-      </main>
+      <Main />
     </div>
   );
 }
 
 // --- Helpers ---
+
+/** Wide canvas on the PR review page; editorial column elsewhere. */
+function Main() {
+  const { pathname } = useLocation();
+  const wide = /^\/prs\/[^/]+\/review$/.test(pathname);
+  return (
+    <main
+      className={cn(
+        "mx-auto px-5 pb-24 pt-24",
+        wide ? "max-w-[1600px]" : "max-w-[680px]",
+      )}
+    >
+      <Outlet />
+    </main>
+  );
+}
 
 function Brand() {
   return (
