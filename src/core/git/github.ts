@@ -131,6 +131,7 @@ export interface PrMetadata {
   author: string;
   baseRef: string;
   headRef: string;
+  headSha: string;
   changedFiles: readonly { path: string; additions: number; deletions: number }[];
 }
 
@@ -139,7 +140,7 @@ export async function getPrMetadata(nwo: string, prNumber: number): Promise<PrMe
   const { stdout } = await exec("gh", [
     "pr", "view", String(prNumber),
     "--repo", nwo,
-    "--json", "number,title,body,labels,author,baseRefName,headRefName,files",
+    "--json", "number,title,body,labels,author,baseRefName,headRefName,headRefOid,files",
   ]);
   const data = JSON.parse(stdout) as {
     number: number;
@@ -149,6 +150,7 @@ export async function getPrMetadata(nwo: string, prNumber: number): Promise<PrMe
     author: { login: string };
     baseRefName: string;
     headRefName: string;
+    headRefOid: string;
     files: Array<{ path: string; additions: number; deletions: number }>;
   };
   return {
@@ -159,6 +161,7 @@ export async function getPrMetadata(nwo: string, prNumber: number): Promise<PrMe
     author: data.author.login,
     baseRef: data.baseRefName,
     headRef: data.headRefName,
+    headSha: data.headRefOid,
     changedFiles: data.files.map((f) => ({
       path: f.path,
       additions: f.additions,

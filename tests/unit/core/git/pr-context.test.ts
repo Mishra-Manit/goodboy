@@ -55,6 +55,7 @@ describe("getPrMetadata", () => {
     expect(meta.author).toBe("alice");
     expect(meta.baseRef).toBe("main");
     expect(meta.headRef).toBe("feature/x");
+    expect(meta.headSha).toBe("abc1234567890def");
     expect(meta.changedFiles).toEqual([
       { path: "src/a.ts", additions: 10, deletions: 2 },
       { path: "src/a.test.ts", additions: 20, deletions: 0 },
@@ -65,7 +66,7 @@ describe("getPrMetadata", () => {
     stubExecOk(JSON.stringify({
       number: 1, title: "t", body: null,
       labels: [], author: { login: "x" },
-      baseRefName: "main", headRefName: "f", files: [],
+      baseRefName: "main", headRefName: "f", headRefOid: "sha-1", files: [],
     }));
     const meta = await getPrMetadata("o/r", 1);
     expect(meta.body).toBe("");
@@ -86,7 +87,7 @@ describe("getPrMetadata", () => {
     expect(args).toEqual([
       "pr", "view", "42",
       "--repo", "foo/bar",
-      "--json", "number,title,body,labels,author,baseRefName,headRefName,files",
+      "--json", "number,title,body,labels,author,baseRefName,headRefName,headRefOid,files",
     ]);
   });
 });

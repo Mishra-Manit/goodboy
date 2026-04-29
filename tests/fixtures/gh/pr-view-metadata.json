@@ -6,6 +6,7 @@
   "author": { "login": "alice" },
   "baseRefName": "main",
   "headRefName": "feature/x",
+  "headRefOid": "abc1234567890def",
   "files": [
     { "path": "src/a.ts", "additions": 10, "deletions": 2 },
     { "path": "src/a.test.ts", "additions": 20, "deletions": 0 }
