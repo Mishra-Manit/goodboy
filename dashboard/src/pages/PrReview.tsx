@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { MessageSquare } from "lucide-react";
+import { Check, MessageSquare } from "lucide-react";
 import { fetchPrReviewPage } from "@dashboard/lib/api/pr-sessions";
 import { splitUnifiedDiffByFile } from "@dashboard/lib/diff-patch";
+import { formatDate } from "@dashboard/lib/format";
 import type { PrReviewAnnotation, PrReviewPageDto } from "@dashboard/shared";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { BackLink } from "@dashboard/components/BackLink";
@@ -121,17 +122,25 @@ function ReviewRun({ dto }: ReviewRunProps) {
   useFileKeyboardNavigation(allFiles, activeFile, focusFile);
 
   const activeIndex = activeFile ? allFiles.indexOf(activeFile) : -1;
-  const concernSeverity =
-    concernCount > 0 ? "high concern" : totalAnnotations > 0 ? "low concern" : "no concerns";
+  const severity =
+    concernCount > 0
+      ? `${concernCount} concern${concernCount === 1 ? "" : "s"}`
+      : totalAnnotations > 0
+        ? `${totalAnnotations} note${totalAnnotations === 1 ? "" : "s"}`
+        : "no concerns";
 
   return (
     <div className="-mx-2 mt-2 flex flex-col">
       <ReviewHeader
         title={run.prTitle}
+        repo={session.repo}
+        prNumber={session.prNumber}
+        sha={run.headSha}
+        createdAt={run.createdAt}
         threadCount={totalAnnotations}
       />
 
-      <div className="mt-5 grid min-h-[calc(100vh-12rem)] grid-cols-1 gap-0 lg:grid-cols-[260px_minmax(0,1fr)_420px]">
+      <div className="mt-4 grid min-h-[calc(100vh-12rem)] grid-cols-1 gap-0 lg:grid-cols-[244px_minmax(0,1fr)_400px]">
         <aside className="border-glass-border lg:border-r">
           <div className="lg:sticky lg:top-20 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
             <FileTree
@@ -143,7 +152,7 @@ function ReviewRun({ dto }: ReviewRunProps) {
           </div>
         </aside>
 
-        <div className="min-w-0 px-[22px] py-[18px]">
+        <div className="min-w-0 px-[18px] py-[18px]">
           <FileStack
             chapters={run.chapters}
             orderedChapterIds={run.orderedChapterIds}
@@ -168,7 +177,7 @@ function ReviewRun({ dto }: ReviewRunProps) {
       <BottomBar
         currentIndex={activeIndex}
         total={allFiles.length}
-        severity={concernSeverity}
+        severity={severity}
       />
     </div>
   );
@@ -178,40 +187,60 @@ function ReviewRun({ dto }: ReviewRunProps) {
 
 interface ReviewHeaderProps {
   title: string;
+  repo: string;
+  prNumber: number | null;
+  sha: string;
+  createdAt: string;
   threadCount: number;
 }
 
-function ReviewHeader({ title, threadCount }: ReviewHeaderProps) {
+function ReviewHeader({ title, repo, prNumber, sha, createdAt, threadCount }: ReviewHeaderProps) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 px-2 pb-4">
-      <div className="flex min-w-0 items-center gap-[18px]">
-        <span className="rounded-[4px] border border-accent-dim bg-accent-ghost px-[10px] py-[6px] font-mono text-[10px] font-semibold tracking-[0.3em] text-accent">
-          V8  CHAT REVIEW
+    <div className="px-2 pb-4">
+      <div className="mb-2 flex items-center gap-3">
+        <span className="rounded-[3px] border border-accent-dim bg-accent-ghost px-[7px] py-[3px] font-mono text-[9px] font-bold tracking-[0.22em] text-accent">
+          REVIEW
         </span>
-        <h1 className="min-w-0 truncate font-display text-[22px] font-normal tracking-tight text-text">
-          {title}
-        </h1>
-        <span className="hidden items-center gap-2 rounded-full border border-glass-border bg-glass py-[5px] pl-[10px] pr-[14px] sm:flex">
-          <span className="h-[7px] w-[7px] rounded-full bg-ok" />
-          <span className="font-mono text-[10px] font-medium tracking-[0.1em] text-text-dim">
-            Claude reviewing · live
+        <span className="font-mono text-[11px] font-medium text-accent">{repo}</span>
+        {prNumber !== null && (
+          <span className="font-mono text-[12px] text-text-dim">#{prNumber}</span>
+        )}
+        <span className="flex items-center gap-1.5 rounded-full border border-glass-border bg-glass px-2 py-[2px]">
+          <span className="h-[5px] w-[5px] animate-pulse-glow rounded-full bg-ok" />
+          <span className="font-mono text-[9.5px] font-medium tracking-[0.1em] text-text-dim">
+            claude · live
           </span>
         </span>
       </div>
 
-      <div className="flex items-center gap-[10px]">
-        <span className="flex items-center gap-[7px] rounded-md border border-glass-border bg-glass px-[11px] py-[7px]">
-          <MessageSquare className="h-3 w-3 text-text-dim" strokeWidth={1.5} />
-          <span className="font-mono text-[10px] font-semibold tracking-[0.18em] text-text-dim">
-            {threadCount} {threadCount === 1 ? "THREAD" : "THREADS"}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h1 className="min-w-0 truncate font-display text-[19px] font-normal leading-tight tracking-tight text-text">
+            {title}
+          </h1>
+          <div className="mt-1.5 flex flex-wrap gap-x-4 font-mono text-[10px] text-text-void">
+            <span>sha {sha.slice(0, 7)}</span>
+            <span>{formatDate(createdAt)}</span>
+            <span>{threadCount} {threadCount === 1 ? "thread" : "threads"}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-glass-border bg-glass px-2.5 py-[5px]">
+            <MessageSquare className="h-3 w-3 text-text-dim" strokeWidth={1.5} />
+            <span className="font-mono text-[10px] font-semibold tabular-nums tracking-[0.1em] text-text-dim">
+              {threadCount}
+            </span>
           </span>
-        </span>
-        <button
-          type="button"
-          className="flex items-center gap-[6px] rounded-lg bg-accent px-4 py-[9px] font-body text-[12px] font-bold text-bg transition-opacity hover:opacity-90"
-        >
-          Approve &amp; merge ⌘⏎
-        </button>
+          <button
+            type="button"
+            className="group inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-[6px] font-mono text-[10.5px] font-bold tracking-[0.04em] text-bg transition-all hover:opacity-90 active:scale-[0.98]"
+          >
+            <Check className="h-3 w-3" strokeWidth={2.5} />
+            <span>approve &amp; merge</span>
+            <span className="rounded bg-bg/15 px-1 py-px text-[9px] tracking-[0.08em]">⌘⏎</span>
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -227,12 +256,12 @@ interface BottomBarProps {
 
 function BottomBar({ currentIndex, total, severity }: BottomBarProps) {
   const noteLabel =
-    currentIndex >= 0 ? `Note ${currentIndex + 1} of ${total}` : `${total} files`;
+    currentIndex >= 0 ? `file ${currentIndex + 1} of ${total}` : `${total} files`;
   return (
-    <div className="sticky bottom-0 mt-[18px] flex h-8 items-center justify-between border-t border-glass-border bg-bg px-2">
+    <div className="sticky bottom-0 z-10 mt-[18px] flex h-8 items-center justify-between border-t border-glass-border bg-bg/95 px-2 backdrop-blur">
       <span className="font-mono text-[11px] text-text-dim">
         {noteLabel}
-        <span className="text-text-void">{"  ·  "}{severity}</span>
+        <span className="text-text-void">  ·  {severity}</span>
       </span>
       <span className="font-mono text-[10px] text-text-ghost">
         j / k step  ·  e expand  ·  r reply  ·  ⌘⏎ merge

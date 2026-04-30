@@ -1,4 +1,4 @@
-/** Single-file split diff with inline pierre annotation comments. */
+/** Single-file split diff with hover-triggered annotation popups. */
 
 import { useMemo } from "react";
 import { PatchDiff, type DiffLineAnnotation } from "@pierre/diffs/react";
@@ -12,29 +12,21 @@ interface FileDiffProps {
   diffStyle: "split" | "unified";
 }
 
-type Meta = { annotation: PrReviewAnnotation };
+type Meta = { annotation: PrReviewAnnotation; index: number };
 
 export function FileDiff({ filePath, patch, annotations, diffStyle }: FileDiffProps) {
   const lineAnnotations: DiffLineAnnotation<Meta>[] = useMemo(
     () =>
-      annotations.map((annotation) => ({
+      annotations.map((annotation, index) => ({
         side: annotation.side === "old" ? "deletions" : "additions",
         lineNumber: annotation.line,
-        metadata: { annotation },
+        metadata: { annotation, index: index + 1 },
       })),
     [annotations],
   );
 
   return (
-    <section className="overflow-hidden rounded-md border border-glass-border bg-bg-raised">
-      <header className="flex items-center justify-between gap-3 border-b border-glass-border px-3 py-2">
-        <span className="truncate font-mono text-[11.5px] text-text-secondary">{filePath}</span>
-        <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.15em] text-text-void">
-          {annotations.length > 0
-            ? `${annotations.length} comment${annotations.length === 1 ? "" : "s"}`
-            : "no comments"}
-        </span>
-      </header>
+    <section className="overflow-hidden bg-bg-raised">
       {patch ? (
         <PatchDiff<Meta>
           patch={patch}
@@ -47,11 +39,16 @@ export function FileDiff({ filePath, patch, annotations, diffStyle }: FileDiffPr
             disableFileHeader: true,
           }}
           lineAnnotations={lineAnnotations}
-          renderAnnotation={(item) => <AnnotationComment annotation={item.metadata.annotation} />}
+          renderAnnotation={(item) => (
+            <AnnotationComment
+              annotation={item.metadata.annotation}
+              index={item.metadata.index}
+            />
+          )}
         />
       ) : (
         <div className="p-4 font-mono text-[11px] italic text-text-dim">
-          diff unavailable for this file
+          diff unavailable for {filePath}
         </div>
       )}
     </section>
