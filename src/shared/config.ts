@@ -88,6 +88,9 @@ export function resetEnvForTesting(): void {
   _env = null;
 }
 
+/** Number of surrounding context lines included in PR diffs. Increase for more breathing room. */
+export const PR_DIFF_CONTEXT_LINES = 10;
+
 export const config = {
   artifactsDir: path.resolve(__dirname, "../../artifacts"),
   prSessionsDir: path.resolve(__dirname, "../../data/pr-sessions"),
