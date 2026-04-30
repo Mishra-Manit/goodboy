@@ -107,3 +107,52 @@ export const prReviewPageDtoSchema = z.object({
 });
 
 export type PrReviewPageDto = z.infer<typeof prReviewPageDtoSchema>;
+
+// --- Review chat DTOs ---
+
+export const reviewChatTextPartSchema = z.object({
+  type: z.literal("text"),
+  text: z.string(),
+});
+
+export const reviewChatAnnotationPartSchema = z.object({
+  type: z.literal("annotation"),
+  annotation: prReviewAnnotationSchema,
+});
+
+export const reviewChatPartSchema = z.union([
+  reviewChatTextPartSchema,
+  reviewChatAnnotationPartSchema,
+]);
+
+export const reviewChatMessageSchema = z.object({
+  id: z.string(),
+  role: z.enum(["user", "assistant"]),
+  parts: z.array(reviewChatPartSchema).min(1),
+  createdAt: z.string(),
+});
+
+export const reviewChatRequestSchema = z.object({
+  message: z.string().trim().min(1).max(4000),
+  activeFile: z.string().min(1).nullable(),
+  annotation: prReviewAnnotationSchema.nullable(),
+});
+
+export const reviewChatResponseSchema = z.object({
+  available: z.boolean(),
+  reason: z.string().nullable(),
+  messages: z.array(reviewChatMessageSchema),
+});
+
+export const reviewChatPostResponseSchema = z.object({
+  ok: z.literal(true),
+  reply: z.string(),
+  changed: z.boolean(),
+  messages: z.array(reviewChatMessageSchema),
+});
+
+export type ReviewChatPart = z.infer<typeof reviewChatPartSchema>;
+export type ReviewChatMessage = z.infer<typeof reviewChatMessageSchema>;
+export type ReviewChatRequest = z.infer<typeof reviewChatRequestSchema>;
+export type ReviewChatResponse = z.infer<typeof reviewChatResponseSchema>;
+export type ReviewChatPostResponse = z.infer<typeof reviewChatPostResponseSchema>;
