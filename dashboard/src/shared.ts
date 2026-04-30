@@ -25,7 +25,11 @@ export type {
   PrReviewState,
 } from "@shared/types.js";
 
-export { prReviewPageDtoSchema } from "@shared/pr-review.js";
+export {
+  prReviewPageDtoSchema,
+  reviewChatResponseSchema,
+  reviewChatPostResponseSchema,
+} from "@shared/pr-review.js";
 
 export type {
   PrReviewAnnotation,
@@ -33,6 +37,11 @@ export type {
   PrReviewArtifact,
   PrReviewChapter,
   PrReviewPageDto,
+  ReviewChatMessage,
+  ReviewChatPart,
+  ReviewChatRequest,
+  ReviewChatResponse,
+  ReviewChatPostResponse,
 } from "@shared/pr-review.js";
 
 export { TASK_KIND_CONFIG } from "@shared/task-kinds.js";
