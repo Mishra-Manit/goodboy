@@ -316,6 +316,8 @@ export async function createMemoryRun(data: {
     .values({
       ...data,
       status: "running",
+      // Match completedAt's clock; defaultNow() runs on Neon and drifts vs EC2.
+      startedAt: new Date(),
     })
     .returning();
   return run;

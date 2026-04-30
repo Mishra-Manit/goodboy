@@ -9,6 +9,8 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    // Shiki language chunks are unavoidably large; raised to silence noise.
+    chunkSizeWarningLimit: 1500,
   },
   resolve: {
     alias: {
