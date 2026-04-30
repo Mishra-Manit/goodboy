@@ -30,7 +30,6 @@ import {
   TASK_KINDS,
   MEMORY_RUN_KINDS,
   PR_SESSION_WATCH_STATUSES,
-  STAGE_NAMES,
 } from "../shared/types.js";
 import {
   readSessionFile,
@@ -87,10 +86,14 @@ export function createApi(): Hono {
   app.get("/api/tasks/:id/session", async (c) => {
     const id = c.req.param("id");
     if (!UUID_PATTERN.test(id)) return notFound(c);
+    const task = await queries.getTask(id);
+    if (!task) return notFound(c);
+    const rows = dedupeStageSessionRows(await queries.getStagesForTask(id));
     const stages = await Promise.all(
-      STAGE_NAMES.map(async (stage) => ({
-        stage,
-        entries: await readSessionFile(taskSessionPath(id, stage)),
+      rows.map(async (row) => ({
+        stage: row.stage,
+        variant: row.variant,
+        entries: await readSessionFile(taskSessionPath(id, row.stage, row.variant ?? undefined)),
       })),
     );
     return c.json({ stages: stages.filter((s) => s.entries.length > 0) });
@@ -397,6 +400,12 @@ function parseLimit(value: string | undefined): number | undefined {
  * Returns `null` if the id or name is malformed, or the resolved path escapes
  * the artifacts directory.
  */
+function dedupeStageSessionRows<T extends { stage: string; variant: number | null }>(rows: readonly T[]): T[] {
+  const byKey = new Map<string, T>();
+  for (const row of rows) byKey.set(`${row.stage}#${row.variant ?? "main"}`, row);
+  return [...byKey.values()];
+}
+
 function safeArtifactPath(id: string, name: string): string | null {
   if (!UUID_PATTERN.test(id)) return null;
   if (!ARTIFACT_NAME_PATTERN.test(name) || name.startsWith(".")) return null;
