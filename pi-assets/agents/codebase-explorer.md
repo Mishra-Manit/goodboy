@@ -2,6 +2,10 @@
 name: codebase-explorer
 description: Read-only codebase exploration. Returns compact structured findings.
 model: accounts/fireworks/models/kimi-k2p5
+fallbackModels:
+inheritProjectContext: false
+inheritSkills: false
+extensions:
 tools: read, bash, grep, find
 ---
 
