@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, GitPullRequest } from "lucide-react";
 import { fetchPrReviewPage } from "@dashboard/lib/api/pr-sessions";
 import { splitUnifiedDiffByFile } from "@dashboard/lib/diff-patch";
 import { formatDate } from "@dashboard/lib/format";
 import type { PrReviewAnnotation, PrReviewPageDto } from "@dashboard/shared";
 import { useQuery } from "@dashboard/hooks/use-query";
-import { BackLink } from "@dashboard/components/BackLink";
 import { PageState } from "@dashboard/components/PageState";
 import { FileTree } from "@dashboard/components/pr-review/FileTree";
 import { FileStack } from "@dashboard/components/pr-review/FileStack";
@@ -31,9 +31,12 @@ function PrReviewContent({ sessionId }: PrReviewContentProps) {
   );
   return (
     <div className="animate-fade-in">
-      <BackLink label="back to session" onClick={() => navigate(`/prs/${sessionId}`)} />
       <PageState data={data} loading={loading} error={error} onRetry={refetch} loadingLabel="loading review...">
-        {(dto) => (dto.run ? <ReviewRun dto={dto} onChanged={refetch} /> : <UnavailableReview />)}
+        {(dto) => (
+          dto.run
+            ? <ReviewRun dto={dto} onBack={() => navigate(`/prs/${sessionId}`)} onChanged={refetch} />
+            : <UnavailableReview />
+        )}
       </PageState>
     </div>
   );
@@ -41,10 +44,11 @@ function PrReviewContent({ sessionId }: PrReviewContentProps) {
 
 interface ReviewRunProps {
   dto: PrReviewPageDto;
+  onBack: () => void;
   onChanged: () => void;
 }
 
-function ReviewRun({ dto, onChanged }: ReviewRunProps) {
+function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
   const run = dto.run!;
   const session = dto.session;
   const allFiles = useMemo(
@@ -143,9 +147,10 @@ function ReviewRun({ dto, onChanged }: ReviewRunProps) {
         prNumber={session.prNumber}
         sha={run.headSha}
         createdAt={run.createdAt}
+        onBack={onBack}
       />
 
-      <div className="mt-4 grid min-h-[calc(100vh-12rem)] grid-cols-1 gap-0 lg:grid-cols-[244px_minmax(0,1fr)_400px]">
+      <div className="grid min-h-[calc(100vh-12rem)] grid-cols-1 gap-0 lg:grid-cols-[244px_minmax(0,1fr)_400px]">
         <aside className="border-glass-border lg:border-r">
           <div className="lg:sticky lg:top-20 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
             <FileTree
@@ -206,27 +211,39 @@ interface ReviewHeaderProps {
   prNumber: number | null;
   sha: string;
   createdAt: string;
+  onBack: () => void;
 }
 
-function ReviewHeader({ title, repo, prNumber, sha, createdAt }: ReviewHeaderProps) {
+function ReviewHeader({ title, repo, prNumber, sha, createdAt, onBack }: ReviewHeaderProps) {
   return (
-    <div className="flex items-center gap-4 px-6 pb-4">
-      <div className="flex shrink-0 items-baseline gap-2">
-        <span className="font-mono text-[11px] font-medium text-accent">{repo}</span>
+    <header className="px-2 pb-4">
+      <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-text-void">
+        <button
+          type="button"
+          onClick={onBack}
+          className="group flex items-center gap-1 text-text-ghost hover:text-text-dim transition-colors"
+        >
+          <ArrowLeft size={10} className="transition-transform group-hover:-translate-x-0.5" />
+          back
+        </button>
+        <span className="text-text-ghost/40">·</span>
+        <GitPullRequest size={11} className="text-text-ghost" />
+        <span className="text-[11px] font-medium text-accent">{repo}</span>
         {prNumber !== null && (
-          <span className="font-mono text-[11px] text-text-dim">#{prNumber}</span>
+          <span className="text-[11px] text-text-dim">#{prNumber}</span>
         )}
-      </div>
-
-      <h1 className="min-w-0 flex-1 truncate font-display text-[18px] font-normal leading-tight tracking-tight text-text">
-        {title}
-      </h1>
-
-      <div className="hidden shrink-0 items-center gap-x-5 font-mono text-[10px] text-text-void md:flex">
+        <span className="text-text-ghost/40">·</span>
+        <span className="uppercase tracking-[0.14em] text-text-ghost/60">review</span>
+        <span className="text-text-ghost/40">·</span>
         <span>{formatDate(createdAt)}</span>
+        <span className="text-text-ghost/40">·</span>
         <span>sha {sha.slice(0, 7)}</span>
       </div>
-    </div>
+
+      <h1 className="font-display text-[20px] font-normal leading-tight tracking-tight text-text">
+        {title}
+      </h1>
+    </header>
   );
 }
 
