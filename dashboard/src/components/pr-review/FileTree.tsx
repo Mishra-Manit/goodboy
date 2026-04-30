@@ -83,7 +83,7 @@ function FileRow({ file, annotations, active, onSelect }: FileRowProps) {
         type="button"
         onClick={() => onSelect(file)}
         className={cn(
-          "flex w-full items-center gap-[6px] rounded-md px-2 py-[6px] text-left transition-colors",
+          "flex w-full items-center gap-[10px] rounded-md px-2 py-[6px] text-left transition-colors",
           active
             ? "bg-accent-ghost text-accent"
             : "text-text-dim hover:bg-glass hover:text-text-secondary",
@@ -93,7 +93,7 @@ function FileRow({ file, annotations, active, onSelect }: FileRowProps) {
           {filenameOnly(file)}
         </span>
         {total > 0 && (
-          <span className={cn("ml-auto font-mono text-[10px] tabular-nums", totalColor)}>
+          <span className={cn("font-mono text-[10px] tabular-nums", totalColor)}>
             {total}
           </span>
         )}

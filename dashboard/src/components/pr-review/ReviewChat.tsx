@@ -1,7 +1,7 @@
 /** Right rail: goodboy-bot review chat. Minimal Lovable-style layout — no avatars per message,
  *  user messages as a navy bubble with timestamp below, bot messages as plain prose. */
 
-import { ArrowUp, History, Megaphone, Paperclip, Plus, SquarePen } from "lucide-react";
+import { ArrowUp, Paperclip, Plus } from "lucide-react";
 
 interface ReviewChatProps {
   prNumber: number | null;
@@ -52,15 +52,10 @@ export function ReviewChat({ prNumber: _prNumber, branch: _branch }: ReviewChatP
 
 function ChatHeader() {
   return (
-    <header className="flex items-center justify-between gap-2 border-b border-glass-border px-[18px] py-[14px]">
-      <h2 className="min-w-0 truncate font-display text-[13px] font-medium text-text">
+    <header className="flex items-center border-b border-glass-border px-[18px] py-[14px]">
+      <h2 className="min-w-0 truncate font-display text-[12px] font-medium text-text">
         Review thread
       </h2>
-      <div className="flex shrink-0 items-center gap-1 text-text-ghost">
-        <IconButton label="Announce" icon={<Megaphone className="h-[14px] w-[14px]" strokeWidth={1.5} />} />
-        <IconButton label="History" icon={<History className="h-[14px] w-[14px]" strokeWidth={1.5} />} />
-        <IconButton label="New thread" icon={<SquarePen className="h-[14px] w-[14px]" strokeWidth={1.5} />} />
-      </div>
     </header>
   );
 }
@@ -86,14 +81,14 @@ interface BotParagraph {
 
 function BotMessage({ paragraphs }: { paragraphs: BotParagraph[] }) {
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2">
       {paragraphs.map((p, idx) => (
         <p
           key={idx}
           className={
             p.tone === "primary"
-              ? "font-body text-[14px] leading-[1.65] text-text"
-              : "font-body text-[14px] leading-[1.65] text-text-secondary"
+              ? "font-body text-[12px] leading-[1.65] text-text"
+              : "font-body text-[12px] leading-[1.65] text-text-secondary"
           }
         >
           {p.text}
@@ -106,8 +101,8 @@ function BotMessage({ paragraphs }: { paragraphs: BotParagraph[] }) {
 function UserMessage({ body }: { body: string }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[300px] rounded-lg bg-info-dim px-[14px] py-[10px]">
-        <p className="font-body text-[14px] leading-[1.6] text-text">{body}</p>
+      <div className="max-w-[280px] rounded-lg bg-info-dim px-3 py-2">
+        <p className="font-body text-[12px] leading-[1.6] text-text">{body}</p>
       </div>
     </div>
   );
@@ -116,10 +111,10 @@ function UserMessage({ body }: { body: string }) {
 function StepRow({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-[10px] text-text-ghost">
-      <span className="flex h-[22px] w-[22px] items-center justify-center rounded-md border border-glass-border bg-bg-raised">
+      <span className="flex h-[20px] w-[20px] items-center justify-center rounded-md border border-glass-border bg-bg-raised">
         <span className="h-[5px] w-[5px] animate-pulse-soft rounded-full bg-accent" />
       </span>
-      <span className="font-body text-[13px] text-text-secondary">{label}</span>
+      <span className="font-body text-[11px] text-text-secondary">{label}</span>
     </div>
   );
 }
@@ -133,7 +128,7 @@ function Composer() {
         type="text"
         disabled
         placeholder="Make, test, iterate…"
-        className="w-full cursor-not-allowed bg-transparent font-body text-[13px] text-text placeholder:text-text-void focus:outline-none"
+        className="w-full cursor-not-allowed bg-transparent font-body text-[12px] text-text placeholder:text-text-void focus:outline-none"
       />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1 text-text-ghost">

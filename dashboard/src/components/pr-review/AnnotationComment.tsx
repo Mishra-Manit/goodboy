@@ -16,7 +16,7 @@ export function AnnotationComment({ annotation, index }: AnnotationCommentProps)
   const lineLabel = `${annotation.side === "old" ? "−" : "+"}${annotation.line}`;
 
   return (
-    <div className="group/pin relative px-3 py-1">
+    <div className="group/pin relative whitespace-normal px-3 py-1">
       <button
         type="button"
         className="flex w-full items-center gap-[10px] rounded-md border border-glass-border bg-bg-raised/60 px-[10px] py-[6px] text-left transition-colors hover:border-glass-hover focus:border-accent-dim focus:outline-none"
@@ -62,13 +62,13 @@ function AnnotationPopup({ annotation }: AnnotationPopupProps) {
     <div
       role="tooltip"
       className={cn(
-        "pointer-events-none absolute right-3 top-[calc(100%-2px)] z-30 w-[360px]",
+        "pointer-events-none absolute right-3 top-[calc(100%-2px)] z-30 w-[400px] max-w-[calc(100vw-2rem)]",
         "translate-y-1 scale-[0.98] opacity-0 transition-all duration-150",
         "group-hover/pin:pointer-events-auto group-hover/pin:translate-y-0 group-hover/pin:scale-100 group-hover/pin:opacity-100",
         "group-focus-within/pin:pointer-events-auto group-focus-within/pin:translate-y-0 group-focus-within/pin:scale-100 group-focus-within/pin:opacity-100",
       )}
     >
-      <div className="overflow-hidden rounded-lg border border-glass-border bg-bg shadow-[0_18px_40px_rgba(0,0,0,0.6)]">
+      <div className="overflow-hidden whitespace-normal rounded-lg border border-glass-border bg-bg shadow-[0_18px_40px_rgba(0,0,0,0.6)]">
         <header className="flex items-center gap-2 px-4 pt-[12px]">
           <span
             className={cn(
@@ -83,16 +83,16 @@ function AnnotationPopup({ annotation }: AnnotationPopupProps) {
           </span>
         </header>
 
-        <div className="px-4 pb-3 pt-[6px]">
-          <h3 className="font-display text-[13px] font-medium leading-snug text-text">
+        <div className="min-w-0 px-4 pb-3 pt-[6px]">
+          <h3 className="font-display text-[13px] font-medium leading-snug break-words text-text">
             {annotation.title}
           </h3>
           <Markdown
             content={annotation.body}
             className={cn(
-              "mt-1.5 font-body text-[12px] leading-[1.55] text-text-dim",
-              "prose-p:my-1 prose-ul:my-1 prose-ol:my-1",
-              "prose-code:rounded prose-code:bg-bg-active prose-code:px-1 prose-code:py-0.5 prose-code:text-[11px]",
+              "mt-1.5 font-body text-[12px] leading-[1.55] text-text-dim break-words",
+              "prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-p:break-words",
+              "prose-code:rounded prose-code:bg-bg-active prose-code:px-1 prose-code:py-0.5 prose-code:text-[11px] prose-code:break-all",
             )}
           />
         </div>

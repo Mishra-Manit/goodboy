@@ -52,12 +52,12 @@ function ReviewRun({ dto }: ReviewRunProps) {
   );
   const [activeFile, setActiveFile] = useState<string | null>(allFiles[0] ?? null);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(
-    () => new Set(allFiles.slice(0, 1)),
+    () => new Set(allFiles),
   );
 
   useEffect(() => {
     setActiveFile(allFiles[0] ?? null);
-    setExpandedFiles(new Set(allFiles.slice(0, 1)));
+    setExpandedFiles(new Set(allFiles));
   }, [run.headSha]);
 
   const annotationsByFile = useMemo(() => {
@@ -136,7 +136,6 @@ function ReviewRun({ dto }: ReviewRunProps) {
         prNumber={session.prNumber}
         sha={run.headSha}
         createdAt={run.createdAt}
-        threadCount={totalAnnotations}
       />
 
       <div className="mt-4 grid min-h-[calc(100vh-12rem)] grid-cols-1 gap-0 lg:grid-cols-[244px_minmax(0,1fr)_400px]">
@@ -161,7 +160,7 @@ function ReviewRun({ dto }: ReviewRunProps) {
             expandedFiles={expandedFiles}
             onToggleExpand={toggleExpand}
             onSelectFile={setActiveFile}
-            diffStyle="split"
+            diffStyle="unified"
             fileRefs={fileRefs}
           />
         </div>
@@ -190,12 +189,11 @@ interface ReviewHeaderProps {
   prNumber: number | null;
   sha: string;
   createdAt: string;
-  threadCount: number;
 }
 
-function ReviewHeader({ title, repo, prNumber, sha, createdAt, threadCount }: ReviewHeaderProps) {
+function ReviewHeader({ title, repo, prNumber, sha, createdAt }: ReviewHeaderProps) {
   return (
-    <div className="flex items-center gap-4 px-2 pb-4">
+    <div className="flex items-center gap-4 px-6 pb-4">
       <div className="flex shrink-0 items-baseline gap-2">
         <span className="font-mono text-[11px] font-medium text-accent">{repo}</span>
         {prNumber !== null && (
@@ -210,7 +208,6 @@ function ReviewHeader({ title, repo, prNumber, sha, createdAt, threadCount }: Re
       <div className="hidden shrink-0 items-center gap-x-5 font-mono text-[10px] text-text-void md:flex">
         <span>{formatDate(createdAt)}</span>
         <span>sha {sha.slice(0, 7)}</span>
-        <span>{threadCount} {threadCount === 1 ? "thread" : "threads"}</span>
       </div>
     </div>
   );
