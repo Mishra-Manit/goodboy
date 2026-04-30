@@ -1,5 +1,6 @@
 /** Shell: floating nav pill + centered single-column content. */
 
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { cn } from "@dashboard/lib/utils";
 
@@ -11,9 +12,15 @@ const NAV_ITEMS = [
 ] as const;
 
 export function Layout() {
+  const hidden = useHideOnScrollDown();
   return (
     <div className="grain min-h-screen">
-      <nav className="fixed top-5 left-1/2 z-50 -translate-x-1/2">
+      <nav
+        className={cn(
+          "fixed top-5 left-1/2 z-50 -translate-x-1/2 transition-all duration-300 ease-out",
+          hidden ? "pointer-events-none -translate-y-[calc(100%+24px)] opacity-0" : "opacity-100",
+        )}
+      >
         <div
           className={cn(
             "flex items-center gap-1 rounded-full px-1.5 py-1.5",
@@ -50,6 +57,31 @@ export function Layout() {
 }
 
 // --- Helpers ---
+
+/** Hide on downward scroll past a small threshold; reveal on any upward scroll. */
+function useHideOnScrollDown(threshold = 24): boolean {
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    let lastY = window.scrollY;
+    let ticking = false;
+    function onScroll() {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const y = window.scrollY;
+        const delta = y - lastY;
+        if (y < threshold) setHidden(false);
+        else if (delta > 4) setHidden(true);
+        else if (delta < -4) setHidden(false);
+        lastY = y;
+        ticking = false;
+      });
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [threshold]);
+  return hidden;
+}
 
 /** Wide canvas on the PR review page; editorial column elsewhere. */
 function Main() {

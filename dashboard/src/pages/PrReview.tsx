@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { Check } from "lucide-react";
 import { fetchPrReviewPage } from "@dashboard/lib/api/pr-sessions";
 import { splitUnifiedDiffByFile } from "@dashboard/lib/diff-patch";
 import { formatDate } from "@dashboard/lib/format";
@@ -196,34 +195,22 @@ interface ReviewHeaderProps {
 
 function ReviewHeader({ title, repo, prNumber, sha, createdAt, threadCount }: ReviewHeaderProps) {
   return (
-    <div className="px-2 pb-4">
-      <div className="mb-2 flex items-center gap-3">
+    <div className="flex items-center gap-4 px-2 pb-4">
+      <div className="flex shrink-0 items-baseline gap-2">
         <span className="font-mono text-[11px] font-medium text-accent">{repo}</span>
         {prNumber !== null && (
           <span className="font-mono text-[11px] text-text-dim">#{prNumber}</span>
         )}
       </div>
 
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="min-w-0 truncate font-display text-[18px] font-normal leading-tight tracking-tight text-text">
-            {title}
-          </h1>
-          <div className="mt-2 flex flex-wrap gap-x-5 font-mono text-[10px] text-text-void">
-            <span>{formatDate(createdAt)}</span>
-            <span>sha {sha.slice(0, 7)}</span>
-            <span>{threadCount} {threadCount === 1 ? "thread" : "threads"}</span>
-          </div>
-        </div>
+      <h1 className="min-w-0 flex-1 truncate font-display text-[18px] font-normal leading-tight tracking-tight text-text">
+        {title}
+      </h1>
 
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-[6px] font-mono text-[11px] font-medium tracking-[0.04em] text-bg transition-opacity hover:opacity-90 active:scale-[0.98]"
-        >
-          <Check className="h-3 w-3" strokeWidth={2.5} />
-          <span>approve &amp; merge</span>
-          <span className="rounded bg-bg/15 px-1 py-px text-[10px] text-bg/80">⌘⏎</span>
-        </button>
+      <div className="hidden shrink-0 items-center gap-x-5 font-mono text-[10px] text-text-void md:flex">
+        <span>{formatDate(createdAt)}</span>
+        <span>sha {sha.slice(0, 7)}</span>
+        <span>{threadCount} {threadCount === 1 ? "thread" : "threads"}</span>
       </div>
     </div>
   );
