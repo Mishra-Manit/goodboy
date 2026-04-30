@@ -95,21 +95,25 @@ describe("getPrMetadata", () => {
 describe("getPrDiff", () => {
   it("returns raw stdout", async () => {
     stubExecOk("diff --git a/x b/x\n@@ -0,0 +1 @@\n+hi\n");
-    const diff = await getPrDiff("foo/bar", 42);
+    const diff = await getPrDiff("/tmp/pr-worktree", "main");
     expect(diff).toContain("diff --git");
     expect(diff).toContain("+hi");
   });
 
-  it("invokes gh pr diff with --repo", async () => {
+  it("invokes git diff inside the PR worktree with extended context", async () => {
     stubExecOk("");
-    await getPrDiff("foo/bar", 42);
+    await getPrDiff("/tmp/pr-worktree", "main");
     const [cmd, args] = handler.calls[0]!;
-    expect(cmd).toBe("gh");
-    expect(args).toEqual(["pr", "diff", "42", "--repo", "foo/bar"]);
+    expect(cmd).toBe("git");
+    expect(args).toEqual([
+      "-C", "/tmp/pr-worktree",
+      "diff", "origin/main...HEAD",
+      "--unified=10",
+    ]);
   });
 
-  it("throws when gh exits non-zero", async () => {
+  it("throws when git exits non-zero", async () => {
     stubExecThrow();
-    await expect(getPrDiff("foo/bar", 42)).rejects.toThrow();
+    await expect(getPrDiff("/tmp/pr-worktree", "main")).rejects.toThrow();
   });
 });
