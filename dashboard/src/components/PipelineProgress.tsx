@@ -3,8 +3,7 @@
 import { cn } from "@dashboard/lib/utils";
 import { formatDuration } from "@dashboard/lib/format";
 import { TASK_KIND_CONFIG, type TaskKind, type TaskStage } from "@dashboard/lib/api";
-
-type DisplayStatus = "pending" | "active" | "complete" | "failed" | "skipped";
+import { displayStatus, rollupStages, type DisplayStatus } from "@dashboard/lib/pipeline-progress";
 
 interface PipelineProgressProps {
   stages: TaskStage[];
@@ -19,6 +18,7 @@ const DOT: Record<DisplayStatus, string> = {
   complete: "bg-ok",
   failed: "bg-fail",
   skipped: "bg-text-void/50",
+  mixed: "bg-warn",
 };
 
 const LABEL: Record<DisplayStatus, string> = {
@@ -27,14 +27,15 @@ const LABEL: Record<DisplayStatus, string> = {
   complete: "text-text-dim",
   failed: "text-fail",
   skipped: "text-text-void italic",
+  mixed: "text-warn",
 };
 
 export function PipelineProgress({ stages, kind, className, mini = false }: PipelineProgressProps) {
-  const stageMap = new Map(stages.map((s) => [s.stage, s]));
+  const stageRollups = rollupStages(stages);
   const kindConfig = TASK_KIND_CONFIG[kind] ?? TASK_KIND_CONFIG.coding_task;
   const names = [
     ...kindConfig.stages,
-    ...(stageMap.has("revision") ? ["revision"] : []),
+    ...(stageRollups.has("revision") ? ["revision" as const] : []),
   ];
 
   if (mini) {
@@ -44,7 +45,7 @@ export function PipelineProgress({ stages, kind, className, mini = false }: Pipe
           <span
             key={name}
             title={name}
-            className={cn("h-1.5 w-1.5 rounded-full", DOT[displayStatus(stageMap.get(name))])}
+            className={cn("h-1.5 w-1.5 rounded-full", DOT[stageRollups.get(name)?.status ?? "pending"])}
           />
         ))}
       </div>
@@ -54,14 +55,26 @@ export function PipelineProgress({ stages, kind, className, mini = false }: Pipe
   return (
     <div className={cn("flex items-start gap-14", className)}>
       {names.map((name, i) => {
-        const stage = stageMap.get(name);
-        const status = displayStatus(stage);
+        const rollup = stageRollups.get(name);
+        const status = rollup?.status ?? "pending";
         return (
           <div key={name} className="relative flex flex-col items-center gap-1">
             {i > 0 && (
               <span className="absolute right-full top-1 h-px w-14 bg-text-ghost" aria-hidden />
             )}
-            <span className={cn("h-2 w-2 rounded-full", DOT[status])} />
+            {rollup && rollup.rows.length > 1 ? (
+              <span className="flex gap-0.5">
+                {rollup.rows.map((stage) => (
+                  <span
+                    key={`${stage.stage}#${stage.variant ?? "main"}`}
+                    className={cn("h-1.5 w-1.5 rounded-full", DOT[displayStatus(stage)])}
+                    title={`pr impact${stage.variant === null ? "" : ` v${stage.variant}`}: ${stage.status}`}
+                  />
+                ))}
+              </span>
+            ) : (
+              <span className={cn("h-2 w-2 rounded-full", DOT[status])} />
+            )}
             <span
               className={cn(
                 "whitespace-nowrap font-mono text-[9px] tracking-wide",
@@ -70,9 +83,9 @@ export function PipelineProgress({ stages, kind, className, mini = false }: Pipe
             >
               {name.replace(/_/g, " ")}
             </span>
-            {stage?.completedAt && stage.startedAt && (
+            {rollup?.startedAt && rollup.completedAt && (
               <span className="whitespace-nowrap font-mono text-[8px] text-text-void">
-                {formatDuration(stage.startedAt, stage.completedAt)}
+                {formatDuration(rollup.startedAt, rollup.completedAt)}
               </span>
             )}
           </div>
@@ -80,12 +93,4 @@ export function PipelineProgress({ stages, kind, className, mini = false }: Pipe
       })}
     </div>
   );
-}
-
-// --- Helpers ---
-
-function displayStatus(stage: TaskStage | undefined): DisplayStatus {
-  if (!stage) return "pending";
-  if (stage.status === "running") return "active";
-  return stage.status;
 }
