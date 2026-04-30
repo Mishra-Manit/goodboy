@@ -4,6 +4,7 @@
  * needs to reason about "what does a <kind> task look like?".
  */
 
+import { PR_IMPACT_VARIANT_COUNT, prImpactVariantFiles } from "./pr-impact-variants.js";
 import type { StageName, TaskKind } from "./types.js";
 
 export interface TaskKindConfig {
@@ -31,7 +32,10 @@ export const TASK_KIND_CONFIG: Record<TaskKind, TaskKindConfig> = {
     label: "PR review",
     stages: ["memory", "pr_impact", "pr_analyst", "pr_display"],
     artifacts: [
-      { key: "pr-impact.md", label: "impact" },
+      ...Array.from({ length: PR_IMPACT_VARIANT_COUNT }, (_, index) => {
+        const variant = index + 1;
+        return { key: prImpactVariantFiles(variant).impact, label: `impact v${variant}` };
+      }),
       { key: "summary.md", label: "summary" },
       { key: "review.json", label: "display model" },
     ],
