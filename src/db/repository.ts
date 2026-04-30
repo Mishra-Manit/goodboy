@@ -273,6 +273,21 @@ export async function getRunsForPrSession(prSessionId: string): Promise<PrSessio
     .orderBy(schema.prSessionRuns.startedAt);
 }
 
+/** Newest still-running run for a session, or null. Used as a busy guard. */
+export async function getRunningPrSessionRun(prSessionId: string): Promise<PrSessionRun | null> {
+  const db = getDb();
+  const [run] = await db
+    .select()
+    .from(schema.prSessionRuns)
+    .where(and(
+      eq(schema.prSessionRuns.prSessionId, prSessionId),
+      eq(schema.prSessionRuns.status, "running"),
+    ))
+    .orderBy(desc(schema.prSessionRuns.startedAt))
+    .limit(1);
+  return run ?? null;
+}
+
 // --- Memory Runs ---
 
 function memoryRunsVisible(includeInactive = false) {

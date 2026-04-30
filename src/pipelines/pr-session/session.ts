@@ -25,7 +25,19 @@ import { prSessionPrompt, formatCommentsPrompt, prCreationPrompt } from "./promp
 import { memoryBlock } from "../../shared/agent-prompts.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import { parsePrNumberFromUrl } from "../../core/git/github.js";
+import { taskArtifactsDir } from "../../shared/artifacts.js";
+import { prReviewArtifactPaths } from "../pr-review/artifacts.js";
 import type { PrComment } from "../../shared/types.js";
+import type { PrReviewAnnotation } from "../../shared/pr-review.js";
+import {
+  reviewChatSystemPrompt,
+  formatReviewChatPrompt,
+  parseReviewChatResult,
+  latestAssistantText,
+  type ReviewChatArtifacts,
+  type ReviewChatResult,
+} from "./review-chat/index.js";
+import { stat } from "node:fs/promises";
 import { withPipelineSpan, bridgeSessionToOtel } from "../../observability/index.js";
 import { trace } from "@opentelemetry/api";
 import { Goodboy } from "../../observability/attributes.js";
@@ -148,6 +160,166 @@ export async function resumePrSession(options: {
     log.error(`PR session resume failed for ${prSessionId}`, err);
     await notifyTelegram(sendTelegram, chatId,
       `Failed to address comments on PR #${prNumber}: ${toErrorMessage(err)}`);
+  }
+}
+
+// --- Review chat ---
+
+/**
+ * Sentinel errors thrown by `runReviewChatTurn` so the API layer can map them
+ * to user-facing status codes without leaking internals.
+ */
+export class ReviewChatNotFoundError extends Error {
+  constructor(message = "PR session not found") {
+    super(message);
+    this.name = "ReviewChatNotFoundError";
+  }
+}
+
+export class ReviewChatUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReviewChatUnavailableError";
+  }
+}
+
+export class ReviewChatBusyError extends Error {
+  constructor() {
+    super("goodboy is already working on this PR");
+    this.name = "ReviewChatBusyError";
+  }
+}
+
+/** Run one dashboard-driven chat turn against an external reviewed PR session. */
+export async function runReviewChatTurn(options: {
+  prSessionId: string;
+  message: string;
+  activeFile: string | null;
+  annotation: PrReviewAnnotation | null;
+}): Promise<ReviewChatResult> {
+  const { prSessionId, message, activeFile, annotation } = options;
+
+  const session = await queries.getPrSession(prSessionId);
+  if (!session) throw new ReviewChatNotFoundError();
+  assertReviewChatReady(session);
+
+  const sourceTaskId = session.sourceTaskId!;
+  const worktreePath = session.worktreePath!;
+  const branch = session.branch!;
+  const prNumber = session.prNumber!;
+
+  await assertWorktreeExists(worktreePath);
+  const artifacts = await resolveReviewChatArtifacts(sourceTaskId);
+
+  const existing = await queries.getRunningPrSessionRun(prSessionId);
+  if (existing) throw new ReviewChatBusyError();
+
+  await pullLatest(worktreePath, prSessionId);
+  const beforeSha = await headSha(worktreePath);
+
+  const run = await queries.createPrSessionRun({
+    prSessionId,
+    trigger: "review_chat",
+    comments: { activeFile, annotation },
+  });
+  log.info(`Review chat turn for PR session ${prSessionId} (run ${run.id})`);
+
+  let parsed: ReviewChatResult | null = null;
+  try {
+    await runSessionTurn({
+      prSessionId,
+      labelSuffix: "review-chat",
+      cwd: worktreePath,
+      systemPrompt: reviewChatSystemPrompt({ repo: session.repo, branch, prNumber }),
+      model: resolveModel("PI_MODEL_REVISION"),
+      prompt: formatReviewChatPrompt({
+        context: { message, activeFile, annotation },
+        artifacts,
+      }),
+      run,
+      timeoutLabel: "PR session (review-chat)",
+    });
+
+    const entries = await readSessionFile(prSessionPath(prSessionId));
+    const reply = latestAssistantText(entries);
+    parsed = reply ? parseReviewChatResult(reply) : null;
+  } catch (err) {
+    log.error(`Review chat turn failed for ${prSessionId}`, err);
+    return { status: "failed", reply: "Couldn't finish. Check transcript.", changed: false };
+  }
+
+  const afterSha = await headSha(worktreePath);
+  const changed = beforeSha !== null && afterSha !== null && beforeSha !== afterSha;
+
+  if (!parsed) {
+    await queries.updatePrSessionRun(run.id, {
+      status: "failed",
+      error: "missing review_chat result marker",
+      completedAt: new Date(),
+    });
+    return { status: "failed", reply: "Reply was incomplete. Try again.", changed };
+  }
+
+  return { ...parsed, changed };
+}
+
+function assertReviewChatReady(session: queries.PrSession): void {
+  if (session.mode !== "review") {
+    throw new ReviewChatUnavailableError("Review chat is available for reviewed PRs only.");
+  }
+  if (!session.sourceTaskId) {
+    throw new ReviewChatUnavailableError("Source review task is missing.");
+  }
+  if (!session.worktreePath) {
+    throw new ReviewChatUnavailableError("Review worktree is no longer available.");
+  }
+  if (!session.branch) {
+    throw new ReviewChatUnavailableError("Review branch is no longer available.");
+  }
+  if (!session.prNumber) {
+    throw new ReviewChatUnavailableError("Review PR number is missing.");
+  }
+}
+
+async function assertWorktreeExists(worktreePath: string): Promise<void> {
+  try {
+    const info = await stat(worktreePath);
+    if (!info.isDirectory()) {
+      throw new ReviewChatUnavailableError("Review worktree is not a directory.");
+    }
+  } catch (err) {
+    if (err instanceof ReviewChatUnavailableError) throw err;
+    throw new ReviewChatUnavailableError("Review worktree no longer exists on disk.");
+  }
+}
+
+async function resolveReviewChatArtifacts(sourceTaskId: string): Promise<ReviewChatArtifacts> {
+  const paths = prReviewArtifactPaths(taskArtifactsDir(sourceTaskId));
+  for (const required of [paths.review, paths.summary, paths.diff]) {
+    try {
+      await stat(required);
+    } catch {
+      throw new ReviewChatUnavailableError(`Review artifact missing: ${path.basename(required)}`);
+    }
+  }
+  return {
+    reviewPath: paths.review,
+    summaryPath: paths.summary,
+    diffPath: paths.diff,
+    updatedDiffPath: paths.updatedDiff,
+    contextPath: paths.context,
+    updatedContextPath: paths.updatedContext,
+    reportsDir: paths.reportsDir,
+  };
+}
+
+async function headSha(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await exec("git", ["rev-parse", "HEAD"], { cwd });
+    return stdout.trim() || null;
+  } catch (err) {
+    log.warn(`git rev-parse failed in ${cwd}`, err);
+    return null;
   }
 }
 

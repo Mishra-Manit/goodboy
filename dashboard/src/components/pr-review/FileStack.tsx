@@ -17,6 +17,7 @@ interface FileStackProps {
   onSelectFile: (file: string) => void;
   diffStyle: "split" | "unified";
   fileRefs: React.MutableRefObject<Map<string, HTMLElement>>;
+  onReplyAnnotation: (annotation: PrReviewAnnotation) => void;
 }
 
 export function FileStack({
@@ -30,6 +31,7 @@ export function FileStack({
   onSelectFile,
   diffStyle,
   fileRefs,
+  onReplyAnnotation,
 }: FileStackProps) {
   const orderedFiles = useMemo(() => {
     const byId = new Map(chapters.map((c) => [c.id, c]));
@@ -54,6 +56,7 @@ export function FileStack({
             annotations={annotations}
             patch={patch}
             diffStyle={diffStyle}
+            onReplyAnnotation={onReplyAnnotation}
             onToggle={() => {
               onSelectFile(file);
               onToggleExpand(file);
@@ -79,6 +82,7 @@ interface FileCardProps {
   diffStyle: "split" | "unified";
   onToggle: () => void;
   registerRef: (el: HTMLElement | null) => void;
+  onReplyAnnotation: (annotation: PrReviewAnnotation) => void;
 }
 
 function FileCard({
@@ -91,6 +95,7 @@ function FileCard({
   diffStyle,
   onToggle,
   registerRef,
+  onReplyAnnotation,
 }: FileCardProps) {
   const Icon = file.endsWith(".ts") || file.endsWith(".tsx") || file.endsWith(".js") ? FileCode : FileText;
   const Chev = expanded ? ChevronUp : ChevronDown;
@@ -129,6 +134,7 @@ function FileCard({
             patch={patch}
             annotations={annotations}
             diffStyle={diffStyle}
+            onReplyAnnotation={onReplyAnnotation}
           />
         </div>
       )}

@@ -43,7 +43,20 @@ import { dismissTask } from "../core/cleanup.js";
 import { taskArtifactsDir } from "../shared/artifacts.js";
 import { prReviewArtifactPaths } from "../pipelines/pr-review/artifacts.js";
 import { readReviewArtifact } from "../pipelines/pr-review/read-review.js";
-import type { PrReviewPageDto } from "../shared/pr-review.js";
+import {
+  reviewChatRequestSchema,
+  type PrReviewPageDto,
+  type ReviewChatMessage,
+  type ReviewChatResponse,
+  type ReviewChatPostResponse,
+} from "../shared/pr-review.js";
+import { extractReviewChatMessages } from "../pipelines/pr-session/review-chat/index.js";
+import {
+  runReviewChatTurn,
+  ReviewChatBusyError,
+  ReviewChatNotFoundError,
+  ReviewChatUnavailableError,
+} from "../pipelines/pr-session/session.js";
 
 const log = createLogger("api");
 
@@ -333,6 +346,50 @@ export function createApi(): Hono {
     } satisfies PrReviewPageDto);
   });
 
+  app.get("/api/pr-sessions/:id/review-chat", async (c) => {
+    const id = c.req.param("id");
+    if (!UUID_PATTERN.test(id)) return notFound(c);
+
+    const session = await queries.getPrSession(id);
+    if (!session) return notFound(c);
+
+    const unavailable = reviewChatUnavailableReason(session);
+    if (unavailable) {
+      return c.json({ available: false, reason: unavailable, messages: [] } satisfies ReviewChatResponse);
+    }
+
+    const messages = await loadReviewChatMessages(id);
+    return c.json({ available: true, reason: null, messages } satisfies ReviewChatResponse);
+  });
+
+  app.post("/api/pr-sessions/:id/review-chat", async (c) => {
+    const id = c.req.param("id");
+    if (!UUID_PATTERN.test(id)) return notFound(c);
+
+    const body = reviewChatRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "Invalid review chat request" }, 400);
+
+    try {
+      const result = await runReviewChatTurn({ prSessionId: id, ...body.data });
+      const messages = await loadReviewChatMessages(id);
+      return c.json({
+        ok: true,
+        reply: result.reply,
+        changed: result.changed,
+        messages,
+      } satisfies ReviewChatPostResponse);
+    } catch (err) {
+      if (err instanceof ReviewChatNotFoundError) {
+        return notFound(c);
+      }
+      if (err instanceof ReviewChatBusyError || err instanceof ReviewChatUnavailableError) {
+        return c.json({ error: err.message }, 409);
+      }
+      log.error(`Review chat turn failed for ${id}`, err);
+      return c.json({ error: "Review chat turn failed" }, 500);
+    }
+  });
+
   app.get("/api/pr-sessions/:id/session", async (c) => {
     const id = c.req.param("id");
     if (!UUID_PATTERN.test(id)) return notFound(c);
@@ -404,6 +461,21 @@ function dedupeStageSessionRows<T extends { stage: string; variant: number | nul
   const byKey = new Map<string, T>();
   for (const row of rows) byKey.set(`${row.stage}#${row.variant ?? "main"}`, row);
   return [...byKey.values()];
+}
+
+/** Stringly reason if the session cannot run review chat, else null. */
+function reviewChatUnavailableReason(session: queries.PrSession): string | null {
+  if (session.mode !== "review") return "Review chat is available for reviewed PRs only.";
+  if (!session.sourceTaskId) return "Source review task is missing.";
+  if (!session.worktreePath) return "Review worktree is no longer available.";
+  if (!session.branch) return "Review branch is no longer available.";
+  if (!session.prNumber) return "Review PR number is missing.";
+  return null;
+}
+
+async function loadReviewChatMessages(prSessionId: string): Promise<ReviewChatMessage[]> {
+  const entries = await readSessionFile(prSessionPath(prSessionId));
+  return extractReviewChatMessages(entries);
 }
 
 function safeArtifactPath(id: string, name: string): string | null {
