@@ -10,9 +10,8 @@
 import { createLogger } from "../../shared/logger.js";
 import { resolveModel } from "../../shared/config.js";
 import { runStage, type SendTelegram } from "../../core/stage.js";
-import { subagentCapability } from "../../core/subagents/index.js";
+import { stageSubagentAssets, subagentCapability } from "../../core/subagents/index.js";
 import { prAnalystSystemPrompt, prAnalystInitialPrompt } from "./analyst-prompts.js";
-import { validatePrAnalystOutput } from "./validate.js";
 
 const log = createLogger("pr-analyst");
 
@@ -49,6 +48,7 @@ export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
     availableImpactVariants,
     fallbackMemory,
   } = opts;
+  await stageSubagentAssets(worktreePath);
   const cap = subagentCapability();
 
   if (availableImpactVariants.length === 0) {
@@ -66,7 +66,7 @@ export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
       availableImpactVariants,
     });
 
-  await runStage({
+  const result = await runStage({
     taskId,
     stage: "pr_analyst",
     cwd: worktreePath,
@@ -79,8 +79,11 @@ export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
     timeoutMs: ANALYST_TIMEOUT_MS,
     extensions: cap.extensions,
     envOverrides: cap.envOverrides,
-    postValidate: () => validatePrAnalystOutput(artifactsDir),
   });
+
+  if (!result.ok) {
+    throw new Error(`pr_analyst validation failed: ${result.reason}`);
+  }
 
   log.info(`pr_analyst complete for task ${taskId} (${nwo}#${prNumber})`);
 }
