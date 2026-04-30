@@ -127,7 +127,7 @@ export async function resumePrSession(options: {
   }
 
   const { worktreePath, repo, branch, prNumber, mode, telegramChatId: chatId } = prSession;
-  await pullLatest(worktreePath, prSessionId);
+  await pullLatest(worktreePath, prSessionId, branch);
 
   const run = await queries.createPrSessionRun({ prSessionId, trigger: "comments", comments });
   log.info(`Resuming PR session ${prSessionId} with ${comments.length} new comments`);
@@ -216,7 +216,7 @@ export async function runReviewChatTurn(options: {
   const existing = await queries.getRunningPrSessionRun(prSessionId);
   if (existing) throw new ReviewChatBusyError();
 
-  await pullLatest(worktreePath, prSessionId);
+  await pullLatest(worktreePath, prSessionId, branch);
   const beforeSha = await headSha(worktreePath);
 
   const run = await queries.createPrSessionRun({
@@ -448,10 +448,16 @@ async function transferTaskGitOwnership(taskId: string, prSessionId: string): Pr
   }
 }
 
-/** Rebase-pull in the worktree in case comments arrived alongside manual pushes. Best-effort. */
-async function pullLatest(worktreePath: string, prSessionId: string): Promise<void> {
+/**
+ * Rebase-pull in the worktree in case comments arrived alongside manual pushes.
+ * Best-effort. The branch is passed explicitly because handoff worktrees never
+ * configure upstream tracking, so a bare `git pull` fails with "no tracking
+ * information for the current branch."
+ */
+async function pullLatest(worktreePath: string, prSessionId: string, branch: string | null): Promise<void> {
+  if (!branch) return;
   try {
-    await exec("git", ["pull", "--rebase"], { cwd: worktreePath });
+    await exec("git", ["pull", "--rebase", "origin", branch], { cwd: worktreePath });
   } catch (err) {
     log.warn(`Git pull failed in worktree for PR session ${prSessionId}`, err);
   }
