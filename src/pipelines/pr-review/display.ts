@@ -24,21 +24,39 @@ export interface PrDisplayOptions {
   worktreePath: string;
   sendTelegram: SendTelegram;
   chatId: string | null;
+  availableImpactVariants: number[];
 }
 
 // --- Public API ---
 
 /** Soft-fail -- never throws. Caller continues regardless of outcome. */
 export async function runPrDisplay(opts: PrDisplayOptions): Promise<void> {
-  const { taskId, repo, nwo, prNumber, artifactsDir, worktreePath, sendTelegram, chatId } = opts;
+  const {
+    taskId,
+    repo,
+    nwo,
+    prNumber,
+    artifactsDir,
+    worktreePath,
+    sendTelegram,
+    chatId,
+    availableImpactVariants,
+  } = opts;
 
   try {
     const result = await runStage({
       taskId,
       stage: "pr_display",
       cwd: worktreePath,
-      systemPrompt: prDisplaySystemPrompt({ repo, nwo, prNumber, artifactsDir, worktreePath }),
-      initialPrompt: prDisplayInitialPrompt(artifactsDir),
+      systemPrompt: prDisplaySystemPrompt({
+        repo,
+        nwo,
+        prNumber,
+        artifactsDir,
+        worktreePath,
+        availableImpactVariants,
+      }),
+      initialPrompt: prDisplayInitialPrompt(artifactsDir, availableImpactVariants),
       model: resolveModel("PI_MODEL_PR_DISPLAY"),
       sendTelegram,
       chatId,

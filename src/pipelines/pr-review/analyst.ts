@@ -2,8 +2,8 @@
  * pr_analyst stage. Reads the PR, fans out subagents via pi-subagents,
  * commits auto-fixable issues back to the PR branch, posts a summary comment.
  *
- * Primary context is pr-impact.md (curated by the impact stage). If that file
- * is missing, the full memory block is prepended as a fallback -- never both.
+ * Primary context is the successful pr-impact.vN.md set. If every impact
+ * variant fails, the full memory block is prepended as a fallback -- never both.
  * Throws on hard failure so the pipeline maps it to `failTask`.
  */
 
@@ -30,7 +30,7 @@ export interface PrAnalystOptions {
   worktreePath: string;
   sendTelegram: SendTelegram;
   chatId: string | null;
-  impactAvailable: boolean;
+  availableImpactVariants: number[];
   fallbackMemory: string;
 }
 
@@ -46,24 +46,32 @@ export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
     worktreePath,
     sendTelegram,
     chatId,
-    impactAvailable,
+    availableImpactVariants,
     fallbackMemory,
   } = opts;
   const cap = subagentCapability();
 
-  if (!impactAvailable) {
-    log.warn(`pr-impact.md missing for ${taskId}; analyst running with full memory fallback`);
+  if (availableImpactVariants.length === 0) {
+    log.warn(`No pr_impact variants available for ${taskId}; analyst running with full memory fallback`);
   }
 
-  const systemPrompt = (impactAvailable || !fallbackMemory.trim() ? "" : `${fallbackMemory}\n\n`)
-    + prAnalystSystemPrompt({ repo, nwo, headRef, prNumber, artifactsDir, worktreePath });
+  const systemPrompt = (availableImpactVariants.length > 0 || !fallbackMemory.trim() ? "" : `${fallbackMemory}\n\n`)
+    + prAnalystSystemPrompt({
+      repo,
+      nwo,
+      headRef,
+      prNumber,
+      artifactsDir,
+      worktreePath,
+      availableImpactVariants,
+    });
 
   await runStage({
     taskId,
     stage: "pr_analyst",
     cwd: worktreePath,
     systemPrompt,
-    initialPrompt: prAnalystInitialPrompt(artifactsDir),
+    initialPrompt: prAnalystInitialPrompt(artifactsDir, availableImpactVariants),
     model: resolveModel("PI_MODEL_PR_ANALYST"),
     sendTelegram,
     chatId,
