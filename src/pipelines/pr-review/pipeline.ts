@@ -3,8 +3,9 @@
  *
  *   syncRepo
  *     -> runMemory           (stage 1, soft-fail)
- *     -> fetch PR + diff
+ *     -> fetch PR metadata
  *     -> createPrWorktree    (checked out on the real head branch)
+ *     -> fetch diff via git diff inside worktree (respects PR_DIFF_CONTEXT_LINES)
  *     -> runImpactAnalyzer   (stage 2, soft-fail; produces pr-impact.md)
  *     -> runPrAnalyst        (stage 3, fans out subagents, commits, comments)
  *     -> runPrDisplay        (stage 4, writes dashboard review.json; soft-fail)
@@ -70,16 +71,17 @@ async function runPrReviewInner(
   const { artifactsDir } = prepared;
   const paths = prReviewArtifactPaths(artifactsDir);
 
-  // Fetch + persist PR metadata and diff so every downstream stage has stable inputs.
+  // Fetch PR metadata first — we need headRef and baseRef to create the worktree
+  // and to run git diff inside it.
   let headRef: string;
+  let baseRef: string;
   try {
     const metadata = await getPrMetadata(nwo, prNumber);
-    const diff = await getPrDiff(nwo, prNumber);
     await writeFile(paths.context, JSON.stringify(metadata, null, 2));
-    await writeFile(paths.diff, diff);
     headRef = metadata.headRef;
+    baseRef = metadata.baseRef;
   } catch (err) {
-    await failTask(taskId, `Failed to fetch PR context: ${toErrorMessage(err)}`, sendTelegram, chatId);
+    await failTask(taskId, `Failed to fetch PR metadata: ${toErrorMessage(err)}`, sendTelegram, chatId);
     return;
   }
 
@@ -97,6 +99,12 @@ async function runPrReviewInner(
   let handedOff = false;
 
   try {
+    // Diff is fetched after the worktree exists so we can run git diff inside it,
+    // giving us configurable context lines (PR_DIFF_CONTEXT_LINES) instead of
+    // the fixed 3-line context that gh pr diff returns.
+    const diff = await getPrDiff(worktreePath, baseRef);
+    await writeFile(paths.diff, diff);
+
     await queries.updateTask(taskId, { prNumber, worktreePath, status: "running" });
 
     const fullMemory = await memoryBlock(task.repo);
@@ -130,7 +138,7 @@ async function runPrReviewInner(
     // Snapshot post-analyst PR state so pr_display renders the actual reviewed diff.
     try {
       const updatedMetadata = await getPrMetadata(nwo, prNumber);
-      const updatedDiff = await getPrDiff(nwo, prNumber);
+      const updatedDiff = await getPrDiff(worktreePath, baseRef);
       await writeFile(paths.updatedContext, JSON.stringify(updatedMetadata, null, 2));
       await writeFile(paths.updatedDiff, updatedDiff);
     } catch (err) {
