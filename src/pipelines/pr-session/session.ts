@@ -35,7 +35,7 @@ import {
   parseReviewChatResult,
   type ReviewChatArtifacts,
   type ReviewChatResult,
-} from "./review-chat.js";
+} from "./review-chat/index.js";
 import { stat } from "node:fs/promises";
 import type { AssistantMessage, FileEntry, TextContent } from "../../shared/session.js";
 import { withPipelineSpan, bridgeSessionToOtel } from "../../observability/index.js";

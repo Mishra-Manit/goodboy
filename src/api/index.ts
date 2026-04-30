@@ -50,7 +50,7 @@ import {
   type ReviewChatResponse,
   type ReviewChatPostResponse,
 } from "../shared/pr-review.js";
-import { extractReviewChatMessages } from "../pipelines/pr-session/review-chat.js";
+import { extractReviewChatMessages } from "../pipelines/pr-session/review-chat/index.js";
 import {
   runReviewChatTurn,
   ReviewChatBusyError,

@@ -4,7 +4,7 @@ import {
   parseReviewChatResult,
   reviewChatSystemPrompt,
   extractReviewChatMessages,
-} from "@src/pipelines/pr-session/review-chat.js";
+} from "@src/pipelines/pr-session/review-chat/index.js";
 import type { PrReviewAnnotation } from "@src/shared/pr-review.js";
 import type { FileEntry } from "@src/shared/session.js";
 
