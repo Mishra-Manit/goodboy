@@ -22,8 +22,9 @@ const POLL_INTERVAL_MS = 500;
 // --- Paths ---
 
 /** Absolute path to a task stage's session file. */
-export function taskSessionPath(taskId: string, stage: StageName): string {
-  return path.join(taskArtifactsDir(taskId), `${stage}.session.jsonl`);
+export function taskSessionPath(taskId: string, stage: StageName, variant?: number): string {
+  const suffix = variant === undefined ? "" : `.v${variant}`;
+  return path.join(taskArtifactsDir(taskId), `${stage}${suffix}.session.jsonl`);
 }
 
 /** Absolute path to a PR session's session file. */

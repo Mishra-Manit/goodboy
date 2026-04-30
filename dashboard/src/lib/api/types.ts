@@ -72,7 +72,8 @@ export interface Task {
 export interface TaskStage {
   id: string;
   taskId: string;
-  stage: string;
+  stage: StageName;
+  variant: number | null;
   status: StageStatus;
   startedAt: string;
   completedAt: string | null;
@@ -131,6 +132,7 @@ export interface Repo {
 /** One stage's share of a task's pi session transcript. */
 export interface StageSession {
   stage: StageName;
+  variant: number | null;
   entries: FileEntry[];
 }
 

@@ -64,4 +64,19 @@ describe("events", () => {
     emit(event);
     expect(listener).toHaveBeenCalledWith(event);
   });
+
+  it("accepts variant metadata on task-scoped stage and session events", () => {
+    const listener = vi.fn();
+    track(listener);
+    emit({ type: "stage_update", taskId: "t", stage: "pr_impact", variant: 2, status: "running" });
+    emit({
+      type: "session_entry",
+      scope: "task",
+      id: "t",
+      stage: "pr_impact",
+      variant: 2,
+      entry: { type: "session", id: "s", version: 3, timestamp: "now", cwd: "/" },
+    });
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
 });

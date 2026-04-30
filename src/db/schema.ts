@@ -74,6 +74,7 @@ export const taskStages = pgTable("task_stages", {
     .notNull()
     .references(() => tasks.id),
   stage: stageNameEnum("stage").notNull(),
+  variant: integer("variant"),
   status: stageStatusEnum("status").notNull().default("running"),
   startedAt: timestamp("started_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),

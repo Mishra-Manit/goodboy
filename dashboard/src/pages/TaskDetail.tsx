@@ -26,6 +26,7 @@ import { PipelineProgress } from "@dashboard/components/PipelineProgress";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { dedupeById } from "@dashboard/components/log-viewer/helpers";
 import { getPrReviewTarget, getPrReviewUrl } from "@dashboard/lib/pr-review";
+import { buildStageTabs, stageSessionKey, type StageSessionLike } from "@dashboard/lib/stage-tabs";
 import { cn, shortId } from "@dashboard/lib/utils";
 import { ArrowUpRight } from "lucide-react";
 
@@ -56,7 +57,7 @@ export function TaskDetail() {
   const liveEntries = useLiveSession({
     match: (event) =>
       event.type === "session_entry" && event.scope === "task" && event.id === taskId && event.stage
-        ? { key: event.stage, entry: event.entry }
+        ? { key: stageSessionKey(event.stage, event.variant), entry: event.entry }
         : null,
   });
 
@@ -83,7 +84,7 @@ export function TaskDetail() {
 
 interface TaskViewProps {
   task: TaskWithStages;
-  diskEntries: { stage: string; entries: FileEntry[] }[];
+  diskEntries: StageSessionLike[];
   liveEntries: Map<string, FileEntry[]>;
   now: number;
   refetch: () => void;
@@ -104,28 +105,25 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
     [task.id, task.kind],
   );
 
-  const stageNames = useMemo(
-    () => [
-      ...new Set([
-        ...kindConfig.stages.filter((s) => task.stages.some((ts) => ts.stage === s)),
-        ...liveEntries.keys(),
-      ]),
-    ],
-    [kindConfig.stages, task.stages, liveEntries],
+  const tabs = useMemo(
+    () => buildStageTabs(task.stages, diskEntries, liveEntries, kindConfig.stages),
+    [task.stages, diskEntries, liveEntries, kindConfig.stages],
   );
 
   const [activeStage, setActiveStage] = useState<string | null>(null);
   useEffect(() => {
-    if (activeStage && stageNames.includes(activeStage)) return;
-    const running = task.stages.find((s) => s.status === "running")?.stage;
-    setActiveStage(running ?? stageNames[stageNames.length - 1] ?? null);
-  }, [task.stages, stageNames, activeStage]);
+    if (activeStage && tabs.some((tab) => tab.key === activeStage)) return;
+    const running = tabs.find((tab) => tab.stage?.status === "running")?.key;
+    setActiveStage(running ?? tabs[tabs.length - 1]?.key ?? null);
+  }, [tabs, activeStage]);
 
-  const entriesForStage = (stage: string): FileEntry[] =>
-    dedupeById([
-      ...(diskEntries.find((l) => l.stage === stage)?.entries ?? []),
-      ...(liveEntries.get(stage) ?? []),
+  const entriesForStage = (key: string): FileEntry[] => {
+    if (!tabs.some((tab) => tab.key === key)) return [];
+    return dedupeById([
+      ...(diskEntries.find((entry) => stageSessionKey(entry.stage, entry.variant) === key)?.entries ?? []),
+      ...(liveEntries.get(key) ?? []),
     ]);
+  };
 
   const handleRetry = async () => {
     try { await retryTask(task.id); refetch(); } catch { /* status will surface */ }
@@ -162,30 +160,32 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
 
       <SectionDivider label="transcript" />
 
-      {stageNames.length > 0 && (
-        <div className="mt-3 mb-3 flex gap-1">
-          {stageNames.map((stage) => {
-            const data = task.stages.find((s) => s.stage === stage);
-            return (
-              <button
-                key={stage}
-                onClick={() => setActiveStage(stage)}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-full px-3 py-1 font-mono text-[10px]",
-                  "transition-all duration-200",
-                  activeStage === stage ? "bg-glass text-text" : "text-text-ghost hover:text-text-dim",
-                )}
-              >
-                {stage.replace("_", " ")}
-                {data && <StatusBadge status={data.status} className="text-[8px]" />}
-              </button>
-            );
-          })}
+      {tabs.length > 0 && (
+        <div role="tablist" className="mt-3 mb-3 flex flex-wrap gap-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={activeStage === tab.key}
+              onClick={() => setActiveStage(tab.key)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full px-3 py-1 font-mono text-[10px]",
+                "transition-all duration-200",
+                activeStage === tab.key ? "bg-glass text-text" : "text-text-ghost hover:text-text-dim",
+              )}
+            >
+              {tab.label}
+              {tab.stage && <StatusBadge status={tab.stage.status} className="text-[8px]" />}
+            </button>
+          ))}
         </div>
       )}
 
       {activeStage ? (
-        <LogViewer entries={entriesForStage(activeStage)} maxHeight="500px" autoScroll={isActive} />
+        <div role="tabpanel" aria-label={activeStage}>
+          <LogViewer entries={entriesForStage(activeStage)} maxHeight="500px" autoScroll={isActive} />
+        </div>
       ) : (
         <p className="font-mono text-xs text-text-void py-4">no stages recorded yet</p>
       )}
@@ -198,7 +198,7 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
 
 // --- Helpers ---
 
-interface PrReviewBannerProps {
+export interface PrReviewBannerProps {
   prReviewUrl: string | null;
   prReviewTarget: string;
   linkedSession: { id: string } | null;

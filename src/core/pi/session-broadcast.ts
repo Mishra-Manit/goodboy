@@ -12,6 +12,7 @@ interface TaskTarget {
   scope: "task";
   taskId: string;
   stage: StageName;
+  variant?: number;
   memoryRunId?: string;
 }
 
@@ -31,6 +32,7 @@ export function broadcastSessionFile(filePath: string, target: BroadcastTarget):
         scope: "task",
         id: target.taskId,
         stage: target.stage,
+        variant: target.variant,
         memoryRunId: target.memoryRunId,
         entry,
       });

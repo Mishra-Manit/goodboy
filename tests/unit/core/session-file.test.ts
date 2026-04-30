@@ -14,6 +14,11 @@ describe("path helpers", () => {
     expect(p.endsWith(path.join("abc-123", "planner.session.jsonl"))).toBe(true);
     expect(path.isAbsolute(p)).toBe(true);
   });
+
+  it("taskSessionPath includes optional stage variant", () => {
+    const p = taskSessionPath("abc-123", "pr_impact", 2);
+    expect(p.endsWith(path.join("abc-123", "pr_impact.v2.session.jsonl"))).toBe(true);
+  });
   it("prSessionPath composes prSessionsDir/<id>.jsonl", () => {
     const p = prSessionPath("xyz");
     expect(p.endsWith(path.join("xyz.jsonl"))).toBe(true);

@@ -10,6 +10,7 @@ const opts = {
   prNumber: 42,
   artifactsDir: "/tmp/artifacts/task-1",
   worktreePath: "/tmp/worktree",
+  availableImpactVariants: [1, 3],
 };
 
 describe("prDisplaySystemPrompt", () => {
@@ -38,14 +39,19 @@ describe("prDisplaySystemPrompt", () => {
 
     expect(prompt).toContain("every annotation must reference a line in the");
     expect(prompt).toContain("Do not annotate unrelated files");
-    expect(prompt).toContain("may be absent if impact failed");
+    expect(prompt).toContain("Successful impact analyzer curated context variants");
+    expect(prompt).toContain("/tmp/artifacts/task-1/pr-impact.v1.md");
+    expect(prompt).toContain("/tmp/artifacts/task-1/pr-impact.v3.md");
+    expect(prompt).not.toContain("/tmp/artifacts/task-1/pr-impact.v2.md");
   });
 });
 
 describe("prDisplayInitialPrompt", () => {
   it("treats the impact report as optional", () => {
-    const prompt = prDisplayInitialPrompt(opts.artifactsDir);
+    const prompt = prDisplayInitialPrompt(opts.artifactsDir, [1, 3]);
 
-    expect(prompt).toContain("Also read /tmp/artifacts/task-1/pr-impact.md if it exists");
+    expect(prompt).toContain("Also read successful impact variant files");
+    expect(prompt).toContain("/tmp/artifacts/task-1/pr-impact.v3.md");
+    expect(prompt).not.toContain("/tmp/artifacts/task-1/pr-impact.v2.md");
   });
 });

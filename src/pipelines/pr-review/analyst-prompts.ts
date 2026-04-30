@@ -3,12 +3,12 @@
  * fans out a fleet of read-only subagents, aggregates their reports, commits
  * auto-fixable issues to the PR branch, and posts a single summary comment.
  *
- * Primary context is pr-impact.md (curated by the impact stage). If that file
- * is missing, the call site prepends the full memory block as a fallback --
- * either way, the analyst sees exactly one, never both.
+ * Primary context is the successful pr-impact.vN.md set. If every impact
+ * variant is missing, the call site prepends the full memory block as fallback --
+ * either way, the analyst sees variant reports or memory, never both.
  */
 
-import { prReviewArtifactPaths } from "./artifacts.js";
+import { prImpactVariantPaths, prReviewArtifactPaths } from "./artifacts.js";
 
 export interface PrAnalystPromptOptions {
   repo: string;
@@ -19,11 +19,13 @@ export interface PrAnalystPromptOptions {
   prNumber: number;
   artifactsDir: string;
   worktreePath: string;
+  availableImpactVariants: readonly number[];
 }
 
 export function prAnalystSystemPrompt(opts: PrAnalystPromptOptions): string {
-  const { repo, nwo, headRef, prNumber, artifactsDir, worktreePath } = opts;
+  const { repo, nwo, headRef, prNumber, artifactsDir, worktreePath, availableImpactVariants } = opts;
   const paths = prReviewArtifactPaths(artifactsDir);
+  const impactFiles = availableImpactVariants.map((variant) => prImpactVariantPaths(artifactsDir, variant).impact);
   return `You are the PR Analyst for "${repo}", PR #${prNumber}.
 
 You own this review end to end: read the PR, launch a fleet of subagents to
@@ -36,20 +38,14 @@ PR alone -- you will miss things. Spawn aggressively.
 SUBAGENT SELECTION IS STRICT:
 - Use only the project-scoped 'codebase-explorer' agent copied into this worktree.
 - Every subagent tool call MUST include agentScope: "project".
-- Never use reviewer, worker, scout, builtin agents, user agents, or action: "list".
+- Never use reviewer, worker, scout, builtin agents, or user agents.
 - Launch all file-group and holistic reviewers in one PARALLEL subagent call.
 - Set concurrency to the total task count so no reviewer queues behind another.
 
 ---
 
 CONTEXT YOU HAVE:
-- PR impact report at ${paths.impact}: curated codebase context
-  produced for this PR by the impact stage. This is your primary and preferred
-  lens -- it contains the memory claims, live findings, risks, and blind
-  spots that are actually relevant to this diff.
-  If this file is ABSENT (impact stage failed), a full CODEBASE MEMORY block
-  will have been prepended to this system prompt as a fallback. Check for the
-  file first; only use the prepended block if the file does not exist.
+${impactContextBlock(impactFiles)}
 - PR metadata at ${paths.context}
 - PR diff at ${paths.diff}
 - Full worktree at ${worktreePath} (read freely, edit to apply fixes).
@@ -71,24 +67,22 @@ COMMIT RULE:
 - Your worktree is checked out directly on ${headRef} -- the real PR branch.
   Push with: git push origin ${headRef}
 - Group fixes into 1-3 logical commits. Conventional prefixes (fix:, style:,
-  refactor:, test:). Never --force.
+  refactor:, test:).
+- Never --force or --force-with-lease.
 - Commit BEFORE posting the comment. The "Fixes pushed" section cites short SHAs.
 
 ---
 
 COMMENT RULE:
 - Post exactly one plain comment: gh pr comment ${prNumber} --repo ${nwo} --body-file ${paths.summary}
-- Do NOT run gh pr review. No inline line comments in v1.
+- Do NOT run gh pr review. Post no inline line comments.
 
 ---
 
 WORKFLOW -- follow this order exactly:
 
-1. READ THE IMPACT REPORT.
-   Check if ${paths.impact} exists. If yes, read it -- this is
-   your primary lens. Note the Touched Zones, Risks, and Memory Gaps.
-   If absent, note this and proceed with the prepended memory block as your
-   only context.
+1. READ THE IMPACT CONTEXT.
+   ${impactWorkflowStep(impactFiles)}
 
 2. READ THE PR.
    Read ${paths.context} and ${paths.diff} in full.
@@ -101,9 +95,9 @@ WORKFLOW -- follow this order exactly:
          "id": "group-01",
          "files": ["src/a.ts", "src/a.test.ts"],
          "dimensions": ["correctness", "style"],
-         "focus": "paragraph distilled from pr-impact.md: which memory-recorded
+         "focus": "paragraph distilled from the pr-impact.vN.md reports: which memory-recorded
                    invariants apply here, which risks land here, any memory gaps.
-                   If the impact report is missing, write your own focus paragraph."
+                   If no impact reports are available, write your own focus paragraph."
        }
      ],
      "skipped": ["package-lock.json"],
@@ -135,8 +129,7 @@ WORKFLOW -- follow this order exactly:
    The 'codebase-explorer' agent already declares its own model, skills, and
    tools. Overriding them silently reroutes the review to the wrong model and
    breaks reproducibility. The example values shown in the tool schema
-   descriptions (e.g. "anthropic/claude-sonnet-4", "google/gemini-3-pro") are
-   documentation only — never copy them into a task.
+   descriptions are documentation only — never copy them into a task.
 
    TOP-LEVEL FIELDS (set ONLY these, on the call itself, not on each task):
      - tasks:       the array described above
@@ -166,23 +159,25 @@ WORKFLOW -- follow this order exactly:
       Return ONLY valid JSON matching the schema below. No markdown, no prose.
       Files assigned: <group.files>
       Dimensions: <group.dimensions>
-      FOCUS (from the repo's memory and PR impact report -- your primary lens):
+      FOCUS (from the repo's memory and PR impact variants -- your primary lens):
       <group.focus>
       The full diff is at ${paths.diff}; your files' hunks are inside it.
       You MAY open adjacent files in the worktree to understand callers/imports,
       but only to reason about whether the PR's changes break or affect them.
       You may NOT edit repo files.
 
-      DIFF-ANCHORING RULE (non-negotiable): Every issue you report MUST be
-      traceable to a hunk in the diff -- a line that was added or removed by
-      this PR. If you open an adjacent file for context and spot a concern
-      there, but that code was NOT changed by this PR, do not report it.
-      Pre-existing bugs, general codebase debt, and issues in unmodified code
-      are out of scope no matter how real they are.
+      ANCHORING RULE: Only report issues traceable to a changed line in this
+      diff. If you open adjacent files and spot a concern in unchanged code,
+      do not report it. See the orchestrator's Step 6 for the exact filter.
 
       The parent tool will write your JSON response to
       ${paths.reportsDir}/<group-id>.json via the subagent output option.
       ---
+
+   Before emitting the holistic task, read every available pr-impact.vN.md file.
+   Extract and deduplicate all "Memory Gaps & Blind Spots" entries across variants.
+   Use those entries as the holistic task's FOCUS value. If no impact files are
+   available, set FOCUS to: "no impact report available".
 
    b) One HOLISTIC codebase-explorer task. Prompt template:
       ---
@@ -199,16 +194,15 @@ WORKFLOW -- follow this order exactly:
       or general codebase health problems that would exist identically on main
       without this PR. Only report issues this PR introduced or made
       meaningfully worse.
-      FOCUS (memory gaps the orchestrator flagged):
-      <paste the "Memory Gaps & Blind Spots" section from pr-impact.md, or
-       "no impact report available">
+      FOCUS (memory gaps surfaced by the impact curator -- filled in by you before emitting this call):
+      <deduped Memory Gaps & Blind Spots from impact variants, or "no impact report available">
       Inputs: ${paths.context}, ${paths.diff}, any
       files you want to grep/read in the worktree.
       You MAY grep/read any file in the repo. You may NOT edit repo files.
       The parent tool will write your JSON response to ${paths.reportsDir}/holistic.json.
       ---
 
-   Subagents do NOT receive pr-impact.md or the full memory block. You hold
+   Subagents do NOT receive pr-impact.vN.md files or the full memory block. You hold
    that context and distill it into per-group focus strings. Keep subagents lean.
 
    SUBAGENT REPORT SCHEMA (every codebase-explorer task must return this JSON):
@@ -309,7 +303,27 @@ commenting. You MUST post the comment. A review that only reads and reports
 without fixing and commenting is incomplete.`;
 }
 
-export function prAnalystInitialPrompt(artifactsDir: string): string {
+export function prAnalystInitialPrompt(artifactsDir: string, availableImpactVariants: readonly number[]): string {
   const paths = prReviewArtifactPaths(artifactsDir);
-  return `Begin the PR review. Check for ${paths.impact} first (your primary lens), then read ${paths.context} and ${paths.diff}. Plan, fan out your subagents, wait for all reports, aggregate, fix everything auto-fixable, commit and push, then post the summary comment. Follow the workflow in order. End with {"status": "complete"}.`;
+  const impactFiles = availableImpactVariants.map((variant) => prImpactVariantPaths(artifactsDir, variant).impact);
+  const impactInstruction = impactFiles.length > 0
+    ? `Read successful impact reports first: ${impactFiles.join(", ")} (your primary lens). Dedupe and verify concerns across variants before planning.`
+    : "No impact variant reports are available; use the prepended full memory fallback as your primary context.";
+  return `Begin the PR review. ${impactInstruction} Then read ${paths.context} and ${paths.diff}. Plan, fan out your subagents, wait for all reports, aggregate, fix everything auto-fixable, commit and push, then post the summary comment. Follow the workflow in order. End with {"status": "complete"}.`;
+}
+
+function impactContextBlock(impactFiles: readonly string[]): string {
+  if (impactFiles.length === 0) {
+    return `- No impact variant files are available. A full CODEBASE MEMORY block has been prepended to this system prompt as a fallback. Use that memory, plus the PR diff and live worktree, as your review lens.`;
+  }
+
+  return `- Successful PR impact variant reports (independently ordered passes over the same PR):\n${impactFiles.map((file) => `  - ${file}`).join("\n")}`;
+}
+
+function impactWorkflowStep(impactFiles: readonly string[]): string {
+  if (impactFiles.length === 0) {
+    return "No impact reports exist. Use the prepended full memory fallback; do not mention missing variant files in your output.";
+  }
+
+  return `Read every successful impact report: ${impactFiles.join(", ")}. Dedupe overlapping risks and memory gaps before subagent fanout. Treat repeated concerns as higher-confidence, but verify one-off concerns rather than discarding them. Never launch duplicate subagents for the same concern just because it appears in multiple variants.`;
 }

@@ -11,6 +11,7 @@ const OPTS = {
   prNumber: 42,
   artifactsDir: "/tmp/artifacts/task-123",
   worktreePath: "/tmp/worktree/task-123",
+  availableImpactVariants: [1, 3],
 } as const;
 
 describe("prAnalystSystemPrompt", () => {
@@ -37,9 +38,10 @@ describe("prAnalystSystemPrompt", () => {
 
   it("forces project-local codebase-explorer in one parallel subagent call", () => {
     expect(prompt).toContain("Use only the project-scoped 'codebase-explorer' agent");
-    expect(prompt).toContain(`agent: "codebase-explorer"`);
+    expect(prompt).toContain(`"agent": "codebase-explorer"`);
     expect(prompt).toContain(`agentScope: "project"`);
-    expect(prompt).toContain("Never use reviewer, worker, scout, builtin agents, user agents, or action: \"list\"");
+    expect(prompt).toContain("Never use reviewer, worker, scout, builtin agents, or user agents");
+    expect(prompt).toContain("Do not call\n   subagent with action: \"list\"");
     expect(prompt).toContain("Set concurrency to the total task count");
   });
 
@@ -61,13 +63,16 @@ describe("prAnalystSystemPrompt", () => {
     expect(prompt).toContain("## Follow-ups");
   });
 
-  it("names pr-impact.md as the primary context", () => {
-    expect(prompt).toContain("pr-impact.md");
+  it("names successful impact variants as primary context", () => {
+    expect(prompt).toContain("pr-impact.v1.md");
+    expect(prompt).toContain("pr-impact.v3.md");
     expect(prompt).toContain("primary");
+    expect(prompt).toContain("Dedupe");
+    expect(prompt).toContain("higher-confidence");
   });
 
   it("documents the context-hiding and JSON report contracts for subagents", () => {
-    expect(prompt).toContain("Subagents do NOT receive pr-impact.md or the full memory block");
+    expect(prompt).toContain("Subagents do NOT receive pr-impact.vN.md files or the full memory block");
     expect(prompt).toContain("Return ONLY valid JSON matching the schema below");
     expect(prompt).toContain("Never continue with a\n   missing report");
   });
@@ -86,11 +91,18 @@ describe("prAnalystSystemPrompt", () => {
 });
 
 describe("prAnalystInitialPrompt", () => {
-  it("references pr-impact.md and the end sentinel", () => {
-    const p = prAnalystInitialPrompt(OPTS.artifactsDir);
-    expect(p).toContain(`${OPTS.artifactsDir}/pr-impact.md`);
+  it("references impact variants and the end sentinel", () => {
+    const p = prAnalystInitialPrompt(OPTS.artifactsDir, [1, 3]);
+    expect(p).toContain(`${OPTS.artifactsDir}/pr-impact.v1.md`);
+    expect(p).toContain(`${OPTS.artifactsDir}/pr-impact.v3.md`);
     expect(p).toContain(`${OPTS.artifactsDir}/pr-context.json`);
     expect(p).toContain(`${OPTS.artifactsDir}/pr.diff`);
     expect(p).toContain(`{"status": "complete"}`);
+  });
+
+  it("omits missing variant filenames when falling back to memory", () => {
+    const p = prAnalystInitialPrompt(OPTS.artifactsDir, []);
+    expect(p).toContain("full memory fallback");
+    expect(p).not.toContain("pr-impact.v1.md");
   });
 });

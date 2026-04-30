@@ -3,7 +3,7 @@
  * left behind and writes review.json -- the full dashboard page model.
  */
 
-import { prReviewArtifactPaths } from "./artifacts.js";
+import { prImpactVariantPaths, prReviewArtifactPaths } from "./artifacts.js";
 
 export interface PrDisplayPromptOptions {
   repo: string;
@@ -11,6 +11,7 @@ export interface PrDisplayPromptOptions {
   prNumber: number;
   artifactsDir: string;
   worktreePath: string;
+  availableImpactVariants: readonly number[];
 }
 
 const SCHEMA_DOC = `
@@ -60,6 +61,9 @@ Annotation kinds:
 /** System prompt for the read-only display-model author. */
 export function prDisplaySystemPrompt(opts: PrDisplayPromptOptions): string {
   const paths = prReviewArtifactPaths(opts.artifactsDir);
+  const impactFiles = opts.availableImpactVariants.map((variant) => (
+    prImpactVariantPaths(opts.artifactsDir, variant).impact
+  ));
   return `You are the pr_display agent for goodboy. Your single job is to produce ${paths.review} -- the full dashboard model for this PR review.
 
 Repo: ${opts.repo} (${opts.nwo})
@@ -73,7 +77,7 @@ Inputs you must read first:
 - ${paths.diff}: the original diff the user opened
 - ${paths.updatedDiff}: the diff after goodboy's commits (use this for line numbers)
 - ${paths.summary}: the comment goodboy posted on GitHub
-- ${paths.impact}: impact analyzer's curated context (may be absent if impact failed; if missing, continue without it)
+${impactInputBlock(impactFiles)}
 - ${paths.reportsDir}/*.json: subagent reports from the analyst phase
 
 You may also read any file inside ${opts.worktreePath} for additional context, but you
@@ -106,7 +110,19 @@ Output rules:
 }
 
 /** Initial instruction sent after the pi session starts. */
-export function prDisplayInitialPrompt(artifactsDir: string): string {
+export function prDisplayInitialPrompt(artifactsDir: string, availableImpactVariants: readonly number[]): string {
   const paths = prReviewArtifactPaths(artifactsDir);
-  return `Begin. Read ${paths.updatedContext}, ${paths.context}, ${paths.diff}, ${paths.updatedDiff}, ${paths.summary}, and the JSON files under ${paths.reportsDir}. Also read ${paths.impact} if it exists. Read additional worktree files if you need deeper context. Then write the full review model to ${paths.review} matching the schema. End with {"status": "complete"}.`;
+  const impactFiles = availableImpactVariants.map((variant) => prImpactVariantPaths(artifactsDir, variant).impact);
+  const impactInstruction = impactFiles.length > 0
+    ? `Also read successful impact variant files: ${impactFiles.join(", ")}.`
+    : "No impact variant files succeeded; continue from summary, reports, context, and diffs.";
+  return `Begin. Read ${paths.updatedContext}, ${paths.context}, ${paths.diff}, ${paths.updatedDiff}, ${paths.summary}, and the JSON files under ${paths.reportsDir}. ${impactInstruction} Read additional worktree files if you need deeper context. Then write the full review model to ${paths.review} matching the schema. End with {"status": "complete"}.`;
+}
+
+function impactInputBlock(impactFiles: readonly string[]): string {
+  if (impactFiles.length === 0) {
+    return "- No impact variant files succeeded. Continue without impact context.";
+  }
+
+  return `- Successful impact analyzer curated context variants:\n${impactFiles.map((file) => `  - ${file}`).join("\n")}`;
 }

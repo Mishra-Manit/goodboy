@@ -4,7 +4,7 @@
  * so callers never have to issue a second select.
  */
 
-import { eq, desc, and, or, like, inArray } from "drizzle-orm";
+import { eq, desc, asc, and, or, like, inArray } from "drizzle-orm";
 import { getDb, schema } from "./index.js";
 import type { Task, TaskStage, PrSession, PrSessionRun, MemoryRun } from "./schema.js";
 import type {
@@ -105,6 +105,7 @@ export async function findTaskByPrNumber(prNumber: number): Promise<Task | null>
 export async function createTaskStage(data: {
   taskId: string;
   stage: StageName;
+  variant?: number;
   piSessionId?: string;
 }): Promise<TaskStage> {
   const db = getDb();
@@ -136,7 +137,7 @@ export async function getStagesForTask(taskId: string): Promise<TaskStage[]> {
     .select()
     .from(schema.taskStages)
     .where(eq(schema.taskStages.taskId, taskId))
-    .orderBy(schema.taskStages.startedAt);
+    .orderBy(asc(schema.taskStages.startedAt), asc(schema.taskStages.variant));
 }
 
 // --- PR Sessions ---
