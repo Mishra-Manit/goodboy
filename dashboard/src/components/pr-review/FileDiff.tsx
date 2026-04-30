@@ -37,6 +37,7 @@ export function FileDiff({ filePath, patch, annotations, diffStyle }: FileDiffPr
             overflow: "scroll",
             lineDiffType: "word",
             disableFileHeader: true,
+            hunkSeparators: "simple",
           }}
           lineAnnotations={lineAnnotations}
           renderAnnotation={(item) => (

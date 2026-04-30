@@ -31,23 +31,14 @@ export function FileStack({
   diffStyle,
   fileRefs,
 }: FileStackProps) {
-  const fileToChapter = useMemo(() => {
-    const map = new Map<string, PrReviewChapter>();
-    for (const chapter of chapters) {
-      for (const file of chapter.files) map.set(file, chapter);
-    }
-    return map;
-  }, [chapters]);
-
   const orderedFiles = useMemo(() => {
     const byId = new Map(chapters.map((c) => [c.id, c]));
     return orderedChapterIds.flatMap((id) => byId.get(id)?.files ?? []);
   }, [chapters, orderedChapterIds]);
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex flex-col gap-[14px]">
       {orderedFiles.map((file) => {
-        const chapter = fileToChapter.get(file);
         const expanded = expandedFiles.has(file);
         const annotations = annotationsByFile.get(file) ?? [];
         const patch = patchByFile.get(file) ?? null;
@@ -57,7 +48,6 @@ export function FileStack({
           <FileCard
             key={file}
             file={file}
-            chapterTitle={chapter?.title ?? ""}
             stats={stats}
             expanded={expanded}
             active={active}
@@ -81,7 +71,6 @@ export function FileStack({
 
 interface FileCardProps {
   file: string;
-  chapterTitle: string;
   stats: { adds: number; dels: number } | null;
   expanded: boolean;
   active: boolean;
@@ -94,7 +83,6 @@ interface FileCardProps {
 
 function FileCard({
   file,
-  chapterTitle,
   stats,
   expanded,
   active,
@@ -118,32 +106,19 @@ function FileCard({
         type="button"
         onClick={onToggle}
         className={cn(
-          "flex w-full items-center gap-[10px] px-4 text-left transition-colors",
-          expanded ? "bg-bg-active py-[10px]" : "h-11 hover:bg-glass",
+          "flex h-10 w-full items-center gap-[10px] px-4 text-left transition-colors",
+          expanded ? "bg-bg-active" : "hover:bg-glass",
         )}
       >
-        <Icon className="h-3.5 w-3.5 shrink-0 text-text-dim" strokeWidth={1.5} />
+        <Icon className="h-3.5 w-3.5 shrink-0 text-text-ghost" strokeWidth={1.5} />
         <span className="min-w-0 truncate font-mono text-[12px] text-text">{file}</span>
         {stats && (
-          <span className="shrink-0 font-mono text-[11px] text-text-ghost">
+          <span className="shrink-0 font-mono text-[10px] tabular-nums text-text-ghost">
             +{stats.adds} −{stats.dels}
           </span>
         )}
-        {chapterTitle && (
-          <span className="shrink-0 rounded-[4px] bg-accent-ghost px-2 py-[2px] font-body text-[9px] font-normal uppercase tracking-[0.12em] text-accent">
-            {chapterTitle}
-          </span>
-        )}
-        {!expanded && (
-          <span className="ml-auto shrink-0 font-mono text-[10px] text-text-void">
-            click to expand
-          </span>
-        )}
         <Chev
-          className={cn(
-            "h-3.5 w-3.5 shrink-0 text-text-ghost",
-            expanded ? "ml-auto" : "",
-          )}
+          className="ml-auto h-3.5 w-3.5 shrink-0 text-text-ghost"
           strokeWidth={1.5}
         />
       </button>

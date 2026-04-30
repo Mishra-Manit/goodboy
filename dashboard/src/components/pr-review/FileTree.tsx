@@ -39,15 +39,15 @@ interface ChapterSectionProps {
 function ChapterSection({ chapter, activeFile, onSelectFile }: ChapterSectionProps) {
   const fileCount = chapter.files.length;
   return (
-    <div className="flex flex-col gap-[6px] px-[14px] pb-3 pt-5">
-      <h3 className="font-body text-[11px] font-bold tracking-[0.18em] text-text-dim">
-        {chapter.title.toUpperCase()}
+    <div className="flex flex-col gap-[4px] px-[14px] pb-3 pt-5">
+      <h3 className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-text-ghost">
+        {chapter.title}
         <span className="text-text-void">
           {"  ·  "}
-          {fileCount} {fileCount === 1 ? "FILE" : "FILES"}
+          {fileCount}
         </span>
       </h3>
-      <ul className="flex flex-col gap-[6px]">
+      <ul className="flex flex-col gap-[2px]">
         {chapter.files.map((file) => (
           <FileRow
             key={file}
@@ -83,22 +83,17 @@ function FileRow({ file, annotations, active, onSelect }: FileRowProps) {
         type="button"
         onClick={() => onSelect(file)}
         className={cn(
-          "flex w-full items-center gap-[6px] rounded-md px-3 py-[10px] text-left transition-colors",
+          "flex w-full items-center gap-[6px] rounded-md px-2 py-[6px] text-left transition-colors",
           active
-            ? "border-l-2 border-l-accent bg-accent-ghost pl-[10px]"
-            : "border-l-2 border-l-transparent text-text-dim hover:bg-glass hover:text-text-secondary",
+            ? "bg-accent-ghost text-accent"
+            : "text-text-dim hover:bg-glass hover:text-text-secondary",
         )}
       >
-        <span
-          className={cn(
-            "min-w-0 truncate font-mono text-[13px]",
-            active ? "text-accent" : "",
-          )}
-        >
+        <span className="min-w-0 truncate font-mono text-[12px]">
           {filenameOnly(file)}
         </span>
         {total > 0 && (
-          <span className={cn("ml-auto font-mono text-[11px] font-bold tabular-nums", totalColor)}>
+          <span className={cn("ml-auto font-mono text-[10px] tabular-nums", totalColor)}>
             {total}
           </span>
         )}

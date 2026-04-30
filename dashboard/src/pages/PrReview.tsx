@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { Check, MessageSquare } from "lucide-react";
+import { Check } from "lucide-react";
 import { fetchPrReviewPage } from "@dashboard/lib/api/pr-sessions";
 import { splitUnifiedDiffByFile } from "@dashboard/lib/diff-patch";
 import { formatDate } from "@dashboard/lib/format";
@@ -198,49 +198,32 @@ function ReviewHeader({ title, repo, prNumber, sha, createdAt, threadCount }: Re
   return (
     <div className="px-2 pb-4">
       <div className="mb-2 flex items-center gap-3">
-        <span className="rounded-[3px] border border-accent-dim bg-accent-ghost px-[7px] py-[3px] font-mono text-[9px] font-bold tracking-[0.22em] text-accent">
-          REVIEW
-        </span>
         <span className="font-mono text-[11px] font-medium text-accent">{repo}</span>
         {prNumber !== null && (
-          <span className="font-mono text-[12px] text-text-dim">#{prNumber}</span>
+          <span className="font-mono text-[11px] text-text-dim">#{prNumber}</span>
         )}
-        <span className="flex items-center gap-1.5 rounded-full border border-glass-border bg-glass px-2 py-[2px]">
-          <span className="h-[5px] w-[5px] animate-pulse-glow rounded-full bg-ok" />
-          <span className="font-mono text-[9.5px] font-medium tracking-[0.1em] text-text-dim">
-            claude · live
-          </span>
-        </span>
       </div>
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h1 className="min-w-0 truncate font-display text-[19px] font-normal leading-tight tracking-tight text-text">
+          <h1 className="min-w-0 truncate font-display text-[18px] font-normal leading-tight tracking-tight text-text">
             {title}
           </h1>
-          <div className="mt-1.5 flex flex-wrap gap-x-4 font-mono text-[10px] text-text-void">
-            <span>sha {sha.slice(0, 7)}</span>
+          <div className="mt-2 flex flex-wrap gap-x-5 font-mono text-[10px] text-text-void">
             <span>{formatDate(createdAt)}</span>
+            <span>sha {sha.slice(0, 7)}</span>
             <span>{threadCount} {threadCount === 1 ? "thread" : "threads"}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-glass-border bg-glass px-2.5 py-[5px]">
-            <MessageSquare className="h-3 w-3 text-text-dim" strokeWidth={1.5} />
-            <span className="font-mono text-[10px] font-semibold tabular-nums tracking-[0.1em] text-text-dim">
-              {threadCount}
-            </span>
-          </span>
-          <button
-            type="button"
-            className="group inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-[6px] font-mono text-[10.5px] font-bold tracking-[0.04em] text-bg transition-all hover:opacity-90 active:scale-[0.98]"
-          >
-            <Check className="h-3 w-3" strokeWidth={2.5} />
-            <span>approve &amp; merge</span>
-            <span className="rounded bg-bg/15 px-1 py-px text-[9px] tracking-[0.08em]">⌘⏎</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-[6px] font-mono text-[11px] font-medium tracking-[0.04em] text-bg transition-opacity hover:opacity-90 active:scale-[0.98]"
+        >
+          <Check className="h-3 w-3" strokeWidth={2.5} />
+          <span>approve &amp; merge</span>
+          <span className="rounded bg-bg/15 px-1 py-px text-[10px] text-bg/80">⌘⏎</span>
+        </button>
       </div>
     </div>
   );
@@ -259,12 +242,12 @@ function BottomBar({ currentIndex, total, severity }: BottomBarProps) {
     currentIndex >= 0 ? `file ${currentIndex + 1} of ${total}` : `${total} files`;
   return (
     <div className="sticky bottom-0 z-10 mt-[18px] flex h-8 items-center justify-between border-t border-glass-border bg-bg/95 px-2 backdrop-blur">
-      <span className="font-mono text-[11px] text-text-dim">
+      <span className="font-mono text-[10px] text-text-dim">
         {noteLabel}
         <span className="text-text-void">  ·  {severity}</span>
       </span>
-      <span className="font-mono text-[10px] text-text-ghost">
-        j / k step  ·  e expand  ·  r reply  ·  ⌘⏎ merge
+      <span className="font-mono text-[10px] text-text-void">
+        j/k step  ·  e expand  ·  r reply  ·  ⌘⏎ merge
       </span>
     </div>
   );
@@ -275,8 +258,8 @@ function BottomBar({ currentIndex, total, severity }: BottomBarProps) {
 function UnavailableReview() {
   return (
     <div className="px-2 py-8">
-      <h1 className="font-display text-[20px] text-text">Review unavailable</h1>
-      <p className="mt-3 font-body text-[13px] leading-relaxed text-text-secondary">
+      <h1 className="font-display text-[18px] text-text">Review unavailable</h1>
+      <p className="mt-3 font-body text-[12px] leading-relaxed text-text-secondary">
         The dashboard model for this PR review has not been generated yet, or it failed validation.
         Check the GitHub PR comment for the analyst summary.
       </p>
