@@ -1,6 +1,9 @@
 /** Inline pin trigger: a thin one-line bar with severity badge and excerpt; reveals a floating
- *  popup card on hover/focus. Matches the V8 stacked-diff "tooltip" pattern from Pencil. */
+ *  popup card on hover/focus. The popup is portaled to document.body so it escapes the
+ *  diff library's per-row stacking contexts and always sits on top. */
 
+import { useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Markdown } from "@dashboard/components/Markdown";
 import { cn } from "@dashboard/lib/utils";
 import type { PrReviewAnnotation } from "@dashboard/shared";
@@ -12,12 +15,26 @@ interface AnnotationCommentProps {
   onReply: (annotation: PrReviewAnnotation) => void;
 }
 
+const POPUP_WIDTH = 400;
+const POPUP_GAP = 2;
+const VIEWPORT_PADDING = 16;
+
 export function AnnotationComment({ annotation, index, onReply }: AnnotationCommentProps) {
   const style = kindStyle(annotation.kind);
   const lineLabel = `${annotation.side === "old" ? "−" : "+"}${annotation.line}`;
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const coords = usePopupCoords(triggerRef, open);
 
   return (
-    <div className="group/pin relative whitespace-normal px-3 py-1 hover:z-50 focus-within:z-50">
+    <div
+      ref={triggerRef}
+      className="relative whitespace-normal px-3 py-1"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+    >
       <button
         type="button"
         className="flex w-full items-center gap-[10px] rounded-md border border-glass-border bg-bg-raised/60 px-[10px] py-[6px] text-left transition-colors hover:border-glass-hover focus:border-accent-dim focus:outline-none"
@@ -46,29 +63,48 @@ export function AnnotationComment({ annotation, index, onReply }: AnnotationComm
         </span>
       </button>
 
-      <AnnotationPopup annotation={annotation} onReply={onReply} />
+      {open && coords &&
+        createPortal(
+          <AnnotationPopup
+            annotation={annotation}
+            onReply={onReply}
+            coords={coords}
+            onMouseEnter={() => setOpen(true)}
+            onMouseLeave={() => setOpen(false)}
+          />,
+          document.body,
+        )}
     </div>
   );
+}
+
+// --- Popup ---
+
+interface PopupCoords {
+  top: number;
+  left: number;
+  width: number;
 }
 
 interface AnnotationPopupProps {
   annotation: PrReviewAnnotation;
   onReply: (annotation: PrReviewAnnotation) => void;
+  coords: PopupCoords;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
 }
 
-function AnnotationPopup({ annotation, onReply }: AnnotationPopupProps) {
+function AnnotationPopup({ annotation, onReply, coords, onMouseEnter, onMouseLeave }: AnnotationPopupProps) {
   const style = kindStyle(annotation.kind);
   const lineLabel = `${annotation.side === "old" ? "−" : "+"}${annotation.line}`;
 
   return (
     <div
       role="tooltip"
-      className={cn(
-        "pointer-events-none absolute right-3 top-[calc(100%-2px)] z-30 w-[400px] max-w-[calc(100vw-2rem)]",
-        "translate-y-1 scale-[0.98] opacity-0 transition-all duration-150",
-        "group-hover/pin:pointer-events-auto group-hover/pin:translate-y-0 group-hover/pin:scale-100 group-hover/pin:opacity-100",
-        "group-focus-within/pin:pointer-events-auto group-focus-within/pin:translate-y-0 group-focus-within/pin:scale-100 group-focus-within/pin:opacity-100",
-      )}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      style={{ position: "fixed", top: coords.top, left: coords.left, width: coords.width }}
+      className="z-[1000] animate-fade-in"
     >
       <div className="overflow-hidden whitespace-normal rounded-lg border border-glass-border bg-bg shadow-[0_18px_40px_rgba(0,0,0,0.6)]">
         <header className="flex items-center gap-2 px-4 pt-[12px]">
@@ -117,6 +153,42 @@ function AnnotationPopup({ annotation, onReply }: AnnotationPopupProps) {
       </div>
     </div>
   );
+}
+
+// --- Helpers ---
+
+/** Compute popup viewport coords from the trigger's bounding rect; tracks scroll/resize while open. */
+function usePopupCoords(
+  triggerRef: React.RefObject<HTMLDivElement | null>,
+  open: boolean,
+): PopupCoords | null {
+  const [coords, setCoords] = useState<PopupCoords | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setCoords(null);
+      return;
+    }
+    const el = triggerRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      const width = Math.min(POPUP_WIDTH, window.innerWidth - VIEWPORT_PADDING * 2);
+      const desiredLeft = r.right - width;
+      const left = Math.max(VIEWPORT_PADDING, Math.min(desiredLeft, window.innerWidth - width - VIEWPORT_PADDING));
+      const top = r.bottom + POPUP_GAP;
+      setCoords({ top, left, width });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [open, triggerRef]);
+
+  return coords;
 }
 
 function filenameTail(path: string): string {

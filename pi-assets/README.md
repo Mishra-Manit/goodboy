@@ -28,11 +28,12 @@ but obeys explicit JSON-only schemas for PR-review report artifacts.
 
 ## Model registry
 
-Kimi K2.5 (via Fireworks) is the only model goodboy uses, wired in through
-the host's `~/.pi/agent/models.json` on both the laptop and the EC2 host.
-Stage pi processes inherit that file naturally — no project-local override,
+Goodboy stage models are selected through `PI_MODEL*` env vars and resolved
+against the host's `~/.pi/agent/models.json` on both the laptop and the EC2
+host. Fireworks models currently used here include Kimi K2.5 and MiniMax M2.7.
+Stage pi processes inherit that registry naturally — no project-local override,
 no `PI_CODING_AGENT_DIR` env var. If you spin up a fresh machine, add the
-Fireworks provider there before running a task.
+Fireworks provider entries there before running a task.
 
 ## Conventions
 
