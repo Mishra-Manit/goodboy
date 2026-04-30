@@ -10,11 +10,12 @@ interface FileDiffProps {
   patch: string | null;
   annotations: PrReviewAnnotation[];
   diffStyle: "split" | "unified";
+  onReplyAnnotation: (annotation: PrReviewAnnotation) => void;
 }
 
 type Meta = { annotation: PrReviewAnnotation; index: number };
 
-export function FileDiff({ filePath, patch, annotations, diffStyle }: FileDiffProps) {
+export function FileDiff({ filePath, patch, annotations, diffStyle, onReplyAnnotation }: FileDiffProps) {
   const lineAnnotations: DiffLineAnnotation<Meta>[] = useMemo(
     () =>
       annotations.map((annotation, index) => ({
@@ -44,6 +45,7 @@ export function FileDiff({ filePath, patch, annotations, diffStyle }: FileDiffPr
             <AnnotationComment
               annotation={item.metadata.annotation}
               index={item.metadata.index}
+              onReply={onReplyAnnotation}
             />
           )}
         />

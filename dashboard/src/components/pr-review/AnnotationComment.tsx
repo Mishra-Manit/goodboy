@@ -9,9 +9,10 @@ import { kindStyle } from "./kinds";
 interface AnnotationCommentProps {
   annotation: PrReviewAnnotation;
   index: number;
+  onReply: (annotation: PrReviewAnnotation) => void;
 }
 
-export function AnnotationComment({ annotation, index }: AnnotationCommentProps) {
+export function AnnotationComment({ annotation, index, onReply }: AnnotationCommentProps) {
   const style = kindStyle(annotation.kind);
   const lineLabel = `${annotation.side === "old" ? "−" : "+"}${annotation.line}`;
 
@@ -45,16 +46,17 @@ export function AnnotationComment({ annotation, index }: AnnotationCommentProps)
         </span>
       </button>
 
-      <AnnotationPopup annotation={annotation} />
+      <AnnotationPopup annotation={annotation} onReply={onReply} />
     </div>
   );
 }
 
 interface AnnotationPopupProps {
   annotation: PrReviewAnnotation;
+  onReply: (annotation: PrReviewAnnotation) => void;
 }
 
-function AnnotationPopup({ annotation }: AnnotationPopupProps) {
+function AnnotationPopup({ annotation, onReply }: AnnotationPopupProps) {
   const style = kindStyle(annotation.kind);
   const lineLabel = `${annotation.side === "old" ? "−" : "+"}${annotation.line}`;
 
@@ -100,6 +102,7 @@ function AnnotationPopup({ annotation }: AnnotationPopupProps) {
         <footer className="flex items-center justify-end gap-1 border-t border-glass-border bg-bg-raised/40 px-2 py-[6px]">
           <button
             type="button"
+            onClick={() => onReply(annotation)}
             className="rounded-md px-2 py-[3px] font-mono text-[10px] text-text-dim transition-colors hover:bg-glass hover:text-text"
           >
             Reply

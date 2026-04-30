@@ -33,7 +33,7 @@ function PrReviewContent({ sessionId }: PrReviewContentProps) {
     <div className="animate-fade-in">
       <BackLink label="back to session" onClick={() => navigate(`/prs/${sessionId}`)} />
       <PageState data={data} loading={loading} error={error} onRetry={refetch} loadingLabel="loading review...">
-        {(dto) => (dto.run ? <ReviewRun dto={dto} /> : <UnavailableReview />)}
+        {(dto) => (dto.run ? <ReviewRun dto={dto} onChanged={refetch} /> : <UnavailableReview />)}
       </PageState>
     </div>
   );
@@ -41,9 +41,10 @@ function PrReviewContent({ sessionId }: PrReviewContentProps) {
 
 interface ReviewRunProps {
   dto: PrReviewPageDto;
+  onChanged: () => void;
 }
 
-function ReviewRun({ dto }: ReviewRunProps) {
+function ReviewRun({ dto, onChanged }: ReviewRunProps) {
   const run = dto.run!;
   const session = dto.session;
   const allFiles = useMemo(
@@ -54,6 +55,12 @@ function ReviewRun({ dto }: ReviewRunProps) {
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(
     () => new Set(allFiles),
   );
+  const [attachedAnnotation, setAttachedAnnotation] = useState<PrReviewAnnotation | null>(null);
+
+  const handleReplyAnnotation = useCallback((annotation: PrReviewAnnotation) => {
+    setAttachedAnnotation(annotation);
+    setActiveFile(annotation.filePath);
+  }, []);
 
   useEffect(() => {
     setActiveFile(allFiles[0] ?? null);
@@ -162,12 +169,22 @@ function ReviewRun({ dto }: ReviewRunProps) {
             onSelectFile={setActiveFile}
             diffStyle="unified"
             fileRefs={fileRefs}
+            onReplyAnnotation={handleReplyAnnotation}
           />
         </div>
 
         <aside className="border-glass-border lg:border-l">
           <div className="lg:sticky lg:top-20 lg:h-[calc(100vh-7rem)]">
-            <ReviewChat prNumber={session.prNumber} branch={session.branch} />
+            <ReviewChat
+              sessionId={session.id}
+              mode={session.mode}
+              prNumber={session.prNumber}
+              branch={session.branch}
+              activeFile={activeFile}
+              attachedAnnotation={attachedAnnotation}
+              onClearAnnotation={() => setAttachedAnnotation(null)}
+              onChanged={onChanged}
+            />
           </div>
         </aside>
       </div>

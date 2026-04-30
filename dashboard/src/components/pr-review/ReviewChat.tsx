@@ -1,49 +1,112 @@
-/** Right rail: goodboy-bot review chat. Minimal Lovable-style layout — no avatars per message,
- *  user messages as a navy bubble with timestamp below, bot messages as plain prose. */
+/** Right rail review chat: loads transcript on mount, posts new turns, and renders
+ *  user/assistant pairs with an optional annotation attachment chip on the composer. */
 
-import { ArrowUp, Paperclip, Plus } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowUp, X } from "lucide-react";
+import {
+  fetchReviewChat,
+  sendReviewChatMessage,
+} from "@dashboard/lib/api/pr-sessions";
+import { cn } from "@dashboard/lib/utils";
+import type {
+  PrReviewAnnotation,
+  PrSessionMode,
+  ReviewChatMessage,
+} from "@dashboard/shared";
 
 interface ReviewChatProps {
+  sessionId: string;
+  mode: PrSessionMode;
   prNumber: number | null;
   branch: string | null;
+  activeFile: string | null;
+  attachedAnnotation: PrReviewAnnotation | null;
+  onClearAnnotation: () => void;
+  onChanged: () => void;
 }
 
-export function ReviewChat({ prNumber: _prNumber, branch: _branch }: ReviewChatProps) {
+const WORKER_VERBS = ["boliviating", "pondering", "patching", "pushing"] as const;
+
+export function ReviewChat({
+  sessionId,
+  mode,
+  activeFile,
+  attachedAnnotation,
+  onClearAnnotation,
+  onChanged,
+}: ReviewChatProps) {
+  const [messages, setMessages] = useState<ReviewChatMessage[]>([]);
+  const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
+  const [input, setInput] = useState("");
+  const [pending, setPending] = useState(false);
+
+  const available = mode === "review" && unavailableReason === null;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (mode !== "review") {
+      setUnavailableReason("Review chat is available for reviewed PRs only.");
+      setMessages([]);
+      return;
+    }
+    fetchReviewChat(sessionId)
+      .then((res) => {
+        if (cancelled) return;
+        setUnavailableReason(res.available ? null : res.reason);
+        setMessages(res.messages);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setUnavailableReason("Could not load review chat.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, mode]);
+
+  const send = useCallback(async () => {
+    const text = input.trim();
+    if (!text || pending || !available) return;
+
+    const optimistic = optimisticPair(text, attachedAnnotation);
+    setMessages((prev) => [...prev, ...optimistic]);
+    setInput("");
+    onClearAnnotation();
+    setPending(true);
+
+    try {
+      const res = await sendReviewChatMessage(sessionId, {
+        message: text,
+        activeFile,
+        annotation: attachedAnnotation,
+      });
+      setMessages(res.messages);
+      if (res.changed) onChanged();
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === optimistic[1].id
+            ? { ...m, parts: [{ type: "text", text: "Couldn't finish. Check transcript." }] }
+            : m,
+        ),
+      );
+    } finally {
+      setPending(false);
+    }
+  }, [input, pending, available, attachedAnnotation, sessionId, activeFile, onClearAnnotation, onChanged]);
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-bg">
       <ChatHeader />
-
-      <div className="flex flex-1 flex-col gap-[22px] overflow-y-auto px-5 pb-4 pt-5">
-        <BotMessage
-          paragraphs={[
-            { tone: "primary", text: "Took a pass at this stack — mostly clean, but I want to flag the rename in checkoutMachine." },
-            { tone: "primary", text: "Anyone hydrating saved state from before this PR hits an unknown-state error and the cart silently drops. Worth widening the migration before we land it." },
-          ]}
-        />
-
-        <UserMessage body="Right — do we still have anyone on the old stored shape, or is everyone past the v3 migration already?" />
-
-        <StepRow label="reading telemetry · v2 sessions" />
-
-        <BotMessage
-          paragraphs={[
-            { tone: "primary", text: "Telemetry says about 1.4% of sessions are still on the v2 shape — small, but enough that I'd rather widen the migration than ship and watch the support queue. Happy to write it if you want." },
-          ]}
-        />
-
-        <UserMessage body="Yeah go for it. Add a quick test for the v2 shape too if it's cheap." />
-
-        <BotMessage
-          paragraphs={[
-            { tone: "primary", text: "Done. Added a fixture covering the v2 string-shape and a regression assert on hydrate." },
-            { tone: "dim", text: "Tests pass locally — pushing the patch in a sec." },
-          ]}
-        />
-
-        <StepRow label="reviewing service/payments.ts · 3 of 6" />
-      </div>
-
-      <Composer />
+      <ChatBody messages={messages} pending={pending} unavailableReason={mode !== "review" ? null : unavailableReason} />
+      <Composer
+        input={input}
+        onInput={setInput}
+        onSend={send}
+        disabled={!available || pending}
+        attachedAnnotation={attachedAnnotation}
+        onClearAnnotation={onClearAnnotation}
+      />
     </div>
   );
 }
@@ -60,89 +123,201 @@ function ChatHeader() {
   );
 }
 
-function IconButton({ label, icon }: { label: string; icon: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      className="flex h-7 w-7 items-center justify-center rounded-md text-text-ghost transition-colors hover:bg-glass hover:text-text-secondary"
-    >
-      {icon}
-    </button>
-  );
+// --- Body ---
+
+interface ChatBodyProps {
+  messages: ReviewChatMessage[];
+  pending: boolean;
+  unavailableReason: string | null;
 }
 
-// --- Messages ---
+function ChatBody({ messages, pending, unavailableReason }: ChatBodyProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [messages.length, pending]);
 
-interface BotParagraph {
-  tone: "primary" | "dim";
-  text: string;
-}
-
-function BotMessage({ paragraphs }: { paragraphs: BotParagraph[] }) {
-  return (
-    <div className="flex flex-col gap-2">
-      {paragraphs.map((p, idx) => (
-        <p
-          key={idx}
-          className={
-            p.tone === "primary"
-              ? "font-body text-[12px] leading-[1.65] text-text"
-              : "font-body text-[12px] leading-[1.65] text-text-secondary"
-          }
-        >
-          {p.text}
-        </p>
-      ))}
-    </div>
-  );
-}
-
-function UserMessage({ body }: { body: string }) {
-  return (
-    <div className="flex justify-end">
-      <div className="max-w-[280px] rounded-lg bg-info-dim px-3 py-2">
-        <p className="font-body text-[12px] leading-[1.6] text-text">{body}</p>
+  if (unavailableReason) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-6 text-center">
+        <p className="font-body text-[12px] text-text-secondary">{unavailableReason}</p>
       </div>
+    );
+  }
+
+  if (messages.length === 0 && !pending) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-6 text-center">
+        <p className="font-body text-[12px] text-text-secondary">
+          Ask a question or hit Reply on an annotation to start.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={scrollRef} className="flex flex-1 flex-col gap-[18px] overflow-y-auto px-5 pb-4 pt-5">
+      {messages.map((m) => <Message key={m.id} message={m} />)}
+      {pending && <WorkerBubble />}
     </div>
   );
 }
 
-function StepRow({ label }: { label: string }) {
+function Message({ message }: { message: ReviewChatMessage }) {
+  const text = message.parts
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join("\n");
+  const annotation = message.parts.find((p) => p.type === "annotation");
+
+  if (message.role === "user") {
+    return (
+      <div className="flex justify-end">
+        <div className="flex max-w-[280px] flex-col gap-[6px]">
+          {annotation && annotation.type === "annotation" && (
+            <AnnotationChip annotation={annotation.annotation} compact />
+          )}
+          <div className="rounded-lg bg-info-dim px-3 py-2">
+            <p className="font-body text-[12px] leading-[1.6] text-text">{text}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <p className="font-body text-[12px] leading-[1.65] text-text">{text}</p>
+  );
+}
+
+function WorkerBubble() {
+  const seconds = useElapsedSeconds();
+  const verb = WORKER_VERBS[Math.floor(seconds / 4) % WORKER_VERBS.length];
   return (
     <div className="flex items-center gap-[10px] text-text-ghost">
       <span className="flex h-[20px] w-[20px] items-center justify-center rounded-md border border-glass-border bg-bg-raised">
         <span className="h-[5px] w-[5px] animate-pulse-soft rounded-full bg-accent" />
       </span>
-      <span className="font-body text-[11px] text-text-secondary">{label}</span>
+      <span className="font-body text-[11px] text-text-secondary">
+        {verb}… · {seconds}s
+      </span>
     </div>
   );
 }
 
 // --- Composer ---
 
-function Composer() {
+interface ComposerProps {
+  input: string;
+  onInput: (value: string) => void;
+  onSend: () => void;
+  disabled: boolean;
+  attachedAnnotation: PrReviewAnnotation | null;
+  onClearAnnotation: () => void;
+}
+
+function Composer({ input, onInput, onSend, disabled, attachedAnnotation, onClearAnnotation }: ComposerProps) {
   return (
     <footer className="flex flex-col gap-[10px] border-t border-glass-border px-4 py-[12px]">
+      {attachedAnnotation && (
+        <AnnotationChip annotation={attachedAnnotation} onRemove={onClearAnnotation} />
+      )}
       <input
         type="text"
-        disabled
-        placeholder="Make, test, iterate…"
-        className="w-full cursor-not-allowed bg-transparent font-body text-[12px] text-text placeholder:text-text-void focus:outline-none"
+        value={input}
+        disabled={disabled}
+        onChange={(e) => onInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            onSend();
+          }
+        }}
+        placeholder={disabled ? "…" : "Ask, or request a change"}
+        className={cn(
+          "w-full bg-transparent font-body text-[12px] text-text placeholder:text-text-void focus:outline-none",
+          disabled && "cursor-not-allowed",
+        )}
       />
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 text-text-ghost">
-          <IconButton label="Attach" icon={<Plus className="h-[14px] w-[14px]" strokeWidth={1.5} />} />
-          <IconButton label="Mention" icon={<Paperclip className="h-[14px] w-[14px]" strokeWidth={1.5} />} />
-        </div>
+      <div className="flex items-center justify-end">
         <button
           type="button"
           aria-label="Send"
-          className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-bg transition-opacity hover:opacity-90"
+          disabled={disabled || input.trim().length === 0}
+          onClick={onSend}
+          className={cn(
+            "flex h-7 w-7 items-center justify-center rounded-md bg-accent text-bg transition-opacity",
+            (disabled || input.trim().length === 0) ? "opacity-40" : "hover:opacity-90",
+          )}
         >
           <ArrowUp className="h-[14px] w-[14px]" strokeWidth={2.5} />
         </button>
       </div>
     </footer>
   );
+}
+
+interface AnnotationChipProps {
+  annotation: PrReviewAnnotation;
+  onRemove?: () => void;
+  compact?: boolean;
+}
+
+function AnnotationChip({ annotation, onRemove, compact }: AnnotationChipProps) {
+  const sideMark = annotation.side === "old" ? "−" : "+";
+  const tail = filenameTail(annotation.filePath);
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-[6px] rounded-md border border-glass-border bg-bg-raised/60 px-[8px] py-[4px]",
+        compact && "self-end",
+      )}
+    >
+      <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-text-secondary">
+        {annotation.kind}
+      </span>
+      <span className="truncate font-mono text-[10px] text-text-dim">
+        {tail}:{sideMark}{annotation.line}
+      </span>
+      {onRemove && (
+        <button
+          type="button"
+          aria-label="Remove annotation"
+          onClick={onRemove}
+          className="ml-auto text-text-void hover:text-text"
+        >
+          <X className="h-[12px] w-[12px]" strokeWidth={1.5} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function filenameTail(filePath: string): string {
+  const idx = filePath.lastIndexOf("/");
+  return idx >= 0 ? filePath.slice(idx + 1) : filePath;
+}
+
+// --- Helpers ---
+
+function optimisticPair(message: string, annotation: PrReviewAnnotation | null): ReviewChatMessage[] {
+  const now = new Date().toISOString();
+  const id = `optimistic-${Date.now()}`;
+  const userParts: ReviewChatMessage["parts"] = [{ type: "text", text: message }];
+  if (annotation) userParts.push({ type: "annotation", annotation });
+  return [
+    { id: `${id}-user`, role: "user", parts: userParts, createdAt: now },
+    { id: `${id}-assistant`, role: "assistant", parts: [{ type: "text", text: "" }], createdAt: now },
+  ];
+}
+
+function useElapsedSeconds(): number {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    setSeconds(0);
+    const start = Date.now();
+    const interval = setInterval(() => setSeconds(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(interval);
+  }, []);
+  return seconds;
 }
