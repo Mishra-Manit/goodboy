@@ -5,7 +5,7 @@
  *     -> runMemory           (stage 1, soft-fail)
  *     -> fetch PR + diff
  *     -> createPrWorktree    (checked out on the real head branch)
- *     -> runImpactAnalyzer   (stage 2, soft-fail; produces pr-impact.md)
+ *     -> runImpactAnalyzers  (stage 2, soft-fail; produces pr-impact.vN.md)
  *     -> runPrAnalyst        (stage 3, fans out subagents, commits, comments)
  *     -> runPrDisplay        (stage 4, writes dashboard review.json; soft-fail)
  */
@@ -15,7 +15,7 @@ import { createLogger } from "../../shared/logger.js";
 import { getRepoNwo } from "../../shared/repos.js";
 import { createPrWorktree, removeWorktree } from "../../core/git/worktree.js";
 import { getPrMetadata, getPrDiff, parsePrIdentifier } from "../../core/git/github.js";
-import { runImpactAnalyzer } from "./impact-analyzer.js";
+import { runImpactAnalyzers } from "./impact-analyzer.js";
 import { runPrAnalyst } from "./analyst.js";
 import { runPrDisplay } from "./display.js";
 import { handoffExternalReview } from "../pr-session/session.js";
@@ -29,7 +29,8 @@ import {
   type TaskPipelineContext,
 } from "../common.js";
 import { memoryBlock } from "../../shared/agent-prompts.js";
-import { PR_REVIEW_DIRS, prReviewArtifactPaths } from "./artifacts.js";
+import { PR_IMPACT_VARIANT_COUNT, PR_REVIEW_DIRS, prImpactVariantPaths, prReviewArtifactPaths } from "./artifacts.js";
+import { permuteDiff } from "./diff-permute.js";
 
 const log = createLogger("pr-review");
 
@@ -77,6 +78,10 @@ async function runPrReviewInner(
     const diff = await getPrDiff(nwo, prNumber);
     await writeFile(paths.context, JSON.stringify(metadata, null, 2));
     await writeFile(paths.diff, diff);
+    const diffVariants = padDiffVariants(permuteDiff(diff, taskId, PR_IMPACT_VARIANT_COUNT));
+    await Promise.all(diffVariants.map((variant) => (
+      writeFile(prImpactVariantPaths(artifactsDir, variant.variant).diff, variant.diff)
+    )));
     headRef = metadata.headRef;
   } catch (err) {
     await failTask(taskId, `Failed to fetch PR context: ${toErrorMessage(err)}`, sendTelegram, chatId);
@@ -101,14 +106,13 @@ async function runPrReviewInner(
 
     const fullMemory = await memoryBlock(task.repo);
 
-    // Stage 2: pr_impact. Soft-fail; analyst falls back to full memory if this drops.
-    const impactAvailable = await runImpactAnalyzer({
+    // Stage 2: pr_impact fanout. Soft-fail; analyst falls back to full memory if all variants drop.
+    const impactResult = await runImpactAnalyzers({
       taskId,
       repo: task.repo,
       artifactsDir,
       worktreePath,
       sendTelegram,
-      chatId,
       memoryBody: fullMemory,
     });
 
@@ -123,8 +127,8 @@ async function runPrReviewInner(
       worktreePath,
       sendTelegram,
       chatId,
-      impactAvailable,
-      fallbackMemory: impactAvailable ? "" : fullMemory,
+      availableImpactVariants: impactResult.available,
+      fallbackMemory: impactResult.ok ? "" : fullMemory,
     });
 
     // Snapshot post-analyst PR state so pr_display renders the actual reviewed diff.
@@ -147,6 +151,7 @@ async function runPrReviewInner(
       worktreePath,
       sendTelegram,
       chatId,
+      availableImpactVariants: impactResult.available,
     });
 
     // Promote the finished task into a watchable PR session. The session
@@ -176,4 +181,16 @@ async function runPrReviewInner(
       await removeWorktree(repo.localPath, worktreePath);
     }
   }
+}
+
+function padDiffVariants(
+  variants: ReturnType<typeof permuteDiff>,
+): ReturnType<typeof permuteDiff> {
+  // Empty/binary-only diffs have no `diff --git` blocks, so permuteDiff returns
+  // v1 only. Still write all configured diff files so every variant has input.
+  const fallback = variants[0];
+  if (!fallback) return [];
+  return Array.from({ length: PR_IMPACT_VARIANT_COUNT }, (_, index) => (
+    variants[index] ?? { ...fallback, variant: index + 1 }
+  ));
 }

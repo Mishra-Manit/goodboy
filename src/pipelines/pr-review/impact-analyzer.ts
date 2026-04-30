@@ -1,18 +1,17 @@
 /**
- * pr_impact stage. Context curator: runs inside the PR worktree with full
- * read access, cross-references memory against live code, and writes
- * pr-impact.md -- the curated context the analyst consumes instead of the
- * full memory block. Soft-fails: on error, the file is absent and the
- * analyst falls back to the full memory block.
+ * pr_impact fanout. Runs independent impact curators over deterministic diff
+ * variants. Partial failure is allowed: the analyst consumes successful reports
+ * or falls back to full memory if every variant fails.
  */
 
+import { readFile } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
 import { resolveModel } from "../../shared/config.js";
-import { runStage, type SendTelegram } from "../../core/stage.js";
+import { TaskCancelledError, isTaskCancelled, runStage, type SendTelegram } from "../../core/stage.js";
 import { impactAnalyzerSystemPrompt, impactAnalyzerInitialPrompt } from "./impact-prompts.js";
 import { toErrorMessage } from "../../shared/errors.js";
-import { hasNonEmptyArtifact } from "../../shared/artifacts.js";
-import { PR_REVIEW_FILES } from "./artifacts.js";
+import { artifactPath, hasNonEmptyArtifact } from "../../shared/artifacts.js";
+import { PR_IMPACT_VARIANT_COUNT, prImpactVariantFiles } from "./artifacts.js";
 
 const log = createLogger("pr-impact");
 
@@ -24,35 +23,70 @@ export interface ImpactAnalyzerOptions {
   artifactsDir: string;
   worktreePath: string;
   sendTelegram: SendTelegram;
-  chatId: string | null;
+  /** Variant stages intentionally run silently to avoid three Telegram pings. */
   memoryBody: string;
 }
 
-/** Never throws: failure leaves pr-impact.md absent and the analyst degrades. */
-export async function runImpactAnalyzer(opts: ImpactAnalyzerOptions): Promise<boolean> {
-  const { taskId, repo, artifactsDir, worktreePath, sendTelegram, chatId, memoryBody } = opts;
+export interface ImpactFanoutResult {
+  available: number[];
+  ok: boolean;
+}
+
+/** Run every configured impact variant concurrently; never throws for variant failures. */
+export async function runImpactAnalyzers(opts: ImpactAnalyzerOptions): Promise<ImpactFanoutResult> {
+  const settled = await Promise.allSettled(
+    Array.from({ length: PR_IMPACT_VARIANT_COUNT }, (_, index) => runImpactVariant(opts, index + 1)),
+  );
+  if (isTaskCancelled(opts.taskId)) throw new TaskCancelledError(opts.taskId);
+
+  const available = settled.flatMap((result) => (
+    result.status === "fulfilled" && result.value ? [result.value] : []
+  ));
+
+  if (available.length === 0) {
+    log.warn(`All pr_impact variants failed for ${opts.taskId}; analyst falls back to full memory block`);
+  }
+
+  return { available, ok: available.length > 0 };
+}
+
+async function runImpactVariant(opts: ImpactAnalyzerOptions, variant: number): Promise<number | null> {
+  const { taskId, repo, artifactsDir, worktreePath, sendTelegram, memoryBody } = opts;
+  const files = prImpactVariantFiles(variant);
+
   try {
     const result = await runStage({
       taskId,
       stage: "pr_impact",
+      variant,
       cwd: worktreePath,
-      systemPrompt: impactAnalyzerSystemPrompt(repo, artifactsDir, worktreePath, memoryBody),
-      initialPrompt: impactAnalyzerInitialPrompt(artifactsDir),
+      systemPrompt: impactAnalyzerSystemPrompt(repo, artifactsDir, worktreePath, memoryBody, variant),
+      initialPrompt: impactAnalyzerInitialPrompt(artifactsDir, variant),
       model: resolveModel("PI_MODEL_PR_IMPACT"),
       sendTelegram,
-      chatId,
-      stageLabel: "PR Impact Curation",
+      chatId: null,
+      stageLabel: `PR Impact Curation v${variant}`,
       timeoutMs: IMPACT_TIMEOUT_MS,
-      postValidate: async () => {
-        const ok = await hasNonEmptyArtifact(artifactsDir, PR_REVIEW_FILES.impact);
-        return ok ? { valid: true } : { valid: false, reason: "Impact analyzer failed to write pr-impact.md" };
-      },
+      postValidate: async () => validateImpactArtifact(artifactsDir, files.impact),
     });
 
-    return result.ok;
+    return result.ok ? variant : null;
   } catch (err) {
-    const msg = toErrorMessage(err);
-    log.warn(`pr_impact failed for ${taskId}: ${msg} -- analyst falls back to full memory block`);
-    return false;
+    if (err instanceof TaskCancelledError) throw err;
+    log.warn(`pr_impact v${variant} failed for ${taskId}: ${toErrorMessage(err)}`);
+    return null;
   }
+}
+
+async function validateImpactArtifact(
+  artifactsDir: string,
+  filename: string,
+): Promise<{ valid: boolean; reason?: string }> {
+  const exists = await hasNonEmptyArtifact(artifactsDir, filename);
+  if (!exists) return { valid: false, reason: `Impact analyzer failed to write ${filename}` };
+
+  const content = await readFile(artifactPath(artifactsDir, filename), "utf8").catch(() => "");
+  return content.includes("IMPACT_ANALYSIS_DONE")
+    ? { valid: true }
+    : { valid: false, reason: `${filename} did not include IMPACT_ANALYSIS_DONE` };
 }

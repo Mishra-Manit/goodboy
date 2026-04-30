@@ -18,7 +18,7 @@ const SECTION_HEADERS = [
 ];
 
 describe("impactAnalyzerSystemPrompt", () => {
-  const prompt = impactAnalyzerSystemPrompt(REPO, ARTIFACTS, WORKTREE, MEMORY);
+  const prompt = impactAnalyzerSystemPrompt(REPO, ARTIFACTS, WORKTREE, MEMORY, 2);
 
   it("contains every required section header", () => {
     for (const h of SECTION_HEADERS) expect(prompt).toContain(h);
@@ -32,35 +32,36 @@ describe("impactAnalyzerSystemPrompt", () => {
     expect(prompt).toContain("IMPACT_ANALYSIS_DONE");
   });
 
-  it("instructs read-only behaviour on the worktree", () => {
-    expect(prompt).toContain("READ-ONLY");
-    expect(prompt).toContain(`You may NOT edit any file in ${WORKTREE}`);
+  it("scopes read-only behaviour to the worktree", () => {
+    expect(prompt).toContain(`read-only on the worktree at ${WORKTREE}`);
+    expect(prompt).toContain("Your single write target");
   });
 
   it("references the artifacts dir for inputs and output", () => {
     expect(prompt).toContain(`${ARTIFACTS}/pr-context.json`);
-    expect(prompt).toContain(`${ARTIFACTS}/pr.diff`);
-    expect(prompt).toContain(`${ARTIFACTS}/pr-impact.md`);
+    expect(prompt).toContain(`${ARTIFACTS}/pr.diff.v2`);
+    expect(prompt).toContain(`${ARTIFACTS}/pr-impact.v2.md`);
+    expect(prompt).toContain("Hard cap: 120 lines in");
   });
 
   it("falls back to a no-memory message when memory is empty", () => {
-    const empty = impactAnalyzerSystemPrompt(REPO, ARTIFACTS, WORKTREE, "");
+    const empty = impactAnalyzerSystemPrompt(REPO, ARTIFACTS, WORKTREE, "", 1);
     expect(empty).toContain("NO MEMORY AVAILABLE");
     expect(empty).toContain(REPO);
   });
 
   it("treats whitespace-only memory as empty", () => {
-    const ws = impactAnalyzerSystemPrompt(REPO, ARTIFACTS, WORKTREE, "   \n\n  ");
+    const ws = impactAnalyzerSystemPrompt(REPO, ARTIFACTS, WORKTREE, "   \n\n  ", 1);
     expect(ws).toContain("NO MEMORY AVAILABLE");
   });
 });
 
 describe("impactAnalyzerInitialPrompt", () => {
-  it("references pr-context.json, pr.diff, and pr-impact.md", () => {
-    const p = impactAnalyzerInitialPrompt(ARTIFACTS);
+  it("references pr-context.json and variant diff/impact files", () => {
+    const p = impactAnalyzerInitialPrompt(ARTIFACTS, 3);
     expect(p).toContain(`${ARTIFACTS}/pr-context.json`);
-    expect(p).toContain(`${ARTIFACTS}/pr.diff`);
-    expect(p).toContain(`${ARTIFACTS}/pr-impact.md`);
+    expect(p).toContain(`${ARTIFACTS}/pr.diff.v3`);
+    expect(p).toContain(`${ARTIFACTS}/pr-impact.v3.md`);
     expect(p).toContain("IMPACT_ANALYSIS_DONE");
   });
 });

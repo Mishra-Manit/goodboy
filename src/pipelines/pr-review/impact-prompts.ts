@@ -2,25 +2,32 @@
  * Prompts for the pr_impact stage. The curator sits between the full codebase
  * memory and the analyst: it receives the entire memory block plus full
  * read access to the PR worktree, explores and cross-references both, and
- * distills `pr-impact.md` -- the sole context the analyst gets downstream.
+ * distills `pr-impact.vN.md` -- one concise context report the analyst can compare
+ * with sibling variants downstream.
  */
 
-import { prReviewArtifactPaths } from "./artifacts.js";
+import { prImpactVariantFiles, prImpactVariantPaths, prReviewArtifactPaths } from "./artifacts.js";
 
 export function impactAnalyzerSystemPrompt(
   repo: string,
   artifactsDir: string,
   worktreePath: string,
   memoryBody: string,
+  variant: number,
 ): string {
   const paths = prReviewArtifactPaths(artifactsDir);
+  const variantPaths = prImpactVariantPaths(artifactsDir, variant);
+  const variantFiles = prImpactVariantFiles(variant);
   const memorySection = memoryBody.trim() || `NO MEMORY AVAILABLE for ${repo}. Work from the diff and live codebase only.
 The "Memory Gaps & Blind Spots" section should flag every touched area since nothing is documented.`;
 
   return `You are the PR Impact Curator for "${repo}".
 
 Your job: produce a curated context document for the PR Analyst. The analyst
-will receive ONLY what you write in pr-impact.md -- not the full memory block.
+will receive your report alongside other independently ordered impact reports -- not the full memory block.
+You are running variant v${variant}. The PR diff file order is intentionally different across variants.
+File ordering shifts which relationships the model notices first. Surface what this ordering reveals;
+do not compare variants, and write only ${variantFiles.impact}.
 You are the gatekeeper between the full codebase knowledge and the analyst's
 focused working context. Be thorough in your exploration, ruthless in your
 curation. Every line you include costs the analyst context window.
@@ -30,20 +37,20 @@ WHAT YOU HAVE:
 - Full read access to the worktree at ${worktreePath} -- the PR branch.
   You MAY grep, read any file, check imports, trace usages of changed symbols.
   Validate memory claims against live code. Explore freely.
-- PR diff at ${paths.diff}
+- PR diff variant v${variant} at ${variantPaths.diff}
 - PR metadata at ${paths.context}
 
-YOU ARE READ-ONLY. You may NOT edit any file in ${worktreePath}.
-You may ONLY write to ${paths.impact}.
+You are read-only on the worktree at ${worktreePath}: do not edit, create, or delete files there.
+Your single write target is ${variantPaths.impact} in the artifacts directory.
 
 ${memorySection}
 
 YOUR TASK:
-1. Read ${paths.context} and ${paths.diff}.
+1. Read ${paths.context} and ${variantPaths.diff}.
 2. For each changed file or symbol, grep the worktree to understand callers,
    usages, and relationships. Cross-reference memory claims against live code
    and note any drift.
-3. Write ${paths.impact} using EXACTLY these five section headers
+3. Write ${variantPaths.impact} using EXACTLY these five section headers
    in this order. If a section has nothing to say, write "None identified."
 
   # Impact Analysis -- PR #<number>: <title>
@@ -76,10 +83,17 @@ YOUR TASK:
   Areas the PR touches where memory is absent or wrong and where you could not
   find enough live context. Be specific -- the analyst will be extra careful here.
 
-End your output with "IMPACT_ANALYSIS_DONE".`;
+CONCISION RULES:
+- Hard cap: 120 lines in ${variantFiles.impact}.
+- Prioritize concrete risks and memory/live-code cross-references.
+- Do not restate the diff.
+- Quotes from memory: max one line each with citation.
+
+End ${variantFiles.impact} with "IMPACT_ANALYSIS_DONE".`;
 }
 
-export function impactAnalyzerInitialPrompt(artifactsDir: string): string {
+export function impactAnalyzerInitialPrompt(artifactsDir: string, variant: number): string {
   const paths = prReviewArtifactPaths(artifactsDir);
-  return `Begin the impact curation. Read ${paths.context} and ${paths.diff}. Then explore the worktree -- grep for changed symbols, trace usages, check tests, validate memory claims against live code. Write the complete ${paths.impact} covering all five sections. Be thorough in exploration, ruthless in curation. End with "IMPACT_ANALYSIS_DONE".`;
+  const variantPaths = prImpactVariantPaths(artifactsDir, variant);
+  return `Begin impact curation variant v${variant}. Read ${paths.context} and ${variantPaths.diff}. The file ordering is intentionally variant-specific; do not compare against other variants. Then explore the worktree -- grep for changed symbols, trace usages, check tests, validate memory claims against live code. Write the complete ${variantPaths.impact} covering all five sections in 120 lines or fewer. Be thorough in exploration, ruthless in curation. End the file with "IMPACT_ANALYSIS_DONE".`;
 }
