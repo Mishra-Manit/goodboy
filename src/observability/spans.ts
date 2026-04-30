@@ -87,6 +87,7 @@ export interface StageSpanContext {
   model: string;
   stageLabel: string;
   piSessionPath: string;
+  variant?: number;
   /** Override the span start time (replay scripts only; production leaves it unset). */
   startTime?: TimeInput;
 }
@@ -103,6 +104,7 @@ export async function withStageSpan<T>(
         [Goodboy.TaskId]: ctx.taskId,
         [Goodboy.Stage]: ctx.stage,
         [Goodboy.PiSessionPath]: ctx.piSessionPath,
+        ...(ctx.variant === undefined ? {} : { "goodboy.stage.variant": ctx.variant }),
         [GenAi.AgentName]: ctx.stageLabel,
         [GenAi.RequestModel]: ctx.model,
         [GenAi.System]: "pi",

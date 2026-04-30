@@ -119,7 +119,7 @@ export type PrComment =
  */
 export type SSEEvent =
   | { type: "task_update"; taskId: string; status: TaskStatus; kind?: TaskKind }
-  | { type: "stage_update"; taskId: string; stage: StageName; status: StageStatus }
+  | { type: "stage_update"; taskId: string; stage: StageName; variant?: number; status: StageStatus }
   | { type: "pr_update"; taskId: string; prUrl: string }
   | { type: "pr_session_update"; prSessionId: string; running: boolean }
   | {
@@ -136,6 +136,8 @@ export type SSEEvent =
       scope: "task";
       id: string;
       stage?: StageName;
+      /** Present when the stage has multiple parallel runs, e.g. pr_impact. */
+      variant?: number;
       /** Present when this task-scoped stream belongs to a memory run row. */
       memoryRunId?: string;
       entry: FileEntry;

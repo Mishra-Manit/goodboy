@@ -32,7 +32,7 @@ export function isPersistedTaskId(taskId: string): boolean {
 
 // --- Session registry ---
 
-const activeSessions = new Map<string, PiSession>();
+const activeSessions = new Map<string, Map<string, PiSession>>();
 const cancelledTasks = new Set<string>();
 
 /**
@@ -47,14 +47,30 @@ export class TaskCancelledError extends Error {
   }
 }
 
-/** Register the live pi session for a task so cancellation can find it. */
-export function setActiveSession(taskId: string, session: PiSession): void {
-  activeSessions.set(taskId, session);
+/** Stable key for one stage run inside a task. */
+export function stageRunKey(stage: StageName, variant?: number): string {
+  return variant === undefined ? stage : `${stage}#${variant}`;
 }
 
-/** Drop the active session entry. Call once the stage finishes (success or failure). */
-export function clearActiveSession(taskId: string): void {
-  activeSessions.delete(taskId);
+/** Register the live pi session for a task stage run so cancellation can find it. */
+export function setActiveSession(taskId: string, stage: StageName, session: PiSession, variant?: number): void {
+  const taskSessions = activeSessions.get(taskId) ?? new Map<string, PiSession>();
+  activeSessions.set(taskId, new Map(taskSessions).set(stageRunKey(stage, variant), session));
+}
+
+/** Drop one active stage-run entry, or all entries for the task when no stage is passed. */
+export function clearActiveSession(taskId: string, stage?: StageName, variant?: number): void {
+  if (!stage) {
+    activeSessions.delete(taskId);
+    return;
+  }
+
+  const taskSessions = activeSessions.get(taskId);
+  if (!taskSessions) return;
+  const next = new Map(taskSessions);
+  next.delete(stageRunKey(stage, variant));
+  if (next.size === 0) activeSessions.delete(taskId);
+  else activeSessions.set(taskId, next);
 }
 
 /**
@@ -74,16 +90,16 @@ export function clearActiveSession(taskId: string): void {
 export async function cancelTask(taskId: string): Promise<boolean> {
   cancelledTasks.add(taskId);
 
-  const session = activeSessions.get(taskId);
-  if (session) {
-    session.kill();
+  const sessions = activeSessions.get(taskId);
+  if (sessions) {
+    for (const session of sessions.values()) session.kill();
     activeSessions.delete(taskId);
   }
 
   const lockReleased = await releaseMemoryLockForTask(taskId);
   if (lockReleased) log.info(`Released memory lock for cancelled task ${taskId}`);
 
-  return !!session || lockReleased;
+  return !!sessions?.size || lockReleased;
 }
 
 /** True if `cancelTask` has been called for this task and it has not been reset. */
@@ -162,6 +178,8 @@ interface RunStageOptions {
   sendTelegram: SendTelegram;
   chatId: string | null;
   stageLabel: string;
+  /** Optional stage-run variant for parallel stages such as pr_impact. */
+  variant?: number;
   /** Extensions to load via `-e`. Discovery stays disabled. */
   extensions?: string[];
   /** Extra env vars merged on top of `process.env` for the pi subprocess. */
@@ -200,16 +218,16 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
   const {
     taskId, stage, cwd, systemPrompt, initialPrompt,
     model, sendTelegram, chatId, stageLabel,
-    extensions, envOverrides, timeoutMs,
+    variant, extensions, envOverrides, timeoutMs,
   } = options;
 
-  const sessionPath = taskSessionPath(taskId, stage);
+  const sessionPath = taskSessionPath(taskId, stage, variant);
 
   return withStageSpan(
-    { taskId, stage, model, stageLabel, piSessionPath: sessionPath },
+    { taskId, stage, model, stageLabel, piSessionPath: sessionPath, variant },
     async (stageSpan): Promise<StageResult> => {
       if (cancelledTasks.has(taskId)) {
-        emit({ type: "stage_update", taskId, stage, status: "skipped" });
+        emit({ type: "stage_update", taskId, stage, variant, status: "skipped" });
         throw new TaskCancelledError(taskId);
       }
 
@@ -222,13 +240,13 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
       emit({ type: "task_update", taskId, status: "running" });
 
       const stageRecord = persisted
-        ? await queries.createTaskStage({ taskId, stage }).catch((err) => {
+        ? await queries.createTaskStage({ taskId, stage, variant }).catch((err) => {
             log.warn(`createTaskStage failed for task ${taskId} stage ${stage} (no matching tasks row?)`, err);
             return null;
           })
         : null;
-      emit({ type: "stage_update", taskId, stage, status: "running" });
-      log.info(`Starting stage ${stage} for task ${taskId}`);
+      emit({ type: "stage_update", taskId, stage, variant, status: "running" });
+      log.info(`Starting stage ${stage}${variant === undefined ? "" : ` v${variant}`} for task ${taskId}`);
       await notifyTelegram(sendTelegram, chatId, `Stage started: ${stageLabel}.`);
 
       await ensureSessionDir(sessionPath);
@@ -236,6 +254,7 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
         scope: "task",
         taskId,
         stage,
+        variant,
         memoryRunId: options.sessionEventMeta?.memoryRunId,
       });
       const stopBridge = bridgeSessionToOtel({
@@ -246,7 +265,7 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
       });
 
       const session = spawnPiSession({
-        id: `${taskId}-${stage}`,
+        id: variant === undefined ? `${taskId}-${stage}` : `${taskId}-${stage}-v${variant}`,
         cwd,
         systemPrompt,
         model,
@@ -254,7 +273,7 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
         extensions,
         envOverrides,
       });
-      setActiveSession(taskId, session);
+      setActiveSession(taskId, stage, session, variant);
       session.sendPrompt(initialPrompt);
 
       try {
@@ -268,7 +287,7 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
                 status: "failed", completedAt: new Date(), error: reason,
               }).catch(() => {});
             }
-            emit({ type: "stage_update", taskId, stage, status: "failed" });
+            emit({ type: "stage_update", taskId, stage, variant, status: "failed" });
             log.warn(`Stage ${stage} failed postValidate for task ${taskId}: ${reason}`);
             return { ok: false, reason };
           }
@@ -276,7 +295,7 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
         if (stageRecord) {
           await queries.updateTaskStage(stageRecord.id, { status: "complete", completedAt: new Date() });
         }
-        emit({ type: "stage_update", taskId, stage, status: "complete" });
+        emit({ type: "stage_update", taskId, stage, variant, status: "complete" });
         await notifyTelegram(sendTelegram, chatId, `Stage complete: ${stageLabel}.`);
         log.info(`Stage ${stage} complete for task ${taskId}`);
         return { ok: true };
@@ -290,13 +309,13 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
             error: cancelled ? null : toErrorMessage(err),
           }).catch(() => {});
         }
-        emit({ type: "stage_update", taskId, stage, status: terminalStatus });
+        emit({ type: "stage_update", taskId, stage, variant, status: terminalStatus });
         if (cancelled) throw new TaskCancelledError(taskId);
         throw err;
       } finally {
         session.kill();
         await session.waitForExit();
-        clearActiveSession(taskId);
+        clearActiveSession(taskId, stage, variant);
         stopBridge();
         stopBroadcast();
       }
