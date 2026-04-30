@@ -78,6 +78,13 @@
       "when": 1777495511695,
       "tag": "0010_foamy_talos",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1777506423209,
+      "tag": "0011_daffy_tarot",
+      "breakpoints": true
     }
   ]
 }
