@@ -44,6 +44,16 @@ describe("prDisplaySystemPrompt", () => {
     expect(prompt).toContain("/tmp/artifacts/task-1/pr-impact.v3.md");
     expect(prompt).not.toContain("/tmp/artifacts/task-1/pr-impact.v2.md");
   });
+
+  it("forces concise dashboard copy for annotations", () => {
+    const prompt = prDisplaySystemPrompt(opts);
+
+    expect(prompt).toContain("small UI");
+    expect(prompt).toContain("Title: <= 70 chars");
+    expect(prompt).toContain("Body: <= 220 chars");
+    expect(prompt).toContain("Prefer 3-8 total annotations");
+    expect(prompt).toContain("summarize its point in your own short UI copy");
+  });
 });
 
 describe("prDisplayInitialPrompt", () => {
@@ -52,6 +62,7 @@ describe("prDisplayInitialPrompt", () => {
 
     expect(prompt).toContain("Also read successful impact variant files");
     expect(prompt).toContain("/tmp/artifacts/task-1/pr-impact.v3.md");
+    expect(prompt).toContain("annotation bodies <=220 chars");
     expect(prompt).not.toContain("/tmp/artifacts/task-1/pr-impact.v2.md");
   });
 });
