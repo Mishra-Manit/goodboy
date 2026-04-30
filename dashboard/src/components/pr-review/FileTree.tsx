@@ -1,7 +1,5 @@
-/** Left rail: chapters as collapsible groups, files with concern/fix dots. */
+/** Left rail: chapter sections with uppercase labels and file rows. Matches V8 stack design. */
 
-import { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@dashboard/lib/utils";
 import type { PrReviewAnnotation, PrReviewChapter } from "@dashboard/shared";
 
@@ -15,14 +13,13 @@ interface FileTreeProps {
 export function FileTree({ chapters, orderedChapterIds, activeFile, onSelectFile }: FileTreeProps) {
   const byId = new Map(chapters.map((c) => [c.id, c]));
   return (
-    <nav aria-label="Files" className="space-y-4">
-      {orderedChapterIds.map((id, index) => {
+    <nav aria-label="Files" className="flex h-full flex-col bg-bg">
+      {orderedChapterIds.map((id) => {
         const chapter = byId.get(id);
         if (!chapter) return null;
         return (
-          <ChapterGroup
+          <ChapterSection
             key={id}
-            index={index}
             chapter={chapter}
             activeFile={activeFile}
             onSelectFile={onSelectFile}
@@ -33,57 +30,34 @@ export function FileTree({ chapters, orderedChapterIds, activeFile, onSelectFile
   );
 }
 
-// --- Helpers ---
-
-interface ChapterGroupProps {
-  index: number;
+interface ChapterSectionProps {
   chapter: PrReviewChapter;
   activeFile: string | null;
   onSelectFile: (file: string) => void;
 }
 
-function ChapterGroup({ index, chapter, activeFile, onSelectFile }: ChapterGroupProps) {
-  const containsActive = activeFile !== null && chapter.files.includes(activeFile);
-  const [open, setOpen] = useState(true);
-
+function ChapterSection({ chapter, activeFile, onSelectFile }: ChapterSectionProps) {
+  const fileCount = chapter.files.length;
   return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-baseline gap-2 text-left"
-      >
-        {open ? (
-          <ChevronDown className="h-3 w-3 shrink-0 self-center text-text-void" />
-        ) : (
-          <ChevronRight className="h-3 w-3 shrink-0 self-center text-text-void" />
-        )}
-        <span className="font-mono text-[10px] tabular-nums text-text-void">
-          {String(index + 1).padStart(2, "0")}
+    <div className="flex flex-col gap-[6px] px-[14px] pb-3 pt-5">
+      <h3 className="font-body text-[11px] font-bold tracking-[0.18em] text-text-dim">
+        {chapter.title.toUpperCase()}
+        <span className="text-text-void">
+          {"  ·  "}
+          {fileCount} {fileCount === 1 ? "FILE" : "FILES"}
         </span>
-        <span
-          className={cn(
-            "font-display text-[12px] uppercase tracking-[0.08em]",
-            containsActive ? "text-text" : "text-text-dim",
-          )}
-        >
-          {chapter.title}
-        </span>
-      </button>
-
-      {open && (
-        <ul className="mt-1 space-y-0.5 pl-5">
-          {chapter.files.map((file) => (
-            <FileRow
-              key={file}
-              file={file}
-              annotations={chapter.annotations.filter((a) => a.filePath === file)}
-              active={file === activeFile}
-              onSelect={onSelectFile}
-            />
-          ))}
-        </ul>
-      )}
+      </h3>
+      <ul className="flex flex-col gap-[6px]">
+        {chapter.files.map((file) => (
+          <FileRow
+            key={file}
+            file={file}
+            annotations={chapter.annotations.filter((a) => a.filePath === file)}
+            active={file === activeFile}
+            onSelect={onSelectFile}
+          />
+        ))}
+      </ul>
     </div>
   );
 }
@@ -99,6 +73,9 @@ function FileRow({ file, annotations, active, onSelect }: FileRowProps) {
   const concerns = annotations.filter((a) => a.kind === "concern").length;
   const fixes = annotations.filter((a) => a.kind === "goodboy_fix").length;
   const notes = annotations.filter((a) => a.kind === "note").length;
+  const total = concerns + fixes + notes;
+  const totalColor =
+    concerns > 0 ? "text-fail" : fixes > 0 ? "text-warn" : "text-info";
 
   return (
     <li>
@@ -106,31 +83,27 @@ function FileRow({ file, annotations, active, onSelect }: FileRowProps) {
         type="button"
         onClick={() => onSelect(file)}
         className={cn(
-          "flex w-full items-center gap-2 rounded-sm border-l-2 py-1 pl-2 pr-1 text-left transition-colors",
+          "flex w-full items-center gap-[6px] rounded-md px-3 py-[10px] text-left transition-colors",
           active
-            ? "border-l-accent bg-accent-ghost text-text"
-            : "border-l-transparent text-text-dim hover:border-l-glass-border hover:bg-glass hover:text-text-secondary",
+            ? "border-l-2 border-l-accent bg-accent-ghost pl-[10px]"
+            : "border-l-2 border-l-transparent text-text-dim hover:bg-glass hover:text-text-secondary",
         )}
       >
-        <span className="truncate font-mono text-[11px]">{filenameOnly(file)}</span>
-        <span className="ml-auto flex shrink-0 items-center gap-1">
-          {concerns > 0 && <Dot className="bg-fail" count={concerns} />}
-          {fixes > 0 && <Dot className="bg-accent" count={fixes} />}
-          {notes > 0 && <Dot className="bg-info" count={notes} />}
+        <span
+          className={cn(
+            "min-w-0 truncate font-mono text-[13px]",
+            active ? "text-accent" : "",
+          )}
+        >
+          {filenameOnly(file)}
         </span>
+        {total > 0 && (
+          <span className={cn("ml-auto font-mono text-[11px] font-bold tabular-nums", totalColor)}>
+            {total}
+          </span>
+        )}
       </button>
     </li>
-  );
-}
-
-function Dot({ className, count }: { className: string; count: number }) {
-  return (
-    <span className="flex items-center gap-0.5">
-      <span className={cn("h-1.5 w-1.5 rounded-full", className)} />
-      {count > 1 && (
-        <span className="font-mono text-[9px] tabular-nums text-text-void">{count}</span>
-      )}
-    </span>
   );
 }
 
