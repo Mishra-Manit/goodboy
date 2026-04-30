@@ -23,10 +23,7 @@ export function timeAgo(iso: string, nowMs: number = Date.now()): string {
   return `${days}d ago`;
 }
 
-/**
- * Elapsed duration between two ISO timestamps, e.g. `230ms`, `12s`, `2m 30s`, `1h 15m`.
- * Floored at 0 so cross-host clock skew on fast runs can never render a negative duration.
- */
+/** Elapsed duration between two ISO timestamps, e.g. `230ms`, `12s`, `2m 30s`, `1h 15m`. Floored at 0 to absorb clock skew. */
 export function formatDuration(startIso: string, endIso: string): string {
   return formatMs(Math.max(0, new Date(endIso).getTime() - new Date(startIso).getTime()));
 }
