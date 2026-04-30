@@ -21,15 +21,19 @@ const POLL_INTERVAL_MS = 500;
 
 // --- Paths ---
 
-/** Absolute path to a task stage's session file. */
+/** Session file path for a task stage. Nested in its own directory so subagent sessions stay contained. */
 export function taskSessionPath(taskId: string, stage: StageName, variant?: number): string {
   const suffix = variant === undefined ? "" : `.v${variant}`;
-  return path.join(taskArtifactsDir(taskId), `${stage}${suffix}.session.jsonl`);
+  const dirName = `${stage}${suffix}.session`;
+  const fileName = `${stage}${suffix}.session.jsonl`;
+  return path.join(taskArtifactsDir(taskId), dirName, fileName);
 }
 
-/** Absolute path to a PR session's session file. */
+/** Session file path for a PR review session. Nested in its own directory so subagent sessions stay contained. */
 export function prSessionPath(prSessionId: string): string {
-  return path.join(config.prSessionsDir, `${prSessionId}.jsonl`);
+  const dirName = `${prSessionId}.session`;
+  const fileName = `${prSessionId}.jsonl`;
+  return path.join(config.prSessionsDir, dirName, fileName);
 }
 
 /** Ensure the session file's parent directory exists. Call before spawning pi. */

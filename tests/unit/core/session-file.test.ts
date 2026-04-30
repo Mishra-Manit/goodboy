@@ -9,19 +9,20 @@ import {
 } from "@src/core/pi/session-file.js";
 
 describe("path helpers", () => {
-  it("taskSessionPath composes artifactsDir/taskId/<stage>.session.jsonl", () => {
+  it("taskSessionPath nests the session file in its own directory", () => {
     const p = taskSessionPath("abc-123", "planner");
-    expect(p.endsWith(path.join("abc-123", "planner.session.jsonl"))).toBe(true);
+    expect(p.endsWith(path.join("abc-123", "planner.session", "planner.session.jsonl"))).toBe(true);
     expect(path.isAbsolute(p)).toBe(true);
   });
 
-  it("taskSessionPath includes optional stage variant", () => {
+  it("taskSessionPath includes variant suffix in both directory and file", () => {
     const p = taskSessionPath("abc-123", "pr_impact", 2);
-    expect(p.endsWith(path.join("abc-123", "pr_impact.v2.session.jsonl"))).toBe(true);
+    expect(p.endsWith(path.join("abc-123", "pr_impact.v2.session", "pr_impact.v2.session.jsonl"))).toBe(true);
   });
-  it("prSessionPath composes prSessionsDir/<id>.jsonl", () => {
+
+  it("prSessionPath nests the session file in its own directory", () => {
     const p = prSessionPath("xyz");
-    expect(p.endsWith(path.join("xyz.jsonl"))).toBe(true);
+    expect(p.endsWith(path.join("xyz.session", "xyz.jsonl"))).toBe(true);
     expect(path.isAbsolute(p)).toBe(true);
   });
 });
