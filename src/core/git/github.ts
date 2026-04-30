@@ -7,6 +7,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createLogger } from "../../shared/logger.js";
+import { PR_DIFF_CONTEXT_LINES } from "../../shared/config.js";
 import type { PrComment, PrReviewState } from "../../shared/types.js";
 
 // --- Pure parsers ---
@@ -170,9 +171,17 @@ export async function getPrMetadata(nwo: string, prNumber: number): Promise<PrMe
   };
 }
 
-/** Unified diff for a PR. Throws on gh failure. */
-export async function getPrDiff(nwo: string, prNumber: number): Promise<string> {
-  const { stdout } = await exec("gh", ["pr", "diff", String(prNumber), "--repo", nwo]);
+/**
+ * Unified diff for a PR with extended context lines.
+ * Runs `git diff` inside the existing PR worktree instead of `gh pr diff` so
+ * we can control the number of surrounding context lines via --unified.
+ */
+export async function getPrDiff(worktreePath: string, baseRef: string): Promise<string> {
+  const { stdout } = await exec("git", [
+    "-C", worktreePath,
+    "diff", `origin/${baseRef}...HEAD`,
+    `--unified=${PR_DIFF_CONTEXT_LINES}`,
+  ]);
   return stdout;
 }
 
