@@ -316,6 +316,11 @@ export async function createMemoryRun(data: {
     .values({
       ...data,
       status: "running",
+      // Use the Node clock for startedAt so it matches the JS Date used
+      // for completedAt in updateMemoryRun. Relying on Postgres defaultNow()
+      // mixes the Neon clock with the EC2 clock and produces negative
+      // durations on fast runs when the two clocks drift.
+      startedAt: new Date(),
     })
     .returning();
   return run;
