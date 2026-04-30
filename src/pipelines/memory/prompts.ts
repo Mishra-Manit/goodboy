@@ -134,14 +134,16 @@ ENVIRONMENT
 const SUBAGENTS = `
 SUBAGENTS AVAILABLE
 -------------------
-You have the 'subagent' tool. The only registered agent is 'codebase-explorer'
-— a read-only agent that returns structured Finding / Evidence / Caveats
-markdown. Dispatch many in one call:
+You have the 'subagent' tool. Use only the project-scoped 'codebase-explorer'
+agent from .pi/agents/codebase-explorer.md — a read-only Kimi K2.5 agent that
+returns structured Finding / Evidence / Caveats markdown. Dispatch many in one call:
     { "tasks": [
         { "agent": "codebase-explorer", "task": "<specific scoped question>" },
         ...
-      ] }
-Up to 8 tool call per batch. Pass only 'tasks'.
+      ],
+      "agentScope": "project"
+    }
+Up to 8 tool calls per batch. Do not pass model, skill, cwd, context, or other overrides.
 `;
 
 // --- Cold ---

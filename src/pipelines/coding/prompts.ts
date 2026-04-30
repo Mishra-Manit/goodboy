@@ -29,9 +29,12 @@ MANDATORY WORKFLOW:
      { "tasks": [
          { "agent": "codebase-explorer", "task": "<specific question>" },
          { "agent": "codebase-explorer", "task": "<specific question>" }
-       ] }
+       ],
+       "agentScope": "project"
+     }
    Each task must be self-contained and answerable by a read-only agent.
-   Do NOT pass worktree, async, context, or other options -- only tasks.
+   Use the project-scoped codebase-explorer from .pi/agents/codebase-explorer.md.
+   Do NOT pass model, skill, worktree, async, context, or other options.
 3. When results return, each task has a finalOutput field formatted as:
      ## Finding
      ## Evidence
