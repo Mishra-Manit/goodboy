@@ -33,11 +33,11 @@ import {
   reviewChatSystemPrompt,
   formatReviewChatPrompt,
   parseReviewChatResult,
+  latestAssistantText,
   type ReviewChatArtifacts,
   type ReviewChatResult,
 } from "./review-chat/index.js";
 import { stat } from "node:fs/promises";
-import type { AssistantMessage, FileEntry, TextContent } from "../../shared/session.js";
 import { withPipelineSpan, bridgeSessionToOtel } from "../../observability/index.js";
 import { trace } from "@opentelemetry/api";
 import { Goodboy } from "../../observability/attributes.js";
@@ -169,6 +169,13 @@ export async function resumePrSession(options: {
  * Sentinel errors thrown by `runReviewChatTurn` so the API layer can map them
  * to user-facing status codes without leaking internals.
  */
+export class ReviewChatNotFoundError extends Error {
+  constructor(message = "PR session not found") {
+    super(message);
+    this.name = "ReviewChatNotFoundError";
+  }
+}
+
 export class ReviewChatUnavailableError extends Error {
   constructor(message: string) {
     super(message);
@@ -193,7 +200,7 @@ export async function runReviewChatTurn(options: {
   const { prSessionId, message, activeFile, annotation } = options;
 
   const session = await queries.getPrSession(prSessionId);
-  if (!session) throw new ReviewChatUnavailableError("PR session not found");
+  if (!session) throw new ReviewChatNotFoundError();
   assertReviewChatReady(session);
 
   const sourceTaskId = session.sourceTaskId!;
@@ -314,22 +321,6 @@ async function headSha(cwd: string): Promise<string | null> {
     log.warn(`git rev-parse failed in ${cwd}`, err);
     return null;
   }
-}
-
-/** Concatenated text of the most recent assistant message in the session file. */
-function latestAssistantText(entries: FileEntry[]): string | null {
-  for (let i = entries.length - 1; i >= 0; i -= 1) {
-    const entry = entries[i];
-    if (entry.type !== "message") continue;
-    const message = entry.message;
-    if (message.role !== "assistant") continue;
-    const texts = (message as AssistantMessage).content
-      .filter((block): block is TextContent => block.type === "text")
-      .map((block) => block.text);
-    if (texts.length === 0) return null;
-    return texts.join("\n");
-  }
-  return null;
 }
 
 /**

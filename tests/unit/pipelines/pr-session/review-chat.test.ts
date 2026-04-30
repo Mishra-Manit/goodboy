@@ -4,6 +4,7 @@ import {
   parseReviewChatResult,
   reviewChatSystemPrompt,
   extractReviewChatMessages,
+  latestAssistantText,
 } from "@src/pipelines/pr-session/review-chat/index.js";
 import type { PrReviewAnnotation } from "@src/shared/pr-review.js";
 import type { FileEntry } from "@src/shared/session.js";
@@ -176,6 +177,16 @@ describe("extractReviewChatMessages", () => {
       assistantEntry("a1", `done.\n{"status":"complete"}`),
     ];
     expect(extractReviewChatMessages(entries)).toEqual([]);
+  });
+
+  it("latestAssistantText returns the most recent assistant text", () => {
+    const entries: FileEntry[] = [
+      assistantEntry("a1", "first reply"),
+      userEntry("u1", "new question"),
+      assistantEntry("a2", "latest reply"),
+    ];
+    expect(latestAssistantText(entries)).toBe("latest reply");
+    expect(latestAssistantText([])).toBeNull();
   });
 
   it("preserves the annotation attachment on the user side", () => {

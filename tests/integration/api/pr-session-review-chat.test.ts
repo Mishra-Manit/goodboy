@@ -64,16 +64,21 @@ vi.mock("@src/pipelines/pr-session/session.js", async () => {
   class ReviewChatUnavailableError extends Error {
     constructor(message: string) { super(message); this.name = "ReviewChatUnavailableError"; }
   }
+  class ReviewChatNotFoundError extends Error {
+    constructor() { super("PR session not found"); this.name = "ReviewChatNotFoundError"; }
+  }
   return {
     runReviewChatTurn: (...args: unknown[]) => mocks.runReviewChatTurn(...args),
     ReviewChatBusyError,
     ReviewChatUnavailableError,
+    ReviewChatNotFoundError,
   };
 });
 
 import { createApi } from "@src/api/index.js";
 import {
   ReviewChatBusyError,
+  ReviewChatNotFoundError,
   ReviewChatUnavailableError,
 } from "@src/pipelines/pr-session/session.js";
 
@@ -177,6 +182,12 @@ describe("POST /api/pr-sessions/:id/review-chat", () => {
       activeFile: "src/a.ts",
       annotation: null,
     });
+  });
+
+  it("returns 404 when the runner reports the session is missing", async () => {
+    mocks.runReviewChatTurn.mockRejectedValue(new ReviewChatNotFoundError());
+    const res = await postBody({ message: "hi", activeFile: null, annotation: null });
+    expect(res.status).toBe(404);
   });
 
   it("returns 500 for unexpected runner failures", async () => {

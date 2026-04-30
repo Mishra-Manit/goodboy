@@ -7,10 +7,30 @@
  * parses as a valid `ReviewChatResult`.
  */
 
-import type { PrReviewAnnotation, ReviewChatMessage, ReviewChatPart } from "../../../shared/pr-review.js";
-import type { FileEntry } from "../../../shared/session.js";
+import {
+  PR_REVIEW_ANNOTATION_KINDS,
+  type PrReviewAnnotation,
+  type ReviewChatMessage,
+  type ReviewChatPart,
+} from "../../../shared/pr-review.js";
+import type { AssistantMessage, FileEntry, TextContent } from "../../../shared/session.js";
 import { ANNOTATION_HEADER, USER_MESSAGE_HEADER } from "./prompts.js";
 import { parseReviewChatResult } from "./parse-result.js";
+
+/** Concatenated text of the most recent assistant message, or null. */
+export function latestAssistantText(entries: FileEntry[]): string | null {
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i];
+    if (entry.type !== "message") continue;
+    const message = entry.message;
+    if (message.role !== "assistant") continue;
+    const texts = (message as AssistantMessage).content
+      .filter((block): block is TextContent => block.type === "text")
+      .map((block) => block.text);
+    return texts.length > 0 ? texts.join("\n") : null;
+  }
+  return null;
+}
 
 export function extractReviewChatMessages(entries: FileEntry[]): ReviewChatMessage[] {
   const messages: ReviewChatMessage[] = [];
@@ -76,14 +96,19 @@ function parseAnnotationFromUserPrompt(text: string): PrReviewAnnotation | null 
   );
   const location = fields.location?.match(/^(.+):([+-])(\d+)$/);
   if (!fields.kind || !fields.title || !fields.body || !location) return null;
+  if (!isAnnotationKind(fields.kind)) return null;
   return {
     filePath: location[1],
     side: location[2] === "-" ? "old" : "new",
     line: Number(location[3]),
-    kind: fields.kind as PrReviewAnnotation["kind"],
+    kind: fields.kind,
     title: fields.title,
     body: fields.body,
   };
+}
+
+function isAnnotationKind(value: string): value is PrReviewAnnotation["kind"] {
+  return (PR_REVIEW_ANNOTATION_KINDS as readonly string[]).includes(value);
 }
 
 function readMessageText(content: unknown): string | null {

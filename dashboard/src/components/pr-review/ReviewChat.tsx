@@ -68,8 +68,8 @@ export function ReviewChat({
     const text = input.trim();
     if (!text || pending || !available) return;
 
-    const optimistic = optimisticPair(text, attachedAnnotation);
-    setMessages((prev) => [...prev, ...optimistic]);
+    const optimisticUser = optimisticUserMessage(text, attachedAnnotation);
+    setMessages((prev) => [...prev, optimisticUser]);
     setInput("");
     onClearAnnotation();
     setPending(true);
@@ -83,13 +83,15 @@ export function ReviewChat({
       setMessages(res.messages);
       if (res.changed) onChanged();
     } catch {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === optimistic[1].id
-            ? { ...m, parts: [{ type: "text", text: "Couldn't finish. Check transcript." }] }
-            : m,
-        ),
-      );
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `${optimisticUser.id}-error`,
+          role: "assistant",
+          parts: [{ type: "text", text: "Couldn't finish. Check transcript." }],
+          createdAt: new Date().toISOString(),
+        },
+      ]);
     } finally {
       setPending(false);
     }
@@ -274,7 +276,7 @@ function AnnotationChip({ annotation, onRemove, compact }: AnnotationChipProps) 
       )}
     >
       <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-text-secondary">
-        {annotation.kind}
+        {annotation.kind.replace(/_/g, " ")}
       </span>
       <span className="truncate font-mono text-[10px] text-text-dim">
         {tail}:{sideMark}{annotation.line}
@@ -300,15 +302,15 @@ function filenameTail(filePath: string): string {
 
 // --- Helpers ---
 
-function optimisticPair(message: string, annotation: PrReviewAnnotation | null): ReviewChatMessage[] {
-  const now = new Date().toISOString();
-  const id = `optimistic-${Date.now()}`;
-  const userParts: ReviewChatMessage["parts"] = [{ type: "text", text: message }];
-  if (annotation) userParts.push({ type: "annotation", annotation });
-  return [
-    { id: `${id}-user`, role: "user", parts: userParts, createdAt: now },
-    { id: `${id}-assistant`, role: "assistant", parts: [{ type: "text", text: "" }], createdAt: now },
-  ];
+function optimisticUserMessage(message: string, annotation: PrReviewAnnotation | null): ReviewChatMessage {
+  const parts: ReviewChatMessage["parts"] = [{ type: "text", text: message }];
+  if (annotation) parts.push({ type: "annotation", annotation });
+  return {
+    id: `optimistic-${Date.now()}`,
+    role: "user",
+    parts,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 function useElapsedSeconds(): number {

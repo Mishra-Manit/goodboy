@@ -54,6 +54,7 @@ import { extractReviewChatMessages } from "../pipelines/pr-session/review-chat/i
 import {
   runReviewChatTurn,
   ReviewChatBusyError,
+  ReviewChatNotFoundError,
   ReviewChatUnavailableError,
 } from "../pipelines/pr-session/session.js";
 
@@ -378,10 +379,10 @@ export function createApi(): Hono {
         messages,
       } satisfies ReviewChatPostResponse);
     } catch (err) {
-      if (err instanceof ReviewChatBusyError) {
-        return c.json({ error: err.message }, 409);
+      if (err instanceof ReviewChatNotFoundError) {
+        return notFound(c);
       }
-      if (err instanceof ReviewChatUnavailableError) {
+      if (err instanceof ReviewChatBusyError || err instanceof ReviewChatUnavailableError) {
         return c.json({ error: err.message }, 409);
       }
       log.error(`Review chat turn failed for ${id}`, err);
