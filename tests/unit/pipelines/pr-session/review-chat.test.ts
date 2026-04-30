@@ -5,6 +5,7 @@ import {
   reviewChatSystemPrompt,
   extractReviewChatMessages,
   latestAssistantText,
+  stripResultMarker,
 } from "@src/pipelines/pr-session/review-chat/index.js";
 import type { PrReviewAnnotation } from "@src/shared/pr-review.js";
 import type { FileEntry } from "@src/shared/session.js";
@@ -38,15 +39,21 @@ describe("reviewChatSystemPrompt", () => {
   });
 
   it("requires commit + push after edits and forbids GitHub posts", () => {
-    expect(prompt).toMatch(/commit and push/i);
+    expect(prompt).toMatch(/commit.*push/i);
     expect(prompt).toMatch(/Never force-push/i);
-    expect(prompt).toMatch(/Do NOT post GitHub/i);
+    expect(prompt).toMatch(/(do not|don't) post GitHub/i);
   });
 
-  it("locks in the JSON marker and reply length rule", () => {
-    expect(prompt).toMatch(/JSON marker/);
+  it("locks in the JSON marker contract", () => {
+    expect(prompt).toMatch(/JSON/);
     expect(prompt).toContain('"status":"complete"');
-    expect(prompt).toMatch(/5-10 word/);
+    expect(prompt).toContain('"changed"');
+  });
+
+  it("frames the agent as a friendly review companion, not a curt SMS bot", () => {
+    expect(prompt).toMatch(/friendly|helpful/i);
+    expect(prompt).not.toMatch(/5-10 word/);
+    expect(prompt).not.toMatch(/texting-style/i);
   });
 });
 
@@ -87,34 +94,24 @@ describe("formatReviewChatPrompt", () => {
 
 describe("parseReviewChatResult", () => {
   it("parses a valid trailing marker", () => {
-    const text = `Looked into it.\n\n{"status":"complete","reply":"Pushed the migration fix.","changed":true}`;
-    expect(parseReviewChatResult(text)).toEqual({
-      status: "complete",
-      reply: "Pushed the migration fix.",
-      changed: true,
-    });
+    const text = `Looked into it.\n\n{"status":"complete","changed":true}`;
+    expect(parseReviewChatResult(text)).toEqual({ status: "complete", changed: true });
   });
 
   it("returns the last valid marker when multiple JSON-ish blocks appear", () => {
-    const text = `prelude {"foo":1} body
-{"status":"complete","reply":"All good now.","changed":false}`;
-    const parsed = parseReviewChatResult(text);
-    expect(parsed?.reply).toBe("All good now.");
+    const text = `prelude {"foo":1} body\n{"status":"complete","changed":false}`;
+    expect(parseReviewChatResult(text)).toEqual({ status: "complete", changed: false });
   });
 
   it("returns null for malformed markers", () => {
     expect(parseReviewChatResult("no json here")).toBeNull();
-    expect(parseReviewChatResult('{"status":"weird","reply":"x","changed":true}')).toBeNull();
-    expect(parseReviewChatResult('{"status":"complete","reply":"x"}')).toBeNull();
+    expect(parseReviewChatResult('{"status":"weird","changed":true}')).toBeNull();
+    expect(parseReviewChatResult('{"status":"complete"}')).toBeNull();
   });
 
   it("accepts a failed marker", () => {
-    const text = `nope.\n{"status":"failed","reply":"Could not push changes.","changed":true}`;
-    expect(parseReviewChatResult(text)).toEqual({
-      status: "failed",
-      reply: "Could not push changes.",
-      changed: true,
-    });
+    const text = `nope.\n{"status":"failed","changed":false}`;
+    expect(parseReviewChatResult(text)).toEqual({ status: "failed", changed: false });
   });
 });
 
@@ -155,12 +152,12 @@ describe("extractReviewChatMessages", () => {
     };
   }
 
-  it("pairs each review_chat user prompt with the next assistant reply", () => {
+  it("pairs each review_chat user prompt with the assistant text minus the marker", () => {
     const userPrompt = formatReviewChatPrompt({
       context: { message: "Explain the rename.", activeFile: "src/a.ts", annotation: null },
       artifacts,
     });
-    const reply = `Yes -- it's intentional.\n{"status":"complete","reply":"Rename is intentional.","changed":false}`;
+    const reply = `Yes -- it's intentional. The new name better reflects the contract.\n{"status":"complete","changed":false}`;
     const entries: FileEntry[] = [userEntry("u1", userPrompt), assistantEntry("a1", reply)];
 
     const messages = extractReviewChatMessages(entries);
@@ -168,15 +165,29 @@ describe("extractReviewChatMessages", () => {
     expect(messages[0].role).toBe("user");
     expect(messages[0].parts).toEqual([{ type: "text", text: "Explain the rename." }]);
     expect(messages[1].role).toBe("assistant");
-    expect(messages[1].parts).toEqual([{ type: "text", text: "Rename is intentional." }]);
+    expect(messages[1].parts).toEqual([
+      { type: "text", text: "Yes -- it's intentional. The new name better reflects the contract." },
+    ]);
   });
 
   it("skips user prompts that are not review_chat (e.g. comment turns)", () => {
     const entries: FileEntry[] = [
       userEntry("u1", "New comments on your PR: ..."),
-      assistantEntry("a1", `done.\n{"status":"complete"}`),
+      assistantEntry("a1", `done.\n{"status":"complete","changed":false}`),
     ];
     expect(extractReviewChatMessages(entries)).toEqual([]);
+  });
+
+  it("stripResultMarker removes the trailing JSON marker but keeps prose intact", () => {
+    const text = `Here's what I found:\n\n- line 42 catches 429 without retry\n- this drops trades silently under load\n\n{"status":"complete","changed":false}`;
+    expect(stripResultMarker(text)).toBe(
+      `Here's what I found:\n\n- line 42 catches 429 without retry\n- this drops trades silently under load`,
+    );
+  });
+
+  it("stripResultMarker leaves text alone when there is no marker", () => {
+    const text = "just prose, no json here";
+    expect(stripResultMarker(text)).toBe(text);
   });
 
   it("latestAssistantText returns the most recent assistant text", () => {
@@ -194,7 +205,7 @@ describe("extractReviewChatMessages", () => {
       context: { message: "Fix this.", activeFile: annotation.filePath, annotation },
       artifacts,
     });
-    const reply = `done.\n{"status":"complete","reply":"Pushed targeted fix.","changed":true}`;
+    const reply = `done.\n{"status":"complete","changed":true}`;
     const entries: FileEntry[] = [userEntry("u1", userPrompt), assistantEntry("a1", reply)];
 
     const [user] = extractReviewChatMessages(entries);

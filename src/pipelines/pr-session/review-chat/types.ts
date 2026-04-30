@@ -20,6 +20,5 @@ export interface ReviewChatArtifacts {
 
 export interface ReviewChatResult {
   status: "complete" | "failed";
-  reply: string;
   changed: boolean;
 }

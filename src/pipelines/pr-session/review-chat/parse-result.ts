@@ -8,7 +8,6 @@ import type { ReviewChatResult } from "./types.js";
 
 const reviewChatResultSchema = z.object({
   status: z.enum(["complete", "failed"]),
-  reply: z.string().min(1).max(400),
   changed: z.boolean(),
 });
 

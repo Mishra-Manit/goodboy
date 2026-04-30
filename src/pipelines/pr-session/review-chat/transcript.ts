@@ -44,7 +44,7 @@ export function extractReviewChatMessages(entries: FileEntry[]): ReviewChatMessa
 
     const assistantText = findNextAssistantText(entries, i);
     const result = assistantText ? parseReviewChatResult(assistantText) : null;
-    if (!result) continue;
+    if (!result || !assistantText) continue;
 
     const userParts: ReviewChatPart[] = [{ type: "text", text: userMessage.text }];
     if (userMessage.annotation) {
@@ -60,11 +60,49 @@ export function extractReviewChatMessages(entries: FileEntry[]): ReviewChatMessa
     messages.push({
       id: `${entry.id}-assistant`,
       role: "assistant",
-      parts: [{ type: "text", text: result.reply }],
+      parts: [{ type: "text", text: stripResultMarker(assistantText) }],
       createdAt: entry.timestamp,
     });
   }
   return messages;
+}
+
+/**
+ * Remove the trailing JSON result marker from assistant text. The marker is
+ * metadata for the dashboard, not user-visible content. We strip the last
+ * balanced `{...}` block if it parses as a valid result.
+ */
+export function stripResultMarker(text: string): string {
+  const trimmed = text.trimEnd();
+  // Walk backwards to find the last balanced top-level `{...}` block.
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let endIdx = -1;
+  for (let i = trimmed.length - 1; i >= 0; i -= 1) {
+    const ch = trimmed[i];
+    if (inString) {
+      if (escape) { escape = false; continue; }
+      if (ch === "\\") { escape = true; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === "}") {
+      if (depth === 0) endIdx = i;
+      depth += 1;
+    } else if (ch === "{" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && endIdx >= 0) {
+        const candidate = trimmed.slice(i, endIdx + 1);
+        if (parseReviewChatResult(candidate)) {
+          return trimmed.slice(0, i).trimEnd();
+        }
+        return trimmed;
+      }
+    }
+  }
+  return trimmed;
 }
 
 // --- Helpers ---

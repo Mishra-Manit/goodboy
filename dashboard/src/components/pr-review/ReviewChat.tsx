@@ -8,6 +8,7 @@ import {
   sendReviewChatMessage,
 } from "@dashboard/lib/api/pr-sessions";
 import { cn } from "@dashboard/lib/utils";
+import { Markdown } from "@dashboard/components/Markdown";
 import type {
   PrReviewAnnotation,
   PrSessionMode,
@@ -180,7 +181,7 @@ function Message({ message }: { message: ReviewChatMessage }) {
             <AnnotationChip annotation={annotation.annotation} compact />
           )}
           <div className="rounded-lg bg-info-dim px-3 py-2">
-            <p className="font-body text-[12px] leading-[1.6] text-text">{text}</p>
+            <p className="whitespace-pre-wrap break-words font-body text-[12px] leading-[1.6] text-text">{text}</p>
           </div>
         </div>
       </div>
@@ -188,7 +189,10 @@ function Message({ message }: { message: ReviewChatMessage }) {
   }
 
   return (
-    <p className="font-body text-[12px] leading-[1.65] text-text">{text}</p>
+    <Markdown
+      content={text}
+      className="font-body text-[12px] leading-[1.65] prose-p:text-text prose-li:text-text prose-strong:text-text prose-code:text-[11px]"
+    />
   );
 }
 
@@ -219,13 +223,21 @@ interface ComposerProps {
 }
 
 function Composer({ input, onInput, onSend, disabled, attachedAnnotation, onClearAnnotation }: ComposerProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [input]);
   return (
     <footer className="flex flex-col gap-[10px] border-t border-glass-border px-4 py-[12px]">
       {attachedAnnotation && (
         <AnnotationChip annotation={attachedAnnotation} onRemove={onClearAnnotation} />
       )}
-      <input
-        type="text"
+      <textarea
+        ref={textareaRef}
+        rows={1}
         value={input}
         disabled={disabled}
         onChange={(e) => onInput(e.target.value)}
@@ -237,7 +249,7 @@ function Composer({ input, onInput, onSend, disabled, attachedAnnotation, onClea
         }}
         placeholder={disabled ? "…" : "Ask, or request a change"}
         className={cn(
-          "w-full bg-transparent font-body text-[12px] text-text placeholder:text-text-void focus:outline-none",
+          "max-h-[160px] w-full resize-none overflow-y-auto bg-transparent font-body text-[12px] leading-[1.6] text-text placeholder:text-text-void focus:outline-none",
           disabled && "cursor-not-allowed",
         )}
       />

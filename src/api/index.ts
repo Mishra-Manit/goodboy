@@ -374,7 +374,6 @@ export function createApi(): Hono {
       const messages = await loadReviewChatMessages(id);
       return c.json({
         ok: true,
-        reply: result.reply,
         changed: result.changed,
         messages,
       } satisfies ReviewChatPostResponse);

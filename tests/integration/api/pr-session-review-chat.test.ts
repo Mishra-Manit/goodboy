@@ -166,13 +166,12 @@ describe("POST /api/pr-sessions/:id/review-chat", () => {
     await expect(res.json()).resolves.toMatchObject({ error: expect.stringMatching(/already working/i) });
   });
 
-  it("returns reply and changed when the turn completes", async () => {
-    mocks.runReviewChatTurn.mockResolvedValue({ status: "complete", reply: "Pushed the fix.", changed: true });
+  it("returns changed and messages when the turn completes", async () => {
+    mocks.runReviewChatTurn.mockResolvedValue({ status: "complete", changed: true });
     const res = await postBody({ message: "fix it", activeFile: "src/a.ts", annotation: null });
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({
       ok: true,
-      reply: "Pushed the fix.",
       changed: true,
       messages: [],
     });

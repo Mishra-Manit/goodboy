@@ -248,7 +248,7 @@ export async function runReviewChatTurn(options: {
     parsed = reply ? parseReviewChatResult(reply) : null;
   } catch (err) {
     log.error(`Review chat turn failed for ${prSessionId}`, err);
-    return { status: "failed", reply: "Couldn't finish. Check transcript.", changed: false };
+    return { status: "failed", changed: false };
   }
 
   const afterSha = await headSha(worktreePath);
@@ -260,7 +260,7 @@ export async function runReviewChatTurn(options: {
       error: "missing review_chat result marker",
       completedAt: new Date(),
     });
-    return { status: "failed", reply: "Reply was incomplete. Try again.", changed };
+    return { status: "failed", changed };
   }
 
   return { ...parsed, changed };

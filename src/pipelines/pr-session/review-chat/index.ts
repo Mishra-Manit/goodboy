@@ -7,4 +7,4 @@ export type {
 } from "./types.js";
 export { reviewChatSystemPrompt, formatReviewChatPrompt } from "./prompts.js";
 export { parseReviewChatResult } from "./parse-result.js";
-export { extractReviewChatMessages, latestAssistantText } from "./transcript.js";
+export { extractReviewChatMessages, latestAssistantText, stripResultMarker } from "./transcript.js";

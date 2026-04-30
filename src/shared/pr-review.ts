@@ -146,7 +146,6 @@ export const reviewChatResponseSchema = z.object({
 
 export const reviewChatPostResponseSchema = z.object({
   ok: z.literal(true),
-  reply: z.string(),
   changed: z.boolean(),
   messages: z.array(reviewChatMessageSchema),
 });
