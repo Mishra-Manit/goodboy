@@ -32,6 +32,7 @@ export const Goodboy = {
   Branch: "goodboy.branch",
   PrSessionId: "goodboy.pr_session.id",
   PrSessionRunId: "goodboy.pr_session.run_id",
+  PrSessionTrigger: "goodboy.pr_session.trigger",
   PrNumber: "goodboy.pr.number",
   CostUsd: "goodboy.cost_usd",
   ToolArgs: "goodboy.tool.args",

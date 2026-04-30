@@ -78,6 +78,7 @@ export async function startPrSession(options: {
   try {
     await runSessionTurn({
       prSessionId: prSession.id,
+      trigger: "pr_creation",
       labelSuffix: "create",
       cwd: worktreePath,
       systemPrompt: prSessionPrompt({
@@ -140,6 +141,7 @@ export async function resumePrSession(options: {
   try {
     await runSessionTurn({
       prSessionId,
+      trigger: "comments",
       labelSuffix: "resume",
       cwd: worktreePath,
       systemPrompt: memory + prSessionPrompt({
@@ -228,6 +230,7 @@ export async function runReviewChatTurn(options: {
   try {
     await runSessionTurn({
       prSessionId,
+      trigger: "review_chat",
       labelSuffix: "review-chat",
       cwd: worktreePath,
       systemPrompt: reviewChatSystemPrompt({ repo: session.repo, branch, prNumber }),
@@ -355,6 +358,7 @@ export async function handoffExternalReview(options: {
 // --- Shared session shell ---
 
 interface SessionTurn {
+  trigger: "pr_creation" | "comments" | "review_chat";
   prSessionId: string;
   labelSuffix: string;
   cwd: string;
@@ -378,6 +382,7 @@ async function runSessionTurn(turn: SessionTurn): Promise<void> {
     async (pipelineSpan) => {
       pipelineSpan.setAttribute(Goodboy.PrSessionId, turn.prSessionId);
       pipelineSpan.setAttribute(Goodboy.PrSessionRunId, turn.run.id);
+      pipelineSpan.setAttribute(Goodboy.PrSessionTrigger, turn.trigger);
       await runSessionTurnInner(turn);
     },
   );
