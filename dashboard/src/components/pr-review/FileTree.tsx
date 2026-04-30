@@ -1,4 +1,4 @@
-/** Left rail: chapter sections with uppercase labels and file rows. Matches V8 stack design. */
+/** Left rail: chapter sections with uppercase labels and file rows. */
 
 import { cn } from "@dashboard/lib/utils";
 import type { PrReviewAnnotation, PrReviewChapter } from "@dashboard/shared";
@@ -13,7 +13,7 @@ interface FileTreeProps {
 export function FileTree({ chapters, orderedChapterIds, activeFile, onSelectFile }: FileTreeProps) {
   const byId = new Map(chapters.map((c) => [c.id, c]));
   return (
-    <nav aria-label="Files" className="flex h-full flex-col bg-bg">
+    <nav aria-label="Files" className="flex h-full flex-col gap-5 bg-bg py-4 pr-3">
       {orderedChapterIds.map((id) => {
         const chapter = byId.get(id);
         if (!chapter) return null;
@@ -30,6 +30,8 @@ export function FileTree({ chapters, orderedChapterIds, activeFile, onSelectFile
   );
 }
 
+// --- Chapter ---
+
 interface ChapterSectionProps {
   chapter: PrReviewChapter;
   activeFile: string | null;
@@ -37,17 +39,14 @@ interface ChapterSectionProps {
 }
 
 function ChapterSection({ chapter, activeFile, onSelectFile }: ChapterSectionProps) {
-  const fileCount = chapter.files.length;
   return (
-    <div className="flex flex-col gap-[4px] px-[14px] pb-3 pt-5">
-      <h3 className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-text-ghost">
-        {chapter.title}
-        <span className="text-text-void">
-          {"  ·  "}
-          {fileCount}
-        </span>
-      </h3>
-      <ul className="flex flex-col gap-[2px]">
+    <section className="flex flex-col">
+      <header className="mb-1.5 px-3">
+        <h3 className="truncate font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-text-secondary">
+          {chapter.title}
+        </h3>
+      </header>
+      <ul className="flex flex-col">
         {chapter.files.map((file) => (
           <FileRow
             key={file}
@@ -58,9 +57,11 @@ function ChapterSection({ chapter, activeFile, onSelectFile }: ChapterSectionPro
           />
         ))}
       </ul>
-    </div>
+    </section>
   );
 }
+
+// --- File row ---
 
 interface FileRowProps {
   file: string;
@@ -82,18 +83,26 @@ function FileRow({ file, annotations, active, onSelect }: FileRowProps) {
       <button
         type="button"
         onClick={() => onSelect(file)}
+        title={file}
         className={cn(
-          "flex w-full items-center gap-[10px] rounded-md px-2 py-[6px] text-left transition-colors",
+          "group relative flex w-full items-center justify-between gap-2 py-[5px] pl-3 pr-2 text-left transition-colors",
           active
-            ? "bg-accent-ghost text-accent"
-            : "text-text-dim hover:bg-glass hover:text-text-secondary",
+            ? "bg-glass text-text"
+            : "text-text-dim hover:bg-glass/60 hover:text-text-secondary",
         )}
       >
-        <span className="min-w-0 truncate font-mono text-[12px]">
+        <span
+          aria-hidden
+          className={cn(
+            "absolute left-0 top-1/2 h-3.5 w-px -translate-y-1/2 transition-colors",
+            active ? "bg-accent" : "bg-transparent",
+          )}
+        />
+        <span className="min-w-0 truncate font-mono text-[10px]">
           {filenameOnly(file)}
         </span>
         {total > 0 && (
-          <span className={cn("font-mono text-[10px] tabular-nums", totalColor)}>
+          <span className={cn("shrink-0 font-mono text-[10px] tabular-nums", totalColor)}>
             {total}
           </span>
         )}
@@ -101,6 +110,8 @@ function FileRow({ file, annotations, active, onSelect }: FileRowProps) {
     </li>
   );
 }
+
+// --- Helpers ---
 
 function filenameOnly(path: string): string {
   const idx = path.lastIndexOf("/");

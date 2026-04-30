@@ -130,6 +130,7 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
   }, []);
 
   useFileKeyboardNavigation(allFiles, activeFile, focusFile);
+  useScrollSpyActiveFile(allFiles, fileRefs, setActiveFile);
 
   const activeIndex = activeFile ? allFiles.indexOf(activeFile) : -1;
   const severity =
@@ -152,7 +153,7 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
 
       <div className="grid min-h-[calc(100vh-12rem)] grid-cols-1 gap-0 lg:grid-cols-[244px_minmax(0,1fr)_400px]">
         <aside className="border-glass-border lg:border-r">
-          <div className="lg:sticky lg:top-20 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
+          <div className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
             <FileTree
               chapters={run.chapters}
               orderedChapterIds={run.orderedChapterIds}
@@ -179,7 +180,7 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
         </div>
 
         <aside className="border-glass-border lg:border-l">
-          <div className="lg:sticky lg:top-20 lg:h-[calc(100vh-7rem)]">
+          <div className="lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
             <ReviewChat
               sessionId={session.id}
               mode={session.mode}
@@ -283,6 +284,39 @@ function UnavailableReview() {
       </p>
     </div>
   );
+}
+
+// --- Scroll spy ---
+
+/**
+ * Sync `activeFile` with whatever file card is currently in the top band of the viewport.
+ * Lets the left rail's highlight follow free-scroll without requiring a click.
+ */
+function useScrollSpyActiveFile(
+  files: string[],
+  fileRefs: React.MutableRefObject<Map<string, HTMLElement>>,
+  setActiveFile: (file: string | null) => void,
+): void {
+  useEffect(() => {
+    if (!files.length) return;
+    const elementToFile = new Map<Element, string>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible.length === 0) return;
+        const file = elementToFile.get(visible[0].target);
+        if (file) setActiveFile(file);
+      },
+      { rootMargin: "-80px 0px -65% 0px", threshold: 0 },
+    );
+    for (const [file, el] of fileRefs.current.entries()) {
+      elementToFile.set(el, file);
+      observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, [files, fileRefs, setActiveFile]);
 }
 
 // --- Keyboard nav ---

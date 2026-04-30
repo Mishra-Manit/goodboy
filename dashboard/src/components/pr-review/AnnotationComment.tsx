@@ -17,7 +17,7 @@ export function AnnotationComment({ annotation, index, onReply }: AnnotationComm
   const lineLabel = `${annotation.side === "old" ? "−" : "+"}${annotation.line}`;
 
   return (
-    <div className="group/pin relative whitespace-normal px-3 py-1">
+    <div className="group/pin relative whitespace-normal px-3 py-1 hover:z-50 focus-within:z-50">
       <button
         type="button"
         className="flex w-full items-center gap-[10px] rounded-md border border-glass-border bg-bg-raised/60 px-[10px] py-[6px] text-left transition-colors hover:border-glass-hover focus:border-accent-dim focus:outline-none"
