@@ -12,6 +12,7 @@ import { PageState } from "@dashboard/components/PageState";
 import { FileTree } from "@dashboard/components/pr-review/FileTree";
 import { FileStack } from "@dashboard/components/pr-review/FileStack";
 import { ReviewChat } from "@dashboard/components/pr-review/ReviewChat";
+import { ResizablePanels } from "@dashboard/components/pr-review/ResizablePanels";
 
 export function PrReview() {
   const { id } = useParams<{ id: string }>();
@@ -151,49 +152,55 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
         onBack={onBack}
       />
 
-      <div className="grid min-h-[calc(100vh-12rem)] grid-cols-1 gap-0 lg:grid-cols-[244px_minmax(0,1fr)_400px]">
-        <aside className="border-glass-border lg:border-r">
-          <div className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
-            <FileTree
+      <ResizablePanels
+        storageKey="pr-review-panels"
+        className="min-h-[calc(100vh-12rem)]"
+        left={
+          <aside className="min-w-0">
+            <div className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
+              <FileTree
+                chapters={run.chapters}
+                orderedChapterIds={run.orderedChapterIds}
+                activeFile={activeFile}
+                onSelectFile={focusFile}
+              />
+            </div>
+          </aside>
+        }
+        center={
+          <div className="min-w-0 px-[18px] py-[18px]">
+            <FileStack
               chapters={run.chapters}
               orderedChapterIds={run.orderedChapterIds}
+              patchByFile={patchByFile}
+              annotationsByFile={annotationsByFile}
               activeFile={activeFile}
-              onSelectFile={focusFile}
+              expandedFiles={expandedFiles}
+              onToggleExpand={toggleExpand}
+              onSelectFile={setActiveFile}
+              diffStyle="unified"
+              fileRefs={fileRefs}
+              onReplyAnnotation={handleReplyAnnotation}
             />
           </div>
-        </aside>
-
-        <div className="min-w-0 px-[18px] py-[18px]">
-          <FileStack
-            chapters={run.chapters}
-            orderedChapterIds={run.orderedChapterIds}
-            patchByFile={patchByFile}
-            annotationsByFile={annotationsByFile}
-            activeFile={activeFile}
-            expandedFiles={expandedFiles}
-            onToggleExpand={toggleExpand}
-            onSelectFile={setActiveFile}
-            diffStyle="unified"
-            fileRefs={fileRefs}
-            onReplyAnnotation={handleReplyAnnotation}
-          />
-        </div>
-
-        <aside className="border-glass-border lg:border-l">
-          <div className="lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
-            <ReviewChat
-              sessionId={session.id}
-              mode={session.mode}
-              prNumber={session.prNumber}
-              branch={session.branch}
-              activeFile={activeFile}
-              attachedAnnotation={attachedAnnotation}
-              onClearAnnotation={() => setAttachedAnnotation(null)}
-              onChanged={onChanged}
-            />
-          </div>
-        </aside>
-      </div>
+        }
+        right={
+          <aside className="min-w-0">
+            <div className="lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
+              <ReviewChat
+                sessionId={session.id}
+                mode={session.mode}
+                prNumber={session.prNumber}
+                branch={session.branch}
+                activeFile={activeFile}
+                attachedAnnotation={attachedAnnotation}
+                onClearAnnotation={() => setAttachedAnnotation(null)}
+                onChanged={onChanged}
+              />
+            </div>
+          </aside>
+        }
+      />
 
       <BottomBar
         currentIndex={activeIndex}
