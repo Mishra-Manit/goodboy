@@ -36,18 +36,21 @@ describe("prAnalystSystemPrompt", () => {
     expect(prompt).toContain("Do NOT run gh pr review");
   });
 
-  it("forces project-local codebase-explorer in one parallel subagent call", () => {
-    expect(prompt).toContain("Use only the project-scoped 'codebase-explorer' agent");
-    expect(prompt).toContain(`"agent": "codebase-explorer"`);
+  it("forces project-local pr-slice-reviewer in one compact parallel subagent call", () => {
+    expect(prompt).toContain("Use only the project-scoped 'pr-slice-reviewer' agent");
+    expect(prompt).toContain(`"agent": "pr-slice-reviewer"`);
     expect(prompt).toContain(`agentScope: "project"`);
-    expect(prompt).toContain("Never use reviewer, worker, scout, builtin agents, or user agents");
+    expect(prompt).toContain("Never use codebase-explorer, reviewer, worker, scout, builtin agents, or user agents");
     expect(prompt).toContain("Do not call\n   subagent with action: \"list\"");
     expect(prompt).toContain("Set concurrency to the total task count");
+    expect(prompt).toContain("Each task string must be one sentence");
   });
 
-  it("references both FILE-GROUP and HOLISTIC codebase-explorer task templates", () => {
-    expect(prompt).toContain("FILE-GROUP codebase-explorer task");
-    expect(prompt).toContain("HOLISTIC codebase-explorer task");
+  it("keeps subagent prompts short and delegates schema details to the agent", () => {
+    expect(prompt).toContain("subagent_id=group-01; artifacts=/tmp/artifacts/task-123; review this group from review-plan.json.");
+    expect(prompt).toContain("subagent_id=holistic; artifacts=/tmp/artifacts/task-123; review cross-cutting PR risks.");
+    expect(prompt).toContain("The pr-slice-reviewer agent reads review-plan.json, pr.diff, and");
+    expect(prompt).toContain("It owns the JSON schema and changed-line filtering");
   });
 
   it("tells the analyst to calibrate severity conservatively", () => {
@@ -73,7 +76,7 @@ describe("prAnalystSystemPrompt", () => {
 
   it("documents the context-hiding and JSON report contracts for subagents", () => {
     expect(prompt).toContain("Subagents do NOT receive pr-impact.vN.md files or the full memory block");
-    expect(prompt).toContain("Return ONLY valid JSON matching the schema below");
+    expect(prompt).toContain("It owns the JSON schema and changed-line filtering");
     expect(prompt).toContain("Never continue with a\n   missing report");
   });
 

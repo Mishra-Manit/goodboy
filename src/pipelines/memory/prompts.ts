@@ -135,7 +135,7 @@ const SUBAGENTS = `
 SUBAGENTS AVAILABLE
 -------------------
 You have the 'subagent' tool. Use only the project-scoped 'codebase-explorer'
-agent from .pi/agents/codebase-explorer.md — a read-only Kimi K2.5 agent that
+agent from .pi/agents/codebase-explorer.md — a read-only code research agent that
 returns structured Finding / Evidence / Caveats markdown. Dispatch many in one call:
     { "tasks": [
         { "agent": "codebase-explorer", "task": "<specific scoped question>" },

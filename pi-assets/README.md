@@ -22,15 +22,22 @@ pi-assets/
 
 ### `agents/codebase-explorer.md`
 
-Read-only Kimi K2.5 subagent invoked by the planner and PR analyst for parallel
-codebase research. Returns `## Finding / ## Evidence / ## Caveats` by default,
-but obeys explicit JSON-only schemas for PR-review report artifacts.
+Read-only codebase research subagent invoked by the planner and memory pipeline.
+Returns `## Finding / ## Evidence / ## Caveats` by default, but obeys explicit
+JSON-only schemas when asked.
+
+### `agents/pr-slice-reviewer.md`
+
+Fast read-only PR review subagent invoked by the PR analyst. It reads one group
+from `review-plan.json`, anchors issues to changed lines in `pr.diff`, and
+returns compact JSON only. It uses the same MiniMax M2.7 model as the general
+codebase explorer so PR review fanout stays cheap and predictable.
 
 ## Model registry
 
 Goodboy stage models are selected through `PI_MODEL*` env vars and resolved
 against the host's `~/.pi/agent/models.json` on both the laptop and the EC2
-host. Fireworks models currently used here include Kimi K2.5 and MiniMax M2.7.
+host. Fireworks models currently used here include MiniMax M2.7.
 Stage pi processes inherit that registry naturally — no project-local override,
 no `PI_CODING_AGENT_DIR` env var. If you spin up a fresh machine, add the
 Fireworks provider entries there before running a task.

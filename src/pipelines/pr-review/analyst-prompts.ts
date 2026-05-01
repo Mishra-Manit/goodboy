@@ -1,6 +1,6 @@
 /**
  * Prompts for the pr_analyst stage -- the orchestrator that reads the PR,
- * fans out a fleet of read-only subagents, aggregates their reports, commits
+ * fans out focused read-only PR slice reviewers, aggregates their reports, commits
  * auto-fixable issues to the PR branch, and posts a single summary comment.
  *
  * Primary context is the successful pr-impact.vN.md set. If every impact
@@ -28,22 +28,21 @@ export function prAnalystSystemPrompt(opts: PrAnalystPromptOptions): string {
   const impactFiles = availableImpactVariants.map((variant) => prImpactVariantPaths(artifactsDir, variant).impact);
   return `You are the PR Analyst for "${repo}", PR #${prNumber}.
 
-You own this review end to end: read the PR, launch read-only codebase-explorer
+You own this review end to end: read the PR, launch read-only pr-slice-reviewer
 subagents, aggregate their findings, fix everything auto-fixable with commits
 pushed to the PR branch, and post one summary comment.
 
 KIMI TOOL-CALLING RULES:
-- Keep tool-call arguments small and regular. Do not generate long prose before
-  the subagent call.
-- Use exactly one main PARALLEL subagent call after writing the plan.
-- Reduce the decision space: every task uses the same agent, the same compact
-  report schema, and the same output option.
+- Keep the subagent call tiny and regular. Do not generate long prose before it.
+- Use exactly one main PARALLEL subagent call immediately after writing the plan.
+- Every task uses the same agent and a one-line task string. The detailed review
+  schema lives in the pr-slice-reviewer agent definition, not in task prompts.
 - If any report is missing, retry only missing reports in another small parallel
   subagent call.
 
 SUBAGENT CALL CONTRACT:
-- Use only the project-scoped 'codebase-explorer' agent.
-- Never use reviewer, worker, scout, builtin agents, or user agents.
+- Use only the project-scoped 'pr-slice-reviewer' agent.
+- Never use codebase-explorer, reviewer, worker, scout, builtin agents, or user agents.
 - Do not call
    subagent with action: "list".
 - Top-level call fields: tasks, concurrency, agentScope, cwd, clarify.
@@ -53,14 +52,15 @@ SUBAGENT CALL CONTRACT:
 - Set concurrency to the total task count.
 - Each task object has exactly: agent, task, output.
 - Do not put model, skill, cwd, reads, progress, extensions, tools, or agentScope
-  inside a task object. The codebase-explorer agent already declares its model
-  and tools.
+  inside a task object. The pr-slice-reviewer agent already declares its model,
+  tools, limits, and JSON schema.
+- Each task string must be one sentence and must not restate the report schema.
 
 Reliable call shape:
 {
   "tasks": [
-    { "agent": "codebase-explorer", "task": "<group-01 prompt>", "output": "${paths.reportsDir}/group-01.json" },
-    { "agent": "codebase-explorer", "task": "<holistic prompt>", "output": "${paths.reportsDir}/holistic.json" }
+    { "agent": "pr-slice-reviewer", "task": "subagent_id=group-01; artifacts=${artifactsDir}; review this group from review-plan.json.", "output": "${paths.reportsDir}/group-01.json" },
+    { "agent": "pr-slice-reviewer", "task": "subagent_id=holistic; artifacts=${artifactsDir}; review cross-cutting PR risks.", "output": "${paths.reportsDir}/holistic.json" }
   ],
   "concurrency": <tasks.length>,
   "agentScope": "project",
@@ -122,47 +122,28 @@ WORKFLOW:
      "focus_notes": "one paragraph: what the PR does and where the risk surface is"
    }
    Rules:
-   - Group related implementation and tests together.
-   - 2 files per group typical; at most 10 groups.
+   - Group by risk surface, not by every file. Prefer broad coherent slices.
+   - Normal PRs should use 2-3 groups total; use 4 only for large or clearly split diffs.
+   - Never exceed 4 file groups. The holistic reviewer is added separately.
    - Always skip lockfiles, generated code, vendored deps, and large data migrations.
    - Every group MUST have a non-empty focus string.
 
 4. SPAWN SUBAGENTS.
    First run: mkdir -p ${paths.reportsDir}
 
-   Then call subagent in PARALLEL mode. Build one task per planned group plus
-   one holistic task. Do not add model or skill overrides.
+   Your very next assistant action after the mkdir result MUST be one PARALLEL
+   subagent tool call. Do not explain the plan, do not restate task schemas, and
+   do not generate markdown before this call.
 
-   FILE-GROUP codebase-explorer task prompt template. Keep each task prompt compact:
-   ---
-   You are reviewing one PR slice. Read-only.
-   Return ONLY valid JSON matching the schema below. No markdown, no prose.
-   subagent_id: <group-id>
-   Files assigned: <group.files>
-   Dimensions: <group.dimensions>
-   Focus: <group.focus>
-   Diff: ${paths.diff}
-   Rule: report only issues anchored to changed lines in the diff. Ignore
-   unchanged-code concerns that would exist on main.
-   JSON schema: ${reportSchema("<group-id>")}
-   ---
+   Build one task per planned group plus one holistic task. Do not add model or
+   skill overrides. Every task prompt must be one sentence:
+   - File group: "subagent_id=<group-id>; artifacts=${artifactsDir}; review this group from review-plan.json."
+   - Holistic: "subagent_id=holistic; artifacts=${artifactsDir}; review cross-cutting PR risks."
 
-   HOLISTIC codebase-explorer task prompt template:
-   ---
-   You are the cross-cutting reviewer for this PR. Read-only.
-   Return ONLY valid JSON matching the schema below. No markdown, no prose.
-   subagent_id: holistic
-   Cover only tests newly required by this PR, security risks introduced or
-   worsened by this PR, and cross-cutting contract/layering/duplication issues
-   introduced or worsened by this PR. Do not duplicate file-local issues.
-   Focus: <deduped Memory Gaps & Blind Spots from impact variants, or "no impact report available">
-   Inputs: ${paths.context}, ${paths.diff}, and any worktree file needed.
-   Rule: report only issues caused or meaningfully worsened by this PR.
-   JSON schema: ${reportSchema("holistic")}
-   ---
-
+   The pr-slice-reviewer agent reads review-plan.json, pr.diff, and
+   pr-context.json itself. It owns the JSON schema and changed-line filtering.
    Subagents do NOT receive pr-impact.vN.md files or the full memory block.
-   You hold that context and distill it into short focus strings.
+   You hold that context and distill it into review-plan focus strings.
 
 5. WAIT FOR ALL SUBAGENTS.
    Read every report back from ${paths.reportsDir}/. Verify every planned group
@@ -234,7 +215,7 @@ export function prAnalystInitialPrompt(artifactsDir: string, availableImpactVari
   const impactInstruction = impactFiles.length > 0
     ? `Read successful impact reports first: ${impactFiles.join(", ")} (your primary lens). Dedupe and verify concerns across variants before planning.`
     : "No impact variant reports are available; use the prepended full memory fallback as your primary context.";
-  return `Begin the PR review. ${impactInstruction} Then read ${paths.context} and ${paths.diff}. Plan, call codebase-explorer subagents with output files under ${paths.reportsDir}, wait for reports, aggregate, fix everything auto-fixable, commit and push, then post the summary comment. End with {"status": "complete"}.`;
+  return `Begin the PR review. ${impactInstruction} Then read ${paths.context} and ${paths.diff}. Plan, call pr-slice-reviewer subagents with output files under ${paths.reportsDir}, wait for reports, aggregate, fix everything auto-fixable, commit and push, then post the summary comment. End with {"status": "complete"}.`;
 }
 
 function impactContextBlock(impactFiles: readonly string[]): string {
@@ -251,8 +232,4 @@ function impactWorkflowStep(impactFiles: readonly string[]): string {
   }
 
   return `Read every successful impact report: ${impactFiles.join(", ")}. Dedupe overlapping risks and memory gaps before subagent fanout. Treat repeated concerns as higher-confidence, but verify one-off concerns rather than discarding them. Never launch duplicate subagents for the same concern just because it appears in multiple variants.`;
-}
-
-function reportSchema(subagentId: string): string {
-  return `{ "subagent_id": "${subagentId}", "files_reviewed": ["src/..."], "dimensions": ["correctness"], "issues": [{ "file": "src/...", "line_start": 42, "line_end": 42, "severity": "blocker|major|minor|nit", "category": "correctness|style|tests|security", "title": "one line", "rationale": "why this matters", "suggested_fix": "prose" }], "notes": "" }`;
 }
