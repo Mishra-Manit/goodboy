@@ -26,7 +26,7 @@ review.json schema:
     {
       "id": string,                    // slug: starts with [a-z0-9], then [a-z0-9-], max 80
                                        // good: "auth-middleware", "fix-42"; bad: "-auth", "Auth", "has_spaces"
-      "title": string,                 // 1..120 chars; target <= 60 chars
+      "title": string,                 // 1-2 words MAX (hard rule); longer titles will not render
       "files": [string],               // length >= 1, full file paths from the diff
       "rationale": string,             // 1..400 chars; target <= 140 chars
       "annotations": [                 // length >= 0
@@ -113,6 +113,9 @@ Chapters group annotations by file. Single-file chapters are common. Multi-file 
 should only group files that share a real theme. Keep chapter rationale <= 140 chars.
 Order chapters from most important (blocking concerns or biggest changes) to least important.
 
+Chapter title rule (hard): 1-2 words MAX. Three or more words will not display in the UI.
+Use a tight noun or noun pair (e.g. "Auth", "Auth Middleware", "DB Schema"). No verbs, no articles, no punctuation.
+
 ${SCHEMA_DOC}
 
 Output rules:
@@ -139,7 +142,7 @@ export function prDisplayInitialPrompt(artifactsDir: string, availableImpactVari
   const impactInstruction = impactFiles.length > 0
     ? `Also read successful impact variant files: ${impactFiles.join(", ")}.`
     : "No impact variant files succeeded; continue from summary, reports, context, and diffs.";
-  return `Begin. Read ${paths.updatedContext}, ${paths.context}, ${paths.diff}, ${paths.updatedDiff}, ${paths.summary}, and the JSON files under ${paths.reportsDir}. ${impactInstruction} Read additional worktree files only if needed. Then write concise dashboard copy to ${paths.review}: summary <=600 chars, chapter rationale <=140 chars, annotation titles <=70 chars, annotation bodies <=220 chars. End with {"status": "complete"}.`;
+  return `Begin. Read ${paths.updatedContext}, ${paths.context}, ${paths.diff}, ${paths.updatedDiff}, ${paths.summary}, and the JSON files under ${paths.reportsDir}. ${impactInstruction} Read additional worktree files only if needed. Then write concise dashboard copy to ${paths.review}: summary <=600 chars, chapter title 1-2 words MAX (hard rule), chapter rationale <=140 chars, annotation titles <=70 chars, annotation bodies <=220 chars. End with {"status": "complete"}.`;
 }
 
 function impactInputBlock(impactFiles: readonly string[]): string {
