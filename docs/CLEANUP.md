@@ -142,7 +142,7 @@ A learning-focused section. Each item links a concrete pattern with at least one
     - API DTOs → choose one and document it.
     Pick a rule: "DB layer returns `null`, application layer returns `undefined`, network DTOs use `null` (so JSON round-trips cleanly)." Add a `nullToUndefined` helper for the seam, lint the rest.
 
-34. **Stop passing explicit `undefined` into optional props.**
+34. **PARTIAL — Stop passing explicit `undefined` into optional props.**
     Once `exactOptionalPropertyTypes` is on, this fails. Examples already in code:
     ```ts
     // core/stage.ts
@@ -175,7 +175,7 @@ A learning-focused section. Each item links a concrete pattern with at least one
     - `PrSessionRun.comments: PrComment[] | null` plus `trigger: string` could be `{ trigger: "comments"; comments: PrComment[] } | { trigger: "pr_creation" } | { trigger: "review_chat"; context: ... }`. Then the schema enforces "only `comments` triggers carry comments."
     - `MemoryRun.originTaskId | externalLabel` (one of the two is always null based on `source`). Express as `{source: "task"; originTaskId: string} | {source: "manual_test"; externalLabel: string}` at the application boundary; keep the wide row only at the DB seam.
 
-38. **`StageResult` and `LockInspection` are the right shape — apply the pattern more widely.**
+38. **PARTIAL — `StageResult` and `LockInspection` are the right shape — apply the pattern more widely.**
     Sites where it'd help:
     - `runStage`'s `postValidate`: today returns `{valid: false, reason?: string}`; make it `{valid: true, data: T} | {valid: false, reason: string}` so consumers can attach typed payload (see #36).
     - `withMemoryRun`'s `Promise<"ran" | "lock_held">`: fine, but consider `{kind: "ran"; result: T} | {kind: "lock_held"}` so callers don't always have to bolt the run's output onto a closed-over variable.
