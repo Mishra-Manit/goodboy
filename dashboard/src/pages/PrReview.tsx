@@ -149,6 +149,7 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
         prNumber={session.prNumber}
         sha={run.headSha}
         createdAt={run.createdAt}
+        diffUpdatedAt={run.diffUpdatedAt}
         onBack={onBack}
       />
 
@@ -219,10 +220,14 @@ interface ReviewHeaderProps {
   prNumber: number | null;
   sha: string;
   createdAt: string;
+  // TEMP: refresh marker for testing pr_review refresh-on-commit. Remove once verified.
+  diffUpdatedAt: string | null;
   onBack: () => void;
 }
 
-function ReviewHeader({ title, repo, prNumber, sha, createdAt, onBack }: ReviewHeaderProps) {
+function ReviewHeader({ title, repo, prNumber, sha, createdAt, diffUpdatedAt, onBack }: ReviewHeaderProps) {
+  // TEMP: refresh marker. Highlights when the diff has been refreshed since initial review (createdAt).
+  const refreshed = diffUpdatedAt && new Date(diffUpdatedAt).getTime() - new Date(createdAt).getTime() > 1000;
   return (
     <header className="px-2 pb-4">
       <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-text-void">
@@ -246,6 +251,14 @@ function ReviewHeader({ title, repo, prNumber, sha, createdAt, onBack }: ReviewH
         <span>{formatDate(createdAt)}</span>
         <span className="text-text-ghost/40">·</span>
         <span>sha {sha.slice(0, 7)}</span>
+        {refreshed && (
+          <>
+            <span className="text-text-ghost/40">·</span>
+            <span className="text-warn/70" title={`pr.updated.diff mtime: ${diffUpdatedAt}`}>
+              diff refreshed {formatDate(diffUpdatedAt!)}
+            </span>
+          </>
+        )}
       </div>
 
       <h1 className="font-display text-[20px] font-normal leading-tight tracking-tight text-text">
