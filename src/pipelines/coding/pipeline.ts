@@ -25,7 +25,7 @@ import {
   type WorktreeEnv,
 } from "./prompts.js";
 import { startPrSession } from "../pr-session/session.js";
-import { memoryBlock } from "../../shared/agent-prompts.js";
+import { memoryBlock } from "../../core/memory/render.js";
 import { requireNonEmptyArtifact } from "../../shared/artifacts.js";
 import { toErrorMessage } from "../../shared/errors.js";
 import {
