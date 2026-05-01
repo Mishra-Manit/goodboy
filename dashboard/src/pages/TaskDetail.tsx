@@ -40,10 +40,10 @@ export function TaskDetail() {
   const navigate = useNavigate();
   const now = useNow();
 
-  const { data: task, loading, error, refetch } = useQuery(() => fetchTask(taskId), [taskId]);
+  const { data: task, loading, error, refetch } = useQuery(`task:${taskId}`, () => fetchTask(taskId));
   const { data: sessionData, refetch: refetchSession } = useQuery(
+    `task-session:${taskId}`,
     () => fetchTaskSession(taskId),
-    [taskId],
   );
 
   useSSERefresh(
@@ -101,8 +101,8 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
   // Page owns the linked-session fetch so the banner stays a pure component.
   // Skip the request unless this is a pr_review task.
   const { data: prSession } = useQuery(
+    `task-pr-session:${task.id}:${task.kind}`,
     () => (task.kind === "pr_review" ? fetchPrSessionBySourceTask(task.id) : Promise.resolve(null)),
-    [task.id, task.kind],
   );
 
   const tabs = useMemo(

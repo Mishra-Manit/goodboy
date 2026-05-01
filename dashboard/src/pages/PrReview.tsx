@@ -27,8 +27,8 @@ interface PrReviewContentProps {
 function PrReviewContent({ sessionId }: PrReviewContentProps) {
   const navigate = useNavigate();
   const { data, loading, error, refetch } = useQuery(
+    `pr-review:${sessionId}`,
     () => fetchPrReviewPage(sessionId),
-    [sessionId],
   );
   return (
     <div className="animate-fade-in">

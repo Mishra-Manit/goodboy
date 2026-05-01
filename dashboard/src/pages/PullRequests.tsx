@@ -14,7 +14,7 @@ type ModeFilter = (typeof MODE_FILTERS)[number];
 
 export function PullRequests() {
   const navigate = useNavigate();
-  const { data: sessions, loading, refetch } = useQuery(() => fetchPrSessions());
+  const { data: sessions, loading, refetch } = useQuery("pr-sessions", fetchPrSessions);
   const [runningSessions, setRunningSessions] = useState<Set<string>>(new Set());
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
