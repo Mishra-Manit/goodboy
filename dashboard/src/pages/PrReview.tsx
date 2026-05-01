@@ -154,7 +154,7 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
 
       <ResizablePanels
         storageKey="pr-review-panels"
-        className="min-h-[calc(100vh-12rem)] gap-0"
+        className="min-h-[calc(100vh-12rem)]"
         left={
           <aside className="min-w-0">
             <div className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
