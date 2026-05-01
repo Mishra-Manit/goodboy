@@ -112,7 +112,7 @@ async function handleTaskCancel(intent: Extract<Intent, { type: "task_cancel" }>
   const result = await findTaskByPrefix(intent.taskPrefix);
   if (!result.ok) return void ctx.reply(result.message);
 
-  cancelTask(result.task.id);
+  await cancelTask(result.task.id);
   await queries.updateTask(result.task.id, { status: "cancelled" });
   await ctx.reply(`Cancelled task ${shortId(result.task.id)}.`);
 }
