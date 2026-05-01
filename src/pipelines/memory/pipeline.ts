@@ -29,7 +29,7 @@ import { createLogger } from "../../shared/logger.js";
 import { resolveModel } from "../../shared/config.js";
 import type { MemoryRunSource, StageStatus } from "../../shared/types.js";
 import { subagentCapability } from "../../core/subagents/index.js";
-import { runStage, isPersistedTaskId, type SendTelegram } from "../../core/stage.js";
+import { runStage, isPersistedTaskId, type SendTelegram, type StageValidation } from "../../core/stage.js";
 import { taskSessionPath } from "../../core/pi/session-file.js";
 import * as queries from "../../db/repository.js";
 import { emit } from "../../shared/events.js";
@@ -143,13 +143,10 @@ async function runCold(
   const sessionPath = taskSessionPath(opts.taskId, "memory");
   const tracker = await startMemoryRun({ ...opts, kind: "cold", sessionPath });
   attachRunIdToSpan(tracker);
-  // postValidate captures the parsed zones sidecar on success so we don't
-  // re-read it to build the state file. Guaranteed set when result.ok.
-  let validatedZones: readonly Zone[] | null = null;
 
   let result;
   try {
-    result = await runStage({
+    result = await runStage<readonly Zone[]>({
       taskId: opts.taskId,
       stage: "memory",
       cwd: worktree,
@@ -162,13 +159,8 @@ async function runCold(
       extensions: cap.extensions,
       envOverrides: cap.envOverrides,
       timeoutMs: COLD_TIMEOUT_MS,
-      sessionEventMeta: tracker.runId ? { memoryRunId: tracker.runId } : undefined,
-      postValidate: async () => {
-        const v = await validateColdOutput(opts.repo);
-        if (!v.valid) return { valid: false, reason: v.reason };
-        validatedZones = v.zones;
-        return { valid: true };
-      },
+      ...(tracker.runId ? { sessionEventMeta: { memoryRunId: tracker.runId } } : {}),
+      postValidate: () => validateColdStage(opts.repo),
     });
   } catch (err) {
     await tracker.fail(err);
@@ -180,9 +172,20 @@ async function runCold(
     return;
   }
 
-  const zones: readonly Zone[] = validatedZones!;
-  await writeState(opts.repo, headSha, zones);
-  await tracker.complete({ sha: headSha, zoneCount: zones.length });
+  if (!result.data) {
+    await tracker.fail("cold validation did not return zones");
+    return;
+  }
+
+  await writeState(opts.repo, headSha, result.data);
+  await tracker.complete({ sha: headSha, zoneCount: result.data.length });
+}
+
+async function validateColdStage(repo: string): Promise<StageValidation<readonly Zone[]>> {
+  const result = await validateColdOutput(repo);
+  return result.valid
+    ? { valid: true, data: result.zones }
+    : { valid: false, reason: result.reason };
 }
 
 // --- Warm ---
@@ -222,7 +225,7 @@ async function runWarm(
       extensions: cap.extensions,
       envOverrides: cap.envOverrides,
       timeoutMs: WARM_TIMEOUT_MS,
-      sessionEventMeta: tracker.runId ? { memoryRunId: tracker.runId } : undefined,
+      ...(tracker.runId ? { sessionEventMeta: { memoryRunId: tracker.runId } } : {}),
       postValidate: () => validateWarmOutput(
         opts.repo, state.zones, stateHashBefore, zoneDirsBefore,
       ),

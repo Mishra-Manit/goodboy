@@ -191,14 +191,15 @@ interface RunStageOptions {
     memoryRunId?: string;
   };
   /**
-   * Runs after pi exits cleanly, before the stage row is marked complete
-   * and before the terminal SSE emit. If it returns `{ valid: false }`,
-   * the stage is persisted as failed with `error: reason` and exactly one
-   * `stage_update: failed` is emitted (no prior `complete`). Throws from
-   * postValidate bubble up and are handled like a pi-side failure.
+   * Runs after pi exits cleanly, before the stage row is marked complete.
+   * A failed result persists/emits `failed`; throws behave like pi failures.
    */
-  postValidate?: () => Promise<{ valid: boolean; reason?: string }>;
+  postValidate?: () => Promise<StageValidation>;
 }
+
+export type StageValidation<T = unknown> =
+  | { valid: true; data?: T }
+  | { valid: false; reason: string };
 
 /**
  * Outcome of a stage. `ok: false` means the stage ran to completion but
@@ -206,7 +207,7 @@ interface RunStageOptions {
  * and the terminal SSE event was already emitted. A thrown pi-side failure
  * propagates instead and never produces a result value.
  */
-export type StageResult = { ok: true } | { ok: false; reason: string };
+export type StageResult<T = unknown> = { ok: true; data?: T } | { ok: false; reason: string };
 
 /**
  * Run one pi-RPC stage end-to-end: mark task running, create the stage row,
@@ -214,7 +215,9 @@ export type StageResult = { ok: true } | { ok: false; reason: string };
  * SSE, then update the stage row on success/failure. The session is always
  * killed and the watcher always stopped in `finally`.
  */
-export async function runStage(options: RunStageOptions): Promise<StageResult> {
+export async function runStage<T = unknown>(
+  options: Omit<RunStageOptions, "postValidate"> & { postValidate?: () => Promise<StageValidation<T>> },
+): Promise<StageResult<T>> {
   const {
     taskId, stage, cwd, systemPrompt, initialPrompt,
     model, sendTelegram, chatId, stageLabel,
@@ -225,7 +228,7 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
 
   return withStageSpan(
     { taskId, stage, model, stageLabel, piSessionPath: sessionPath, variant },
-    async (stageSpan): Promise<StageResult> => {
+    async (stageSpan): Promise<StageResult<T>> => {
       if (cancelledTasks.has(taskId)) {
         emit({ type: "stage_update", taskId, stage, variant, status: "skipped" });
         throw new TaskCancelledError(taskId);
@@ -278,38 +281,28 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
 
       try {
         await withTimeout(session.waitForCompletion(), timeoutMs ?? STAGE_TIMEOUT_MS, `Stage ${stage}`);
-        if (options.postValidate) {
-          const result = await options.postValidate();
-          if (!result.valid) {
-            const reason = result.reason ?? "postValidate failed";
-            if (stageRecord) {
-              await queries.updateTaskStage(stageRecord.id, {
-                status: "failed", completedAt: new Date(), error: reason,
-              }).catch(() => {});
-            }
-            emit({ type: "stage_update", taskId, stage, variant, status: "failed" });
-            log.warn(`Stage ${stage} failed postValidate for task ${taskId}: ${reason}`);
-            return { ok: false, reason };
-          }
+        const validation = await validateStageOutput(options.postValidate);
+        if (!validation.valid) {
+          await markStageTerminal(stageRecord?.id, taskId, stage, variant, "failed", validation.reason);
+          log.warn(`Stage ${stage} failed postValidate for task ${taskId}: ${validation.reason}`);
+          return { ok: false, reason: validation.reason };
         }
-        if (stageRecord) {
-          await queries.updateTaskStage(stageRecord.id, { status: "complete", completedAt: new Date() });
-        }
-        emit({ type: "stage_update", taskId, stage, variant, status: "complete" });
+
+        await markStageTerminal(stageRecord?.id, taskId, stage, variant, "complete");
         await notifyTelegram(sendTelegram, chatId, `Stage complete: ${stageLabel}.`);
         log.info(`Stage ${stage} complete for task ${taskId}`);
-        return { ok: true };
+        return { ok: true, ...(validation.data !== undefined ? { data: validation.data } : {}) };
       } catch (err) {
         const cancelled = cancelledTasks.has(taskId);
         const terminalStatus = cancelled ? "skipped" : "failed";
-        if (stageRecord) {
-          await queries.updateTaskStage(stageRecord.id, {
-            status: terminalStatus,
-            completedAt: new Date(),
-            error: cancelled ? null : toErrorMessage(err),
-          }).catch(() => {});
-        }
-        emit({ type: "stage_update", taskId, stage, variant, status: terminalStatus });
+        await markStageTerminal(
+          stageRecord?.id,
+          taskId,
+          stage,
+          variant,
+          terminalStatus,
+          cancelled ? null : toErrorMessage(err),
+        );
         if (cancelled) throw new TaskCancelledError(taskId);
         throw err;
       } finally {
@@ -321,4 +314,30 @@ export async function runStage(options: RunStageOptions): Promise<StageResult> {
       }
     },
   );
+}
+
+async function validateStageOutput<T>(
+  postValidate: (() => Promise<StageValidation<T>>) | undefined,
+): Promise<StageValidation<T>> {
+  return postValidate ? postValidate() : { valid: true };
+}
+
+async function markStageTerminal(
+  stageRecordId: string | undefined,
+  taskId: string,
+  stage: StageName,
+  variant: number | undefined,
+  status: "complete" | "failed" | "skipped",
+  error?: string | null,
+): Promise<void> {
+  if (stageRecordId) {
+    await queries.updateTaskStage(stageRecordId, {
+      status,
+      completedAt: new Date(),
+      ...(status === "complete" ? {} : { error: error ?? null }),
+    }).catch((err) => {
+      log.warn(`updateTaskStage failed for task ${taskId} stage ${stage}`, err);
+    });
+  }
+  emit({ type: "stage_update", taskId, stage, variant, status });
 }
