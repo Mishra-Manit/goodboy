@@ -66,6 +66,9 @@ const log = createLogger("api");
 const SSE_PING_INTERVAL_MS = 30_000;
 const MEMORY_RUN_STATUS_POLL_MS = 1_000;
 const UUID_PATTERN = /^[0-9a-f-]{36}$/;
+const taskStatusQuerySchema = z.enum(TASK_STATUSES);
+const taskKindQuerySchema = z.enum(TASK_KINDS);
+const memoryRunKindQuerySchema = z.enum(MEMORY_RUN_KINDS);
 const prSessionWatchBodySchema = z.object({
   watchStatus: z.enum(PR_SESSION_WATCH_STATUSES),
 });
@@ -84,9 +87,9 @@ export function createApi(): Hono {
 
   app.get("/api/tasks", async (c) => {
     const tasks = await queries.listTasks({
-      status: oneOf(c.req.query("status"), TASK_STATUSES),
+      status: parseEnumQuery(taskStatusQuerySchema, c.req.query("status")),
       repo: c.req.query("repo"),
-      kind: oneOf(c.req.query("kind"), TASK_KINDS),
+      kind: parseEnumQuery(taskKindQuerySchema, c.req.query("kind")),
     });
     return c.json(tasks);
   });
@@ -194,7 +197,7 @@ export function createApi(): Hono {
     const limit = parseLimit(c.req.query("limit"));
     const includeTests = c.req.query("includeTests") !== "false";
     const includeInactive = c.req.query("includeInactive") === "true";
-    const kind = oneOf(c.req.query("kind"), MEMORY_RUN_KINDS);
+    const kind = parseEnumQuery(memoryRunKindQuerySchema, c.req.query("kind"));
 
     const runs = await queries.listMemoryRuns({ repo, limit, includeTests, includeInactive, kind });
     return c.json(runs);
@@ -445,9 +448,13 @@ function notFound(c: Context) {
   return c.json({ error: "Not found" }, 404);
 }
 
-/** Return `value` if it's one of the allowed literals, else `undefined`. */
-function oneOf<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {
-  return value && (allowed as readonly string[]).includes(value) ? (value as T) : undefined;
+function parseEnumQuery<T extends z.ZodEnum<[string, ...string[]]>>(
+  schema: T,
+  value: string | undefined,
+): z.infer<T> | undefined {
+  if (!value) return undefined;
+  const result = schema.safeParse(value);
+  return result.success ? result.data : undefined;
 }
 
 function parseLimit(value: string | undefined): number | undefined {
