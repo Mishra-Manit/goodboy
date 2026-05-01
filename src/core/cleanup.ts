@@ -10,12 +10,12 @@ import { promisify } from "node:util";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import { createLogger } from "../shared/logger.js";
-import { config } from "../shared/config.js";
 import { getRepo } from "../shared/repos.js";
 import { removeWorktree } from "./git/worktree.js";
 import { parseNwo } from "./git/github.js";
 import * as queries from "../db/repository.js";
 import { emit } from "../shared/events.js";
+import { prSessionPath } from "./pi/session-file.js";
 
 const exec = promisify(execFile);
 const log = createLogger("cleanup");
@@ -124,8 +124,8 @@ async function deleteLocalBranch(repoPath: string, branch: string): Promise<void
 }
 
 async function removeSessionFile(prSessionId: string): Promise<void> {
-  const sessionFile = path.join(config.prSessionsDir, `${prSessionId}.jsonl`);
+  const sessionDir = path.dirname(prSessionPath(prSessionId));
   try {
-    await rm(sessionFile, { force: true });
+    await rm(sessionDir, { recursive: true, force: true });
   } catch { /* may not exist */ }
 }
