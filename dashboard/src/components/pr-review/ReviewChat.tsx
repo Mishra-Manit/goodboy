@@ -9,6 +9,7 @@ import {
 } from "@dashboard/lib/api/pr-sessions";
 import { cn } from "@dashboard/lib/utils";
 import { Markdown } from "@dashboard/components/Markdown";
+import { UnicodeSpinner } from "@dashboard/components/UnicodeSpinner";
 import type {
   PrReviewAnnotation,
   PrSessionMode,
@@ -201,9 +202,7 @@ function WorkerBubble() {
   const verb = WORKER_VERBS[Math.floor(seconds / 4) % WORKER_VERBS.length];
   return (
     <div className="flex items-center gap-[10px] text-text-ghost">
-      <span className="flex h-[20px] w-[20px] items-center justify-center rounded-md border border-glass-border bg-bg-raised">
-        <span className="h-[5px] w-[5px] animate-pulse-soft rounded-full bg-accent" />
-      </span>
+      <UnicodeSpinner name="sparkle" className="text-[14px]" />
       <span className="font-body text-[11px] text-text-secondary">
         {verb}… · {seconds}s
       </span>
