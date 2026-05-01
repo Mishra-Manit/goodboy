@@ -8,7 +8,7 @@
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { subscribe } from "../shared/events.js";
@@ -43,6 +43,9 @@ import { dismissTask } from "../core/cleanup.js";
 import { taskArtifactsDir } from "../shared/artifacts.js";
 import { prReviewArtifactPaths } from "../pipelines/pr-review/artifacts.js";
 import { readReviewArtifact } from "../pipelines/pr-review/read-review.js";
+import { refreshReviewArtifacts } from "../pipelines/pr-session/refresh-review.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   reviewChatRequestSchema,
   type PrReviewPageDto,
@@ -332,9 +335,18 @@ export function createApi(): Hono {
       return c.json({ session: sessionDto, run: null } satisfies PrReviewPageDto);
     }
 
+    // Lazy refresh: if the worktree HEAD has advanced past the cached headSha (e.g. the user
+    // pushed commits outside of goodboy's review-chat), regenerate updatedDiff before reading.
+    await maybeRefreshDiffFromWorktree(session, reviewResult.artifact.headSha);
+
     const diffPatch = await readFile(paths.updatedDiff, "utf8")
       .catch(() => readFile(paths.diff, "utf8"))
       .catch(() => "");
+
+    // TEMP: surface pr.updated.diff mtime so the UI can show a refresh marker. Remove once verified.
+    const diffUpdatedAt = await stat(paths.updatedDiff)
+      .then((s) => s.mtime.toISOString())
+      .catch(() => null);
 
     return c.json({
       session: sessionDto,
@@ -342,6 +354,7 @@ export function createApi(): Hono {
         ...reviewResult.artifact,
         diffPatch,
         createdAt: reviewResult.createdAt.toISOString(),
+        diffUpdatedAt,
       },
     } satisfies PrReviewPageDto);
   });
@@ -475,6 +488,51 @@ function reviewChatUnavailableReason(session: queries.PrSession): string | null 
 async function loadReviewChatMessages(prSessionId: string): Promise<ReviewChatMessage[]> {
   const entries = await readSessionFile(prSessionPath(prSessionId));
   return extractReviewChatMessages(entries);
+}
+
+const execFileAsync = promisify(execFile);
+
+/** Per-session debounce so concurrent requests don't trigger overlapping refreshes. */
+const refreshInFlight = new Map<string, Promise<void>>();
+
+/**
+ * Lazy diff refresh. If the session's worktree HEAD has advanced past the cached `headSha`
+ * (e.g. the user pushed commits to the PR outside of goodboy's review-chat flow), regenerate
+ * the `pr.updated.diff` artifact so the dashboard sees the latest changes on next read.
+ * Best-effort: any failure is logged and swallowed — the stale cache is still served.
+ */
+async function maybeRefreshDiffFromWorktree(
+  session: queries.PrSession,
+  cachedHeadSha: string | undefined,
+): Promise<void> {
+  if (!session.sourceTaskId || !session.worktreePath || !session.prNumber) return;
+
+  const existing = refreshInFlight.get(session.id);
+  if (existing) return existing;
+
+  const work = (async () => {
+    let workHead: string;
+    try {
+      const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: session.worktreePath! });
+      workHead = stdout.trim();
+    } catch (err) {
+      log.warn(`maybeRefreshDiffFromWorktree: rev-parse failed for ${session.id}: ${toErrorMessage(err)}`);
+      return;
+    }
+    if (!workHead || workHead === cachedHeadSha) return;
+
+    log.info(`Refreshing diff for PR session ${session.id}: cached=${cachedHeadSha ?? "<none>"} → worktree=${workHead}`);
+    await refreshReviewArtifacts({
+      prSessionId: session.id,
+      sourceTaskId: session.sourceTaskId!,
+      repo: session.repo,
+      prNumber: session.prNumber!,
+      worktreePath: session.worktreePath!,
+    });
+  })().finally(() => refreshInFlight.delete(session.id));
+
+  refreshInFlight.set(session.id, work);
+  return work;
 }
 
 function safeArtifactPath(id: string, name: string): string | null {

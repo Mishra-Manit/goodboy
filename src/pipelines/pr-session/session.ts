@@ -38,6 +38,7 @@ import {
   type ReviewChatResult,
 } from "./review-chat/index.js";
 import { stat } from "node:fs/promises";
+import { refreshReviewArtifacts } from "./refresh-review.js";
 import { withPipelineSpan, bridgeSessionToOtel } from "../../observability/index.js";
 import { trace } from "@opentelemetry/api";
 import { Goodboy } from "../../observability/attributes.js";
@@ -138,6 +139,8 @@ export async function resumePrSession(options: {
 
   const memory = await memoryBlock(repo);
 
+  const beforeSha = await headSha(worktreePath);
+
   try {
     await runSessionTurn({
       prSessionId,
@@ -155,6 +158,20 @@ export async function resumePrSession(options: {
       run,
       timeoutLabel: "PR session (resume)",
     });
+
+    const afterSha = await headSha(worktreePath);
+    if (
+      beforeSha && afterSha && beforeSha !== afterSha &&
+      prSession.sourceTaskId && prNumber
+    ) {
+      await refreshReviewArtifacts({
+        prSessionId,
+        sourceTaskId: prSession.sourceTaskId,
+        repo,
+        prNumber,
+        worktreePath,
+      });
+    }
 
     await notifyTelegram(sendTelegram, chatId,
       `Addressed ${comments.length} comment${pluralS} on PR #${prNumber}. Pushed changes.`);
@@ -261,6 +278,16 @@ export async function runReviewChatTurn(options: {
       completedAt: new Date(),
     });
     return { status: "failed", changed };
+  }
+
+  if (changed && parsed.status === "complete") {
+    await refreshReviewArtifacts({
+      prSessionId,
+      sourceTaskId,
+      repo: session.repo,
+      prNumber,
+      worktreePath,
+    });
   }
 
   return { ...parsed, changed };
