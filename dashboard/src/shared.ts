@@ -8,6 +8,7 @@ export {
   MEMORY_RUN_KINDS,
   MEMORY_RUN_STATUSES,
   MEMORY_RUN_SOURCES,
+  isTerminalStatus,
 } from "@shared/types.js";
 
 export type {

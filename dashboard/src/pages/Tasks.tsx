@@ -21,8 +21,7 @@ import { PageState } from "@dashboard/components/PageState";
 import { groupByDate } from "@dashboard/lib/task-grouping";
 import { cn, shortId } from "@dashboard/lib/utils";
 import { timeAgo } from "@dashboard/lib/format";
-
-const ACTIVE_STATUSES = new Set(["queued", "running"]);
+import { isTerminalStatus } from "@dashboard/shared";
 const HISTORY_FILTERS = ["all", "complete", "failed", "cancelled"] as const;
 type HistoryFilter = (typeof HISTORY_FILTERS)[number];
 
@@ -38,7 +37,7 @@ export function Tasks() {
 
   // Prefetch stage details for every active task so the pipeline progress renders.
   const activeIds = useMemo(
-    () => (query.data ?? []).filter((t) => ACTIVE_STATUSES.has(t.status)).map((t) => t.id),
+    () => (query.data ?? []).filter((t) => !isTerminalStatus(t.status)).map((t) => t.id),
     [query.data],
   );
   useEffect(() => {
@@ -77,8 +76,8 @@ export function Tasks() {
 
       <PageState data={query.data} loading={query.loading} error={query.error} onRetry={query.refetch}>
         {(tasks) => {
-          const active = tasks.filter((t) => ACTIVE_STATUSES.has(t.status));
-          const completed = tasks.filter((t) => !ACTIVE_STATUSES.has(t.status));
+          const active = tasks.filter((t) => !isTerminalStatus(t.status));
+          const completed = tasks.filter((t) => isTerminalStatus(t.status));
           const historyCounts = countByStatus(completed);
           const filteredHistory = historyFilter === "all"
             ? completed

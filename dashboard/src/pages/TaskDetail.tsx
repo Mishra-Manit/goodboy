@@ -29,8 +29,7 @@ import { getPrReviewTarget, getPrReviewUrl } from "@dashboard/lib/pr-review";
 import { buildStageTabs, stageSessionKey, type StageSessionLike } from "@dashboard/lib/stage-tabs";
 import { cn, shortId } from "@dashboard/lib/utils";
 import { ArrowUpRight } from "lucide-react";
-
-const TERMINAL = new Set(["complete", "failed", "cancelled"]);
+import { isTerminalStatus } from "@dashboard/shared";
 
 export function TaskDetail() {
   const { id } = useParams<{ id: string }>();
@@ -94,7 +93,7 @@ interface TaskViewProps {
 function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: TaskViewProps) {
   const navigate = useNavigate();
   const kindConfig = TASK_KIND_CONFIG[task.kind] ?? TASK_KIND_CONFIG.coding_task;
-  const isActive = !TERMINAL.has(task.status);
+  const isActive = !isTerminalStatus(task.status);
   const prReviewUrl = getPrReviewUrl(task);
   const prReviewTarget = getPrReviewTarget(task);
 
