@@ -16,10 +16,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
-    "test:memory:cold": "tsx tests/scripts/run-memory-cold.ts",
-    "test:memory:warm": "tsx tests/scripts/run-memory-warm.ts",
-    "test:memory:clean": "tsx tests/scripts/clean-memory-tests.ts",
-    "test:intent-latency": "tsx tests/scripts/run-telegram-intent-latency.ts",
+    "test:memory:cold": "tsx scripts/dev/run-memory-cold.ts",
+    "test:memory:warm": "tsx scripts/dev/run-memory-warm.ts",
+    "test:memory:clean": "tsx scripts/dev/clean-memory-tests.ts",
+    "test:intent-latency": "tsx scripts/dev/run-telegram-intent-latency.ts",
     "dev:release-pr-session": "tsx scripts/dev-release-pr-session.ts"
   },
   "dependencies": {

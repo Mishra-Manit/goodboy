@@ -1,0 +1,12 @@
+--glob
+!artifacts/**
+--glob
+!data/**
+--glob
+!dashboard/dist/**
+--glob
+!dist/**
+--glob
+!handoffs/**
+--glob
+!docs/plans/**
