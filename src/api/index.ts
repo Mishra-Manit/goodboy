@@ -12,7 +12,7 @@ import { readFile, stat } from "node:fs/promises";
 import { z } from "zod";
 import { subscribe } from "../shared/events.js";
 import * as queries from "../db/repository.js";
-import { listRepos, buildPrUrl, getRepo } from "../shared/repos.js";
+import { listRepoSummaries, buildPrUrl, getRepo } from "../shared/repos.js";
 import {
   memoryStatus,
   currentHeadSha,
@@ -158,7 +158,7 @@ export function createApi(): Hono {
 
   // --- Repos ---
 
-  app.get("/api/repos", (c) => c.json(listRepos()));
+  app.get("/api/repos", (c) => c.json(listRepoSummaries()));
 
   // --- Memory ---
 

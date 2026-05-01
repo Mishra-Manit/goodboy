@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { getRepo, listRepoNames, listRepos, getRepoNwo, buildPrUrl } from "@src/shared/repos.js";
+import {
+  getRepo,
+  listRepoNames,
+  listRepos,
+  listRepoSummaries,
+  getRepoNwo,
+  buildPrUrl,
+} from "@src/shared/repos.js";
 
 // `tests/setup/env.ts` seeds REGISTERED_REPOS with "myrepo" and "other".
 
@@ -14,6 +21,16 @@ describe("listRepos", () => {
     const byName = Object.fromEntries(listRepos().map((r) => [r.name, r]));
     expect(byName.myrepo.localPath).toBe("/tmp/myrepo");
     expect(byName.other.githubUrl).toBe("https://github.com/test/other.git");
+  });
+});
+
+describe("listRepoSummaries", () => {
+  it("omits local filesystem paths from public DTOs", () => {
+    expect(listRepoSummaries()).toContainEqual({
+      name: "myrepo",
+      githubUrl: "https://github.com/test/myrepo",
+    });
+    expect(listRepoSummaries()).not.toContainEqual(expect.objectContaining({ localPath: expect.any(String) }));
   });
 });
 
