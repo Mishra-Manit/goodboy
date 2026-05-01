@@ -73,7 +73,7 @@ These are real bugs or near-bugs. Land these before anything cosmetic.
     - `pipelines/pr-session/session.ts` (511) — split into `lifecycle.ts` (start/handoff/resume), `review-chat.ts`, and `runners.ts` (pi-turn primitive once #4 lands).
     - `db/repository.ts` (481) — split per aggregate: `tasks.repo.ts`, `stages.repo.ts`, `pr-sessions.repo.ts`, `memory-runs.repo.ts`, `reaper.ts`. Keep `index.ts` as a thin re-export so call sites stay `import * as queries from "./repository"`.
 
-19. **Make wire types real contracts at every boundary.**
+19. **PARTIAL — Make wire types real contracts at every boundary.**
     The dashboard hand-types API responses and `client.ts#request<T>` does `res.json() as Promise<T>`. We already have Zod schemas for PR review (`prReviewPageDtoSchema`, `reviewChatResponseSchema`); extend that pattern: Zod schemas for `Task`, `TaskStage`, `PrSession`, `MemoryRun`, `MemoryStatus`. Have `client.request` accept a schema and call `safeParse`. Same for SSE: `hooks/use-sse.ts` casts `JSON.parse(e.data) as SSEEvent` — replace with one Zod parse on entry.
 
 20. **Remove enum duplication between schema.ts and types.ts.**
@@ -268,7 +268,7 @@ A learning-focused section. Each item links a concrete pattern with at least one
 55. **DONE — Remove inline `style={}` for color/spacing.**
     Existing offenders: `ResizablePanels.tsx` (geometry — keep), `AnnotationPopup.tsx` (positioning — keep), `LogViewer.tsx` (`style={{ maxHeight }}` — keep, height comes from prop). All current uses are geometry-only. Document the carve-out so the rule "no inline styles" doesn't get applied to the legitimate cases.
 
-56. **PARTIAL — Remove dead props and `// TEMP:` markers.**
+56. **DONE — Remove dead props and `// TEMP:` markers.**
     - `ReviewChat` accepts `prNumber` and `branch` and uses neither.
     - `diffUpdatedAt` is marked `// TEMP:` in the API, the shared schema, and the UI. Either commit to it (rename to `diffRefreshedAt`, drop the comment, render unconditionally) or delete it.
     - `extractReviewChatMessages` in transcript.ts uses `entry.message.role !== "user"` plus a re-check inside the loop; tighten the early continue.
