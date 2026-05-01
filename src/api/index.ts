@@ -8,7 +8,7 @@
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { subscribe } from "../shared/events.js";
 import * as queries from "../db/repository.js";
@@ -342,18 +342,12 @@ export function createApi(): Hono {
       .catch(() => readFile(paths.diff, "utf8"))
       .catch(() => "");
 
-    // TEMP: surface pr.updated.diff mtime so the UI can show a refresh marker. Remove once verified.
-    const diffUpdatedAt = await stat(paths.updatedDiff)
-      .then((s) => s.mtime.toISOString())
-      .catch(() => null);
-
     return c.json({
       session: sessionDto,
       run: {
         ...reviewResult.artifact,
         diffPatch,
         createdAt: reviewResult.createdAt.toISOString(),
-        diffUpdatedAt,
       },
     } satisfies PrReviewPageDto);
   });
