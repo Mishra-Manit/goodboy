@@ -1,7 +1,7 @@
 ---
 name: codebase-explorer
 description: Read-only codebase exploration. Returns compact structured findings.
-model: openai/gpt-5.4-mini
+model: accounts/fireworks/models/minimax-m2p7
 fallbackModels:
 inheritProjectContext: false
 inheritSkills: false
