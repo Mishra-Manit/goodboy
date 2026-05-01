@@ -90,8 +90,8 @@ function Main() {
   return (
     <main
       className={cn(
-        "mx-auto px-5 pb-24",
-        wide ? "max-w-[1600px] pt-20" : "max-w-[680px] pt-24",
+        "mx-auto px-5",
+        wide ? "max-w-[1600px] pt-20 pb-0" : "max-w-[680px] pt-24 pb-24",
       )}
     >
       <Outlet />
