@@ -89,19 +89,6 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
     [run.diffPatch],
   );
 
-  const totalAnnotations = useMemo(
-    () => run.chapters.reduce((acc, c) => acc + c.annotations.length, 0),
-    [run.chapters],
-  );
-  const concernCount = useMemo(
-    () =>
-      run.chapters.reduce(
-        (acc, c) => acc + c.annotations.filter((a) => a.kind === "concern").length,
-        0,
-      ),
-    [run.chapters],
-  );
-
   const fileRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   const focusFile = useCallback(
@@ -132,14 +119,6 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
 
   useFileKeyboardNavigation(allFiles, activeFile, focusFile);
   useScrollSpyActiveFile(allFiles, fileRefs, setActiveFile);
-
-  const activeIndex = activeFile ? allFiles.indexOf(activeFile) : -1;
-  const severity =
-    concernCount > 0
-      ? `${concernCount} concern${concernCount === 1 ? "" : "s"}`
-      : totalAnnotations > 0
-        ? `${totalAnnotations} note${totalAnnotations === 1 ? "" : "s"}`
-        : "no concerns";
 
   return (
     <div className="-mx-2 mt-2 flex flex-col">
@@ -203,11 +182,6 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
         }
       />
 
-      <BottomBar
-        currentIndex={activeIndex}
-        total={allFiles.length}
-        severity={severity}
-      />
     </div>
   );
 }
@@ -265,30 +239,6 @@ function ReviewHeader({ title, repo, prNumber, sha, createdAt, diffUpdatedAt, on
         {title}
       </h1>
     </header>
-  );
-}
-
-// --- Bottom bar ---
-
-interface BottomBarProps {
-  currentIndex: number;
-  total: number;
-  severity: string;
-}
-
-function BottomBar({ currentIndex, total, severity }: BottomBarProps) {
-  const noteLabel =
-    currentIndex >= 0 ? `file ${currentIndex + 1} of ${total}` : `${total} files`;
-  return (
-    <div className="sticky bottom-0 z-10 mt-[18px] flex h-8 items-center justify-between border-t border-glass-border bg-bg/95 px-2 backdrop-blur">
-      <span className="font-mono text-[10px] text-text-dim">
-        {noteLabel}
-        <span className="text-text-void">  ·  {severity}</span>
-      </span>
-      <span className="font-mono text-[10px] text-text-void">
-        j/k step  ·  e expand  ·  r reply  ·  ⌘⏎ merge
-      </span>
-    </div>
   );
 }
 
