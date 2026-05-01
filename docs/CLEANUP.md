@@ -35,7 +35,7 @@ These are real bugs or near-bugs. Land these before anything cosmetic.
 9. **`/api/tasks/:id/cancel` does not respect `prSession` ownership.**
    When a coding task's PR session is the resource holder (worktree/branch are on the session row, not the task row), cancelling only the task doesn't kill the live pi turn inside the session. `cancelTask` in `core/stage.ts` only knows about task-keyed sessions (`activeSessions: Map<taskId, ...>`). PR-session turns register under `run.id`, not the source task. Add a session-scoped registry or a unified key.
 
-10. **`oneOf` cast bypasses Zod validation.**
+10. **DONE — `oneOf` cast bypasses Zod validation.**
     `api/index.ts#oneOf` uses `value as T` after a runtime `.includes` check. Fine in isolation, but it sets a precedent: replace with a small `parseEnumQuery(schema, value)` Zod helper so the *only* place that converts strings to enums is one validated wrapper.
 
 11. **DONE — `safeArtifactPath` allows `..` filenames in theory.**
@@ -154,7 +154,7 @@ A learning-focused section. Each item links a concrete pattern with at least one
 
 ### Validate at trust boundaries
 
-35. **`as` casts after `JSON.parse` are everywhere.**
+35. **PARTIAL — `as` casts after `JSON.parse` are everywhere.**
     Every parse-and-cast pair is a quiet trust violation:
     - `core/pi/session-file.ts#parseLine`: `JSON.parse(trimmed) as FileEntry`. Pi's session schema is non-trivial; one shape mismatch becomes a render bug. Wrap in a Zod schema (or hand-rolled `isFileEntry` type guard) once and reuse.
     - `core/git/github.ts#getPrMetadata`: `JSON.parse(stdout) as { number: number; ... }`. Same problem. Build a Zod schema, throw a typed error on mismatch.
@@ -162,7 +162,7 @@ A learning-focused section. Each item links a concrete pattern with at least one
     - `dashboard/src/lib/api/client.ts#request<T>`: `res.json() as Promise<T>`. Make `request` schema-aware (#19).
     - `dashboard/src/hooks/use-sse.ts`: `JSON.parse(e.data) as SSEEvent`. Same fix.
 
-36. **Non-null assertions (`!`) in core IO paths.**
+36. **PARTIAL — Non-null assertions (`!`) in core IO paths.**
     `core/pi/spawn.ts` accesses `proc.stdin!`, `proc.stdout!`, `proc.stderr!` four times. These are technically safe because we spawn with `stdio: ["pipe", "pipe", "pipe"]`, but the `!` hides that contract. Either:
     - Pull a tiny `assertPipes(proc)` helper that throws if any stream is null and returns a `{stdin, stdout, stderr}` triple, or
     - Use `unwrap(proc.stdin, "stdin")` once at the top.
