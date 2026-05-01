@@ -170,8 +170,6 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
               <ReviewChat
                 sessionId={session.id}
                 mode={session.mode}
-                prNumber={session.prNumber}
-                branch={session.branch}
                 activeFile={activeFile}
                 attachedAnnotation={attachedAnnotation}
                 onClearAnnotation={() => setAttachedAnnotation(null)}
