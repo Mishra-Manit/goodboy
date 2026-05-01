@@ -23,9 +23,9 @@ export function createTelegramBot(): Bot {
   bot.use(async (ctx, next) => {
     if (String(ctx.from?.id) !== env.TELEGRAM_USER_ID) {
       log.warn(`Unauthorized access attempt from user ${ctx.from?.id}`);
-      return;
+      return await Promise.resolve();
     }
-    return next();
+    await next();
   });
 
   const sendTelegram: SendTelegram = async (chatId, text) => {
