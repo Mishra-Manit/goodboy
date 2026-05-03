@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerMemoryRoutes } from "./routes/memory.js";
+import { registerPrReviewRoutes } from "./routes/pr-reviews.js";
 import { registerPrSessionRoutes } from "./routes/pr-sessions.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
 
@@ -17,6 +18,7 @@ export function createApi(): Hono {
 
   registerTaskRoutes(app);
   registerMemoryRoutes(app);
+  registerPrReviewRoutes(app);
   registerPrSessionRoutes(app);
   registerEventRoutes(app);
 
