@@ -16,6 +16,14 @@ Operational policy for AI coding agents working in this repo. Keep it short, com
 
 ---
 
+## Product Posture
+
+Goodboy is no longer a throwaway MVP. It is maturing into a real product, so architecture, API shape, data modeling, observability, and long-term maintainability matter. Move fast, but do not hack around core design problems or paper over unclear boundaries. Prefer simple, durable designs that fit the existing architecture over quick patches that create future cleanup debt.
+
+When implementation speed conflicts with correctness, security, data integrity, or clear module boundaries, pause and surface the tradeoff instead of silently choosing the fastest path.
+
+---
+
 ## Commands
 
 ```bash
