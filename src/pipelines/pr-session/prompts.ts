@@ -47,6 +47,8 @@ ${prNumber ? "" : `NO PR EXISTS YET. Your first job is to:
 1. Push the branch: git push -u origin ${branch}
 2. Read the artifact files for context on the PR description.
 3. Create the PR: gh pr create --title "..." --body "..." --base main --repo ${repo}
+
+CRITICAL: When writing the PR body, avoid using backticks for code formatting in the --body string passed to bash. Bash interprets backticks as command substitution, which will cause errors. Use single quotes for the outer string and plain text for code references, or write the body to a file and use --body-file instead.
 `}
 ${artifactLines ? `ARTIFACT FILES (read these for context):\n${artifactLines}` : ""}
 
