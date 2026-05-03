@@ -23,6 +23,9 @@ import { broadcastSessionFile } from "../../core/pi/session-broadcast.js";
 import * as queries from "../../db/repository.js";
 import { prSessionPrompt, formatCommentsPrompt, prCreationPrompt } from "./prompts.js";
 import { memoryBlock } from "../../core/memory/render.js";
+import { codeReviewerFeedbackBlock } from "../../core/memory/code-reviewer-feedback.js";
+import { codeReviewerFeedbackCapability } from "../../core/pi/extensions.js";
+import { codeReviewerFeedbackToolPolicy } from "../../shared/code-reviewer-feedback-prompts.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import { parsePrNumberFromUrl } from "../../core/git/github.js";
 import { taskArtifactsDir } from "../../shared/artifacts.js";
@@ -138,6 +141,11 @@ export async function resumePrSession(options: {
     `Found ${comments.length} new comment${pluralS} on PR #${prNumber}. Addressing now...`);
 
   const memory = await memoryBlock(repo);
+  const reviewerFeedback = mode === "review" ? await codeReviewerFeedbackBlock(repo) : "";
+  const feedbackPolicy = mode === "review" && prNumber
+    ? codeReviewerFeedbackToolPolicy(repo, prNumber, "github_comment")
+    : "";
+  const feedbackCap = mode === "review" ? codeReviewerFeedbackCapability() : null;
 
   const beforeSha = await headSha(worktreePath);
 
@@ -147,16 +155,19 @@ export async function resumePrSession(options: {
       trigger: "comments",
       labelSuffix: "resume",
       cwd: worktreePath,
-      systemPrompt: memory + prSessionPrompt({
+      systemPrompt: memory + reviewerFeedback + prSessionPrompt({
         mode,
         repo,
         branch: branch ?? "",
         prNumber: prNumber ?? undefined,
+        feedbackToolPolicy: feedbackPolicy,
       }),
       model: resolveModel("PI_MODEL_REVISION"),
       prompt: formatCommentsPrompt(comments),
       run,
       timeoutLabel: "PR session (resume)",
+      extensions: feedbackCap?.extensions,
+      envOverrides: feedbackCap?.envOverrides,
     });
 
     const afterSha = await headSha(worktreePath);
@@ -236,6 +247,10 @@ export async function runReviewChatTurn(options: {
   await pullLatest(worktreePath, prSessionId, branch);
   const beforeSha = await headSha(worktreePath);
 
+  const reviewerFeedback = await codeReviewerFeedbackBlock(session.repo);
+  const feedbackPolicy = codeReviewerFeedbackToolPolicy(session.repo, prNumber, "dashboard_chat");
+  const feedbackCap = codeReviewerFeedbackCapability();
+
   const run = await queries.createPrSessionRun({
     prSessionId,
     trigger: "review_chat",
@@ -250,7 +265,12 @@ export async function runReviewChatTurn(options: {
       trigger: "review_chat",
       labelSuffix: "review-chat",
       cwd: worktreePath,
-      systemPrompt: reviewChatSystemPrompt({ repo: session.repo, branch, prNumber }),
+      systemPrompt: reviewerFeedback + reviewChatSystemPrompt({
+        repo: session.repo,
+        branch,
+        prNumber,
+        feedbackToolPolicy: feedbackPolicy,
+      }),
       model: resolveModel("PI_MODEL_REVISION"),
       prompt: formatReviewChatPrompt({
         context: { message, activeFile, annotation },
@@ -258,6 +278,8 @@ export async function runReviewChatTurn(options: {
       }),
       run,
       timeoutLabel: "PR session (review-chat)",
+      extensions: feedbackCap.extensions,
+      envOverrides: feedbackCap.envOverrides,
     });
 
     const entries = await readSessionFile(prSessionPath(prSessionId));
@@ -394,6 +416,8 @@ interface SessionTurn {
   prompt: string;
   run: { id: string };
   timeoutLabel: string;
+  extensions?: string[];
+  envOverrides?: Record<string, string>;
 }
 
 /**
@@ -416,7 +440,18 @@ async function runSessionTurn(turn: SessionTurn): Promise<void> {
 }
 
 async function runSessionTurnInner(turn: SessionTurn): Promise<void> {
-  const { prSessionId, labelSuffix, cwd, systemPrompt, model, prompt, run, timeoutLabel } = turn;
+  const {
+    prSessionId,
+    labelSuffix,
+    cwd,
+    systemPrompt,
+    model,
+    prompt,
+    run,
+    timeoutLabel,
+    extensions,
+    envOverrides,
+  } = turn;
 
   emit({ type: "pr_session_update", prSessionId, running: true });
   const filePath = prSessionPath(prSessionId);
@@ -441,6 +476,8 @@ async function runSessionTurnInner(turn: SessionTurn): Promise<void> {
     systemPrompt,
     model,
     sessionPath: filePath,
+    extensions,
+    envOverrides,
   });
   session.sendPrompt(prompt);
 

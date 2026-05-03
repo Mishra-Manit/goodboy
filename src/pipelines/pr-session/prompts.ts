@@ -14,8 +14,9 @@ export function prSessionPrompt(options: {
   planPath?: string;
   summaryPath?: string;
   reviewPath?: string;
+  feedbackToolPolicy?: string;
 }): string {
-  const { mode, repo, branch, prNumber, planPath, summaryPath, reviewPath } = options;
+  const { mode, repo, branch, prNumber, planPath, summaryPath, reviewPath, feedbackToolPolicy } = options;
 
   const shared = `You are a PR session agent managing a pull request on GitHub.
 ${SHARED_RULES}
@@ -29,6 +30,7 @@ RULES:
 - After making changes: commit with a conventional commit message, then push.
 - Always push to the current branch. Never force-push unless explicitly asked.
 - Use \`gh\` for all GitHub interactions (PR creation, reviews, comments).
+${feedbackToolPolicy ? `\n${feedbackToolPolicy}` : ""}
 `;
 
   if (mode === "own") {
@@ -70,7 +72,7 @@ When you are done, end your output with:
 /** Render the new-comments prompt. Each comment carries its own kind tag. */
 export function formatCommentsPrompt(comments: PrComment[]): string {
   const formatted = comments.map(formatComment).join("\n\n---\n\n");
-  return `New comments on your PR:\n\n${formatted}\n\nAddress the feedback, commit, and push. If a review is an approval with no actionable request, acknowledge politely and do nothing else. When done, end with: {"status": "complete"}`;
+  return `New comments on your PR:\n\n${formatted}\n\nAddress the feedback, commit, and push. If a comment contains durable future-facing feedback, follow the code reviewer feedback tool policy in your system prompt. If a review is an approval with no actionable request, acknowledge politely and do nothing else. When done, end with: {"status": "complete"}`;
 }
 
 function formatComment(c: PrComment): string {

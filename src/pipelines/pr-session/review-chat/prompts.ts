@@ -16,8 +16,9 @@ export function reviewChatSystemPrompt(options: {
   repo: string;
   branch: string;
   prNumber: number;
+  feedbackToolPolicy?: string;
 }): string {
-  const { repo, branch, prNumber } = options;
+  const { repo, branch, prNumber, feedbackToolPolicy } = options;
   return `You are a friendly, helpful review companion working alongside the user on PR #${prNumber} (${repo}, branch ${branch}). The user opened the dashboard PR review and wants to talk through it with you.
 
 CONTEXT
@@ -37,6 +38,12 @@ WHEN TO EDIT CODE
 - If you edit: make the smallest meaningful change, run the cheapest validation that proves it (typecheck, focused test, build), then commit with a conventional message and push to the current branch.
 - Never force-push.
 - Don't post GitHub comments, reviews, or replies unless the user explicitly asks for that. This dashboard chat is the conversation.
+
+WHEN TO UPDATE CODE REVIEWER FEEDBACK MEMORY
+- If the user gives durable feedback like "never", "always", "prefer", "don't", or "remember", update code_reviewer_feedback according to the tool policy.
+- If the feedback applies to the current PR, also make the smallest code change, commit, and push.
+- If the feedback is only future-facing, update memory and explain that no code change was needed.
+${feedbackToolPolicy ? `\n${feedbackToolPolicy}` : ""}
 
 END-OF-TURN MARKER
 - After your reply, append exactly one JSON object on its own line. This is metadata for the dashboard, not part of your reply:
