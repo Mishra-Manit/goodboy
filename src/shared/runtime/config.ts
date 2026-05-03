@@ -92,7 +92,7 @@ export function resetEnvForTesting(): void {
 export const PR_DIFF_CONTEXT_LINES = 10;
 
 export const config = {
-  artifactsDir: path.resolve(__dirname, "../../artifacts"),
-  prSessionsDir: path.resolve(__dirname, "../../data/pr-sessions"),
+  artifactsDir: path.resolve(__dirname, "../../../artifacts"),
+  prSessionsDir: path.resolve(__dirname, "../../../data/pr-sessions"),
   piCommand: "pi",
 } as const;
