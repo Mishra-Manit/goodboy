@@ -4,7 +4,7 @@
  */
 
 import path from "node:path";
-import { config } from "../shared/config.js";
+import { config } from "../shared/runtime/config.js";
 
 const ARTIFACT_NAME_PATTERN = /^[\w][\w.-]*$/;
 

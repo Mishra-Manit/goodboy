@@ -6,9 +6,9 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { z } from "zod";
-import { createLogger } from "../../shared/logger.js";
-import { getRepo } from "../../shared/repos.js";
-import { memoryDir } from "./index.js";
+import { createLogger } from "../../../shared/runtime/logger.js";
+import { getRepo } from "../../../shared/domain/repos.js";
+import { memoryDir } from "../index.js";
 
 const log = createLogger("review-feedback");
 

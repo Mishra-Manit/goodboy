@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { prReviewArtifactSchema, type PrReviewArtifact } from "@src/shared/pr-review.js";
+import { prReviewArtifactSchema, type PrReviewArtifact } from "@src/shared/contracts/pr-review.js";
 
 const validArtifact: PrReviewArtifact = {
   prTitle: "Add review page",

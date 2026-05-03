@@ -7,8 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { cp, stat } from "node:fs/promises";
-import { createLogger } from "../../shared/logger.js";
-import { toErrorMessage } from "../../shared/errors.js";
+import { createLogger } from "../../shared/runtime/logger.js";
+import { toErrorMessage } from "../../shared/runtime/errors.js";
 
 const log = createLogger("subagents");
 const require = createRequire(import.meta.url);

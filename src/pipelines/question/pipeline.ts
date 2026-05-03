@@ -6,11 +6,11 @@
 
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { createLogger } from "../../shared/logger.js";
-import { resolveModel } from "../../shared/config.js";
+import { createLogger } from "../../shared/runtime/logger.js";
+import { resolveModel } from "../../shared/runtime/config.js";
 import { notifyTelegram, runStage, clearActiveSession, completeTask, type SendTelegram } from "../../core/stage.js";
 import { questionSystemPrompt, questionInitialPrompt } from "./prompts.js";
-import { memoryBlock } from "../../core/memory/render.js";
+import { memoryBlock } from "../../core/memory/output/render.js";
 import {
   handlePipelineError,
   prepareTaskPipeline,

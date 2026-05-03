@@ -4,12 +4,12 @@
  */
 
 import path from "node:path";
-import { artifactPath } from "../../shared/artifacts.js";
+import { artifactPath } from "../../../shared/artifacts/index.js";
 import {
   PR_IMPACT_VARIANT_COUNT,
   prImpactVariantFiles,
   type PrImpactVariantFiles,
-} from "../../shared/pr-impact-variants.js";
+} from "../../../shared/domain/pr-impact-variants.js";
 
 export { PR_IMPACT_VARIANT_COUNT, prImpactVariantFiles, type PrImpactVariantFiles };
 

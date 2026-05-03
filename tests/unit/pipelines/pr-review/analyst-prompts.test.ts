@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   prAnalystSystemPrompt,
   prAnalystInitialPrompt,
-} from "@src/pipelines/pr-review/analyst-prompts.js";
+} from "@src/pipelines/pr-review/prompts/analyst.js";
 
 const OPTS = {
   repo: "acme/widgets",

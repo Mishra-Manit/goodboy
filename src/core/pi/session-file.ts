@@ -9,11 +9,11 @@
 import { mkdir, stat, readFile, open } from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import { createLogger } from "../../shared/logger.js";
-import { config } from "../../shared/config.js";
-import { taskArtifactsDir } from "../../shared/artifacts.js";
-import { CURRENT_SESSION_VERSION, type FileEntry } from "../../shared/session.js";
-import type { StageName } from "../../shared/types.js";
+import { createLogger } from "../../shared/runtime/logger.js";
+import { config } from "../../shared/runtime/config.js";
+import { taskArtifactsDir } from "../../shared/artifacts/index.js";
+import { CURRENT_SESSION_VERSION, type FileEntry } from "../../shared/contracts/session.js";
+import type { StageName } from "../../shared/domain/types.js";
 
 const log = createLogger("session-file");
 
@@ -73,7 +73,7 @@ function assertSupportedVersion(entries: FileEntry[], filePath: string): void {
   const version = header?.version;
   if (version !== undefined && version > CURRENT_SESSION_VERSION) {
     throw new Error(
-      `Unsupported pi session version ${version} in ${filePath}; update src/shared/session.ts to match.`,
+      `Unsupported pi session version ${version} in ${filePath}; update src/shared/contracts/session.ts to match.`,
     );
   }
 }

@@ -120,7 +120,7 @@ Never report "done" without running `npm run build && npm test`.
 - Three-state guard on every page: `loading && !data` → spinner, `error && !data` → error + retry, empty → `<EmptyState />`.
 - Tailwind v4 semantic tokens only: `bg-glass`, `text-accent`, `text-fail`, `text-warn`. Micro-scale text (`text-[8px]` to `text-sm`). Never `text-base`.
 - Fonts: `font-display` for headings, `font-body` for prose, `font-mono` for IDs/status/logs.
-- Shared wire types live in `src/shared/types.ts`. The dashboard consumes them via `@goodboy/shared` or a narrow re-export; never hand-duplicate `TaskStatus`, `TASK_KIND_CONFIG`, etc.
+- Shared wire types live in `src/shared/domain/types.ts`. The dashboard consumes them via `@goodboy/shared` or a narrow re-export; never hand-duplicate `TaskStatus`, `TASK_KIND_CONFIG`, etc.
 
 ## Scripts
 
@@ -148,10 +148,10 @@ All reads and writes go through `src/db/repository.ts`. All writes use `.returni
 
 | Pattern | Lives in | Rule |
 |---|---|---|
-| Zod schema at every trust boundary | `shared/config.ts`, `telegram/intent-classifier.ts`, `shared/llm.ts#structuredOutput` | Every env var, LLM output, inbound API body, and SSE payload passes through Zod. No `JSON.parse(process.env.X)`, no `as SomeType`. |
+| Zod schema at every trust boundary | `shared/runtime/config.ts`, `telegram/intent-classifier.ts`, `shared/llm/index.ts#structuredOutput` | Every env var, LLM output, inbound API body, and SSE payload passes through Zod. No `JSON.parse(process.env.X)`, no `as SomeType`. |
 | Discriminated unions over booleans/strings | `Intent`, `SSEEvent`, `FileEntry` | Anything with >2 states uses `{ type: "foo"; ... } \| { type: "bar"; ... }`. No parallel booleans (`isLoading`/`isError`). |
-| `const X = [...] as const; type Y = (typeof X)[number]` | `shared/types.ts` | Single source of truth for enums. Same array drives the TS union, the Postgres `pgEnum`, and runtime `.includes()` checks. |
-| Lazy singleton with `_` prefix | `shared/config.ts#_env`, `db/index.ts#_db` | Expensive one-time init hides behind `loadX()` / `getX()`. Importing the module has no side effects. |
+| `const X = [...] as const; type Y = (typeof X)[number]` | `shared/domain/types.ts` | Single source of truth for enums. Same array drives the TS union, the Postgres `pgEnum`, and runtime `.includes()` checks. |
+| Lazy singleton with `_` prefix | `shared/runtime/config.ts#_env`, `db/index.ts#_db` | Expensive one-time init hides behind `loadX()` / `getX()`. Importing the module has no side effects. |
 | Section headers in multi-responsibility files | `db/repository.ts`, `api/index.ts`, `telegram/index.ts`, `core/stage.ts` | Use `// --- Name ---` blocks once a file holds two clear jobs. |
 | `createLogger("module")` everywhere | all backend files | No `console.log` / `console.error`. |
 | **Pure parsers separated from IO** | `core/git/github.ts`, `core/pi/session-file.ts`, `dashboard/src/components/log-viewer/helpers.ts` | **The key testability pattern. Extend everywhere.** Parsing / formatting / state-transition logic is exported as pure functions. IO (spawn, fetch, fs, exec, gh, db) wraps those pure functions. A file without a pure section that could have one is a smell. |
@@ -232,8 +232,8 @@ function mergeProgress(...) { ... }
 Vitest is wired via `vitest.config.ts` (single `node` environment). All test files live under `tests/` mirroring the source layout — `tests/unit/**` for unit tests, `tests/integration/**` for integration tests. Source files under `src/` and `dashboard/src/` stay free of `*.test.ts` files. Tests import production code via the `@src` and `@dashboard` path aliases. Run the suite with `npm test`.
 
 Scope covered by tests:
-- Pure functions: `core/git/github.ts` parsers, `core/pi/session-file.ts` read + path helpers, `core/git/worktree.ts#generateBranchName`, `shared/repos.ts`, `shared/config.ts` env schema, `shared/events.ts`, dashboard `log-viewer/helpers.ts`, `lib/format.ts`, `lib/task-grouping.ts`, `lib/utils.ts`.
-- IO adapters with mocked boundaries: `core/git/github.ts` gh-CLI wrappers (`vi.mock execFile`), `shared/llm.ts` (msw on the Fireworks endpoint), `telegram/intent-classifier.ts` + `telegram/handlers.ts`, `core/pi/session-file.ts#watchSessionFile` (real IO in `os.tmpdir()`), `core/cleanup.ts`.
+- Pure functions: `core/git/github.ts` parsers, `core/pi/session-file.ts` read + path helpers, `core/git/worktree.ts#generateBranchName`, `shared/domain/repos.ts`, `shared/runtime/config.ts` env schema, `shared/runtime/events.ts`, dashboard `log-viewer/helpers.ts`, `lib/format.ts`, `lib/task-grouping.ts`, `lib/utils.ts`.
+- IO adapters with mocked boundaries: `core/git/github.ts` gh-CLI wrappers (`vi.mock execFile`), `shared/llm/index.ts` (msw on the Fireworks endpoint), `telegram/intent-classifier.ts` + `telegram/handlers.ts`, `core/pi/session-file.ts#watchSessionFile` (real IO in `os.tmpdir()`), `core/cleanup.ts`.
 - HTTP + SSE: `api/index.ts` via `app.fetch(new Request(...))` with `db/repository`, pipelines, and `cleanup.ts` mocked.
 
 Scope **not** covered (deliberately): `core/pi/**`, `core/stage.ts`, `pipelines/**/pipeline.ts`, PR-session orchestration, `db/repository.ts`, dashboard React components and hooks. Verify those via `npm run dev` + real Telegram / dashboard flows before committing.
@@ -248,6 +248,6 @@ Keep `.env.example` in sync on every change. Required keys:
 - `PI_MODEL` — default model for all stages.
 - `PI_MODEL_{PLANNER,IMPLEMENTER,REVIEWER,PR_CREATOR,REVISION}` — optional per-stage overrides.
 - `REGISTERED_REPOS` — JSON string, Zod-validated at startup.
-- `FIREWORKS_API_KEY` — used by `shared/llm.ts` (intent classifier, branch-name slugging).
+- `FIREWORKS_API_KEY` — used by `shared/llm/index.ts` (intent classifier, branch-name slugging).
 - `GH_TOKEN` — used by `gh` CLI in `core/git/github.ts` and `core/cleanup.ts`.
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_USER_ID`, `DATABASE_URL`.

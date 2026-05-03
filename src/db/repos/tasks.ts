@@ -6,7 +6,7 @@
 import { eq, desc, asc, and, inArray } from "drizzle-orm";
 import { getDb, schema } from "../index.js";
 import type { Task, TaskStage } from "../schema.js";
-import type { TaskStatus, TaskKind, StageStatus, StageName } from "../../shared/types.js";
+import type { TaskStatus, TaskKind, StageStatus, StageName } from "../../shared/domain/types.js";
 import { instanceId, tasksForInstance } from "./scope.js";
 
 // --- Tasks ---

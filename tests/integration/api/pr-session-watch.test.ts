@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   updatePrSession: vi.fn(),
 }));
 
-vi.mock("@src/shared/repos.js", () => ({
+vi.mock("@src/shared/domain/repos.js", () => ({
   getRepo: () => null,
   listRepos: () => [],
   buildPrUrl: (_repo: string, prNumber: number | null) => (
@@ -20,11 +20,11 @@ vi.mock("@src/core/memory/index.js", () => ({
   releaseLock: async () => undefined,
 }));
 
-vi.mock("@src/core/memory/delete.js", () => ({
+vi.mock("@src/core/memory/lifecycle/delete.js", () => ({
   deleteRepoMemoryArtifacts: async () => ({ deletedWorktree: true, deletedMemoryDir: true }),
 }));
 
-vi.mock("@src/core/memory/cleanup.js", () => ({
+vi.mock("@src/core/memory/lifecycle/cleanup.js", () => ({
   cleanupTestMemoryRuns: async () => ({ deletedRows: 0, deletedTranscriptDirs: 0, deletedMemoryDirs: 0 }),
 }));
 

@@ -8,7 +8,7 @@ import { ROOT_MEMORY_FILES, ZONE_MEMORY_FILES, ROOT_DIR, type Zone } from "../..
 
 const CITATIONS = `
 CITATIONS ARE MANDATORY. Every concrete claim must cite a source file:
-    "Named exports only [src/shared/config.ts:24]"
+    "Named exports only [src/shared/runtime/config.ts:24]"
     "Worktrees clone per task [src/core/worktree.ts:45, src/core/stage.ts:12]"
 If you cannot cite a claim, OMIT IT. No speculation. No "probably" / "seems".
 `;

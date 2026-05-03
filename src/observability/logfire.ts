@@ -9,8 +9,8 @@
 
 import * as logfire from "@pydantic/logfire-node";
 import { trace } from "@opentelemetry/api";
-import { loadEnv } from "../shared/config.js";
-import { createLogger } from "../shared/logger.js";
+import { loadEnv } from "../shared/runtime/config.js";
+import { createLogger } from "../shared/runtime/logger.js";
 
 const log = createLogger("observability");
 

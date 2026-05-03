@@ -6,7 +6,7 @@
  */
 
 import path from "node:path";
-import { SHARED_RULES, worktreeBlock, type WorktreeEnv } from "../../shared/agent-prompts.js";
+import { SHARED_RULES, worktreeBlock, type WorktreeEnv } from "../../shared/prompts/agent-prompts.js";
 
 export type { WorktreeEnv };
 

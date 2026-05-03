@@ -11,7 +11,7 @@ const { llmHandler } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@src/shared/llm.js", () => ({
+vi.mock("@src/shared/llm/index.js", () => ({
   LIGHT_MODEL: "light",
   structuredOutput: (opts: unknown) => {
     llmHandler.calls.push(opts);

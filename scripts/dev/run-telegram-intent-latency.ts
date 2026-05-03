@@ -7,7 +7,7 @@
 
 import "dotenv/config";
 import { performance } from "node:perf_hooks";
-import { listRepos } from "../../src/shared/repos.js";
+import { listRepos } from "../../src/shared/domain/repos.js";
 import { classifyMessageWithModel } from "../../src/telegram/intent-classifier.js";
 
 const MODEL = "accounts/fireworks/models/qwen3-vl-30b-a3b-instruct";

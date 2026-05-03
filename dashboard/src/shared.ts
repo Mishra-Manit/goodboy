@@ -9,7 +9,7 @@ export {
   MEMORY_RUN_STATUSES,
   MEMORY_RUN_SOURCES,
   isTerminalStatus,
-} from "@shared/types.js";
+} from "@shared/domain/types.js";
 
 export type {
   TaskKind,
@@ -24,13 +24,13 @@ export type {
   PrSessionMode,
   PrComment,
   PrReviewState,
-} from "@shared/types.js";
+} from "@shared/domain/types.js";
 
 export {
   prReviewPageDtoSchema,
   reviewChatResponseSchema,
   reviewChatPostResponseSchema,
-} from "@shared/pr-review.js";
+} from "@shared/contracts/pr-review.js";
 
 export type {
   PrReviewAnnotation,
@@ -43,12 +43,12 @@ export type {
   ReviewChatRequest,
   ReviewChatResponse,
   ReviewChatPostResponse,
-} from "@shared/pr-review.js";
+} from "@shared/contracts/pr-review.js";
 
-export { TASK_KIND_CONFIG } from "@shared/task-kinds.js";
-export type { TaskKindConfig } from "@shared/task-kinds.js";
+export { TASK_KIND_CONFIG } from "@shared/domain/task-kinds.js";
+export type { TaskKindConfig } from "@shared/domain/task-kinds.js";
 
-export { TEST_INSTANCE_PREFIX, isTestInstance } from "@shared/test-instance.js";
+export { TEST_INSTANCE_PREFIX, isTestInstance } from "@shared/domain/test-instance.js";
 
 export type {
   FileEntry,
@@ -68,4 +68,4 @@ export type {
   ToolCall,
   Usage,
   StopReason,
-} from "@shared/session.js";
+} from "@shared/contracts/session.js";

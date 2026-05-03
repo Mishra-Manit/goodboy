@@ -4,7 +4,7 @@
  * so the translator is fully unit-testable without OTel.
  */
 
-import type { SessionHeader } from "../../shared/session.js";
+import type { SessionHeader } from "../../shared/contracts/session.js";
 
 export type SpanCommand =
   | StartChatSpan

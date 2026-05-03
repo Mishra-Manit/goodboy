@@ -8,7 +8,7 @@ vi.mock("@src/core/memory/index.js", () => ({
   readAllMemory: async () => ({ root: {}, zones: [] }),
 }));
 
-import { worktreeBlock } from "@src/shared/agent-prompts.js";
+import { worktreeBlock } from "@src/shared/prompts/agent-prompts.js";
 
 describe("worktreeBlock", () => {
   it("includes repo env notes when present", () => {

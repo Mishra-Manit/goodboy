@@ -9,7 +9,7 @@ import {
   renderCodeReviewerFeedbackBlock,
   updateCodeReviewerFeedback,
   type CodeReviewerFeedbackRule,
-} from "@src/core/memory/code-reviewer-feedback.js";
+} from "@src/core/memory/feedback/code-reviewer-feedback.js";
 import { memoryDir } from "@src/core/memory/index.js";
 
 const REPO = "myrepo";

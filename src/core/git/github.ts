@@ -7,10 +7,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z, type ZodType } from "zod";
-import { createLogger } from "../../shared/logger.js";
-import { PR_DIFF_CONTEXT_LINES } from "../../shared/config.js";
-import { parseNwo, parsePrIdentifier, parsePrNumberFromUrl } from "../../shared/git-urls.js";
-import type { PrComment, PrReviewState } from "../../shared/types.js";
+import { createLogger } from "../../shared/runtime/logger.js";
+import { PR_DIFF_CONTEXT_LINES } from "../../shared/runtime/config.js";
+import { parseNwo, parsePrIdentifier, parsePrNumberFromUrl } from "../../shared/domain/git-urls.js";
+import type { PrComment, PrReviewState } from "../../shared/domain/types.js";
 
 export { parseNwo, parsePrIdentifier, parsePrNumberFromUrl };
 

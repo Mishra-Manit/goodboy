@@ -4,7 +4,7 @@
  * as ergonomic read-only lookups.
  */
 
-import { loadEnv } from "./config.js";
+import { loadEnv } from "../runtime/config.js";
 import { parseNwo } from "./git-urls.js";
 
 export interface Repo {

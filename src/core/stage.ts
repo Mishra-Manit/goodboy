@@ -8,16 +8,16 @@
  * broadcast, so this module doesn't touch logs directly.
  */
 
-import { createLogger } from "../shared/logger.js";
-import { emit } from "../shared/events.js";
-import { toErrorMessage } from "../shared/errors.js";
+import { createLogger } from "../shared/runtime/logger.js";
+import { emit } from "../shared/runtime/events.js";
+import { toErrorMessage } from "../shared/runtime/errors.js";
 import * as queries from "../db/repository.js";
 import { spawnPiSession, type PiSession } from "./pi/spawn.js";
 import { ensureSessionDir, taskSessionPath } from "./pi/session-file.js";
 import { broadcastSessionFile } from "./pi/session-broadcast.js";
 import { withStageSpan, bridgeSessionToOtel } from "../observability/index.js";
 import { releaseMemoryLockForTask } from "./memory/index.js";
-import type { StageName } from "../shared/types.js";
+import type { StageName } from "../shared/domain/types.js";
 
 const log = createLogger("stage");
 

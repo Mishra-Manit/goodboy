@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod";
-import { PR_SESSION_MODES } from "./types.js";
+import { PR_SESSION_MODES } from "../domain/types.js";
 
 // --- Enums ---
 

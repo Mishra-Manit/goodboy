@@ -6,7 +6,7 @@ import {
   ROOT_MEMORY_FILES,
   ZONE_MEMORY_FILES,
   ROOT_DIR,
-} from "./index.js";
+} from "../index.js";
 
 /** Render every memory file for downstream stages, or an empty string when none exists. */
 export async function memoryBlock(repo: string): Promise<string> {

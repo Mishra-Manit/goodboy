@@ -3,7 +3,7 @@
  * left behind and writes review.json -- the full dashboard page model.
  */
 
-import { prImpactVariantPaths, prReviewArtifactPaths } from "./artifacts.js";
+import { prImpactVariantPaths, prReviewArtifactPaths } from "../artifacts/index.js";
 
 export interface PrDisplayPromptOptions {
   repo: string;

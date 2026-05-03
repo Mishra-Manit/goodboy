@@ -9,7 +9,7 @@ import {
   prImpactVariantPaths,
   prReviewArtifactPaths,
   prReviewReportPath,
-} from "@src/pipelines/pr-review/artifacts.js";
+} from "@src/pipelines/pr-review/artifacts/index.js";
 
 describe("prReviewArtifactPaths", () => {
   it("builds the canonical artifact paths from one artifacts dir", () => {

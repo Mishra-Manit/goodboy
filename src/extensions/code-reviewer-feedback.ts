@@ -9,7 +9,7 @@ import {
   appendCodeReviewerFeedback,
   listCodeReviewerFeedback,
   updateCodeReviewerFeedback,
-} from "../core/memory/code-reviewer-feedback.js";
+} from "../core/memory/feedback/code-reviewer-feedback.js";
 
 const scopeSchema = Type.Union([
   Type.Object({ type: Type.Literal("global") }),

@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   deactivateMemoryRunsForRepo: vi.fn(),
 }));
 
-vi.mock("@src/shared/repos.js", () => ({
+vi.mock("@src/shared/domain/repos.js", () => ({
   getRepo: (...args: unknown[]) => mocks.getRepo(...args),
   listRepos: () => [],
   buildPrUrl: () => null,
@@ -21,11 +21,11 @@ vi.mock("@src/core/memory/index.js", () => ({
   releaseLock: (...args: unknown[]) => mocks.releaseLock(...args),
 }));
 
-vi.mock("@src/core/memory/delete.js", () => ({
+vi.mock("@src/core/memory/lifecycle/delete.js", () => ({
   deleteRepoMemoryArtifacts: (...args: unknown[]) => mocks.deleteRepoMemoryArtifacts(...args),
 }));
 
-vi.mock("@src/core/memory/cleanup.js", () => ({
+vi.mock("@src/core/memory/lifecycle/cleanup.js", () => ({
   cleanupTestMemoryRuns: async () => ({ deletedRows: 0, deletedTranscriptDirs: 0, deletedMemoryDirs: 0 }),
 }));
 

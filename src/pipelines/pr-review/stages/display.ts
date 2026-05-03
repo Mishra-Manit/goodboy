@@ -4,12 +4,12 @@
  * complete with the GitHub summary comment when display generation fails.
  */
 
-import { createLogger } from "../../shared/logger.js";
-import { resolveModel } from "../../shared/config.js";
-import { runStage, type SendTelegram } from "../../core/stage.js";
-import { prDisplaySystemPrompt, prDisplayInitialPrompt } from "./display-prompts.js";
-import { readReviewArtifact } from "./read-review.js";
-import { prReviewArtifactPaths } from "./artifacts.js";
+import { createLogger } from "../../../shared/runtime/logger.js";
+import { resolveModel } from "../../../shared/runtime/config.js";
+import { runStage, type SendTelegram } from "../../../core/stage.js";
+import { prDisplaySystemPrompt, prDisplayInitialPrompt } from "../prompts/display.js";
+import { readReviewArtifact } from "../artifacts/read-review.js";
+import { prReviewArtifactPaths } from "../artifacts/index.js";
 
 const log = createLogger("pr-display");
 

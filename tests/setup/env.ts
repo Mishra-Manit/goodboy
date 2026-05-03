@@ -1,5 +1,5 @@
 /**
- * Stubs every env var required by `envSchema` in `src/shared/config.ts` so
+ * Stubs every env var required by `envSchema` in `src/shared/runtime/config.ts` so
  * `loadEnv()` succeeds inside tests without a real `.env`. Registered via
  * `setupFiles` in `vitest.config.ts`; runs before any test module loads.
  */

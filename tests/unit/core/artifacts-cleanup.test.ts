@@ -54,11 +54,11 @@ describe("sweepExpiredTaskArtifacts (IO)", () => {
     configMock = {
       default: { artifactsDir: tmpRoot, prSessionsDir: "/unused", piCommand: "pi" },
     };
-    vi.doMock("@src/shared/config.js", () => ({ config: configMock.default }));
+    vi.doMock("@src/shared/runtime/config.js", () => ({ config: configMock.default }));
   });
 
   afterEach(async () => {
-    vi.doUnmock("@src/shared/config.js");
+    vi.doUnmock("@src/shared/runtime/config.js");
     await rm(tmpRoot, { recursive: true, force: true });
   });
 

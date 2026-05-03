@@ -7,11 +7,11 @@
  * Throws on hard failure so the pipeline maps it to `failTask`.
  */
 
-import { createLogger } from "../../shared/logger.js";
-import { resolveModel } from "../../shared/config.js";
-import { runStage, type SendTelegram } from "../../core/stage.js";
-import { stageSubagentAssets, subagentCapability } from "../../core/subagents/index.js";
-import { prAnalystSystemPrompt, prAnalystInitialPrompt } from "./analyst-prompts.js";
+import { createLogger } from "../../../shared/runtime/logger.js";
+import { resolveModel } from "../../../shared/runtime/config.js";
+import { runStage, type SendTelegram } from "../../../core/stage.js";
+import { stageSubagentAssets, subagentCapability } from "../../../core/subagents/index.js";
+import { prAnalystSystemPrompt, prAnalystInitialPrompt } from "../prompts/analyst.js";
 
 const log = createLogger("pr-analyst");
 

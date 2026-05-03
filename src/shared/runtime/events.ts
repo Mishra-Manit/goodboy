@@ -4,7 +4,7 @@
  * and swallowed so one bad subscriber can't break the fanout.
  */
 
-import type { SSEEvent } from "./types.js";
+import type { SSEEvent } from "../domain/types.js";
 import { createLogger } from "./logger.js";
 
 const log = createLogger("events");

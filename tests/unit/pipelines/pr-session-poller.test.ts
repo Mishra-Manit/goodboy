@@ -39,7 +39,7 @@ vi.mock("@src/core/cleanup.js", () => ({
   cleanupPrSession: (...args: unknown[]) => cleanupHandler.cleanupPrSession(...args),
 }));
 
-vi.mock("@src/shared/repos.js", () => ({
+vi.mock("@src/shared/domain/repos.js", () => ({
   getRepoNwo: () => "acme/widgets",
 }));
 

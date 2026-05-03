@@ -1,7 +1,7 @@
 /** Read a real pi session JSONL, fold through translate(), print commands. */
 import { readFileSync } from "node:fs";
 import { translate, initialState } from "../src/observability/bridge/translate.js";
-import type { FileEntry } from "../src/shared/session.js";
+import type { FileEntry } from "../src/shared/contracts/session.js";
 
 const path = process.argv[2];
 if (!path) {

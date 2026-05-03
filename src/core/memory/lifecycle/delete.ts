@@ -5,8 +5,8 @@
 
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { removeWorktree, pruneWorktrees } from "../git/worktree.js";
-import { memoryDir, memoryWorktreeDir } from "./index.js";
+import { removeWorktree, pruneWorktrees } from "../../git/worktree.js";
+import { memoryDir, memoryWorktreeDir } from "../index.js";
 
 // --- Public API ---
 

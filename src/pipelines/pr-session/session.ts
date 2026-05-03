@@ -10,9 +10,9 @@
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { createLogger } from "../../shared/logger.js";
-import { resolveModel } from "../../shared/config.js";
-import { emit } from "../../shared/events.js";
+import { createLogger } from "../../shared/runtime/logger.js";
+import { resolveModel } from "../../shared/runtime/config.js";
+import { emit } from "../../shared/runtime/events.js";
 import { spawnPiSession } from "../../core/pi/spawn.js";
 import {
   ensureSessionDir,
@@ -22,16 +22,16 @@ import {
 import { broadcastSessionFile } from "../../core/pi/session-broadcast.js";
 import * as queries from "../../db/repository.js";
 import { prSessionPrompt, formatCommentsPrompt, prCreationPrompt } from "./prompts.js";
-import { memoryBlock } from "../../core/memory/render.js";
-import { codeReviewerFeedbackBlock } from "../../core/memory/code-reviewer-feedback.js";
+import { memoryBlock } from "../../core/memory/output/render.js";
+import { codeReviewerFeedbackBlock } from "../../core/memory/feedback/code-reviewer-feedback.js";
 import { codeReviewerFeedbackCapability } from "../../core/pi/extensions.js";
-import { codeReviewerFeedbackToolPolicy } from "../../shared/code-reviewer-feedback-prompts.js";
+import { codeReviewerFeedbackToolPolicy } from "../../shared/prompts/code-reviewer-feedback.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import { parsePrNumberFromUrl } from "../../core/git/github.js";
-import { taskArtifactsDir } from "../../shared/artifacts.js";
-import { prReviewArtifactPaths } from "../pr-review/artifacts.js";
-import type { PrComment } from "../../shared/types.js";
-import type { PrReviewAnnotation } from "../../shared/pr-review.js";
+import { taskArtifactsDir } from "../../shared/artifacts/index.js";
+import { prReviewArtifactPaths } from "../pr-review/artifacts/index.js";
+import type { PrComment } from "../../shared/domain/types.js";
+import type { PrReviewAnnotation } from "../../shared/contracts/pr-review.js";
 import {
   reviewChatSystemPrompt,
   formatReviewChatPrompt,
@@ -45,7 +45,7 @@ import { refreshReviewArtifacts } from "./refresh-review.js";
 import { withPipelineSpan, bridgeSessionToOtel } from "../../observability/index.js";
 import { trace } from "@opentelemetry/api";
 import { Goodboy } from "../../observability/attributes.js";
-import { toErrorMessage } from "../../shared/errors.js";
+import { toErrorMessage } from "../../shared/runtime/errors.js";
 
 const exec = promisify(execFile);
 const log = createLogger("pr-session");

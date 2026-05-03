@@ -1,8 +1,8 @@
 /**
  * Drizzle schema for Neon Postgres. Enum *values* are inlined here (rather
- * than imported from `shared/types.ts`) so `drizzle-kit` can load this file
+ * than imported from `shared/domain/types.ts`) so `drizzle-kit` can load this file
  * without resolving ESM paths. The canonical TypeScript unions still live
- * in `shared/types.ts` and must stay in sync with the arrays below.
+ * in `shared/domain/types.ts` and must stay in sync with the arrays below.
  */
 
 import { pgTable, text, timestamp, integer, uuid, pgEnum, jsonb, index } from "drizzle-orm/pg-core";

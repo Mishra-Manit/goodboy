@@ -6,8 +6,8 @@
 
 import { withPipelineSpan } from "../observability/index.js";
 import * as queries from "../db/repository.js";
-import { getRepo, type Repo } from "../shared/repos.js";
-import { prepareArtifactsDir } from "../shared/artifacts.js";
+import { getRepo, type Repo } from "../shared/domain/repos.js";
+import { prepareArtifactsDir } from "../shared/artifacts/index.js";
 import { syncRepo } from "../core/git/worktree.js";
 import {
   failTask,
@@ -18,9 +18,9 @@ import {
   type SendTelegram,
 } from "../core/stage.js";
 import { runMemory } from "./memory/pipeline.js";
-import { createLogger } from "../shared/logger.js";
-import { toErrorMessage } from "../shared/errors.js";
-import type { TaskKind } from "../shared/types.js";
+import { createLogger } from "../shared/runtime/logger.js";
+import { toErrorMessage } from "../shared/runtime/errors.js";
+import type { TaskKind } from "../shared/domain/types.js";
 
 const log = createLogger("pipeline-common");
 

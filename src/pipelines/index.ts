@@ -7,7 +7,7 @@ import { runPipeline } from "./coding/pipeline.js";
 import { runQuestion } from "./question/pipeline.js";
 import { runPrReview } from "./pr-review/pipeline.js";
 import type { SendTelegram } from "../core/stage.js";
-import type { TaskKind } from "../shared/types.js";
+import type { TaskKind } from "../shared/domain/types.js";
 
 // --- Public API ---
 

@@ -1,16 +1,16 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { config } from "@src/shared/config.js";
-import { taskArtifactsDir } from "@src/shared/artifacts.js";
-import { prReviewArtifactPaths } from "@src/pipelines/pr-review/artifacts.js";
-import type { PrReviewArtifact } from "@src/shared/pr-review.js";
+import { config } from "@src/shared/runtime/config.js";
+import { taskArtifactsDir } from "@src/shared/artifacts/index.js";
+import { prReviewArtifactPaths } from "@src/pipelines/pr-review/artifacts/index.js";
+import type { PrReviewArtifact } from "@src/shared/contracts/pr-review.js";
 
 const mocks = vi.hoisted(() => ({
   getPrSession: vi.fn(),
 }));
 
-vi.mock("@src/shared/repos.js", () => ({
+vi.mock("@src/shared/domain/repos.js", () => ({
   getRepo: () => null,
   listRepos: () => [],
   buildPrUrl: (_repo: string, prNumber: number | null) => (
@@ -25,11 +25,11 @@ vi.mock("@src/core/memory/index.js", () => ({
   releaseLock: async () => undefined,
 }));
 
-vi.mock("@src/core/memory/delete.js", () => ({
+vi.mock("@src/core/memory/lifecycle/delete.js", () => ({
   deleteRepoMemoryArtifacts: async () => ({ deletedWorktree: true, deletedMemoryDir: true }),
 }));
 
-vi.mock("@src/core/memory/cleanup.js", () => ({
+vi.mock("@src/core/memory/lifecycle/cleanup.js", () => ({
   cleanupTestMemoryRuns: async () => ({ deletedRows: 0, deletedTranscriptDirs: 0, deletedMemoryDirs: 0 }),
 }));
 

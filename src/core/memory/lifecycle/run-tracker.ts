@@ -6,16 +6,16 @@
  * `complete` / `fail` calls no-op.
  */
 
-import { createLogger } from "../../shared/logger.js";
-import { loadEnv } from "../../shared/config.js";
-import { emit } from "../../shared/events.js";
-import { toErrorMessage } from "../../shared/errors.js";
-import * as queries from "../../db/repository.js";
+import { createLogger } from "../../../shared/runtime/logger.js";
+import { loadEnv } from "../../../shared/runtime/config.js";
+import { emit } from "../../../shared/runtime/events.js";
+import { toErrorMessage } from "../../../shared/runtime/errors.js";
+import * as queries from "../../../db/repository.js";
 import type {
   MemoryRunKind,
   MemoryRunSource,
   MemoryRunStatus,
-} from "../../shared/types.js";
+} from "../../../shared/domain/types.js";
 
 const log = createLogger("memory-run-tracker");
 

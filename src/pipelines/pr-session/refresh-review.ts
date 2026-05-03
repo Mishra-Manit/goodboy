@@ -5,12 +5,12 @@
  */
 
 import { writeFile } from "node:fs/promises";
-import { createLogger } from "../../shared/logger.js";
+import { createLogger } from "../../shared/runtime/logger.js";
 import { parseNwo, getPrDiff, getPrMetadata } from "../../core/git/github.js";
-import { getRepoNwo } from "../../shared/repos.js";
-import { taskArtifactsDir } from "../../shared/artifacts.js";
-import { prReviewArtifactPaths } from "../pr-review/artifacts.js";
-import { toErrorMessage } from "../../shared/errors.js";
+import { getRepoNwo } from "../../shared/domain/repos.js";
+import { taskArtifactsDir } from "../../shared/artifacts/index.js";
+import { prReviewArtifactPaths } from "../pr-review/artifacts/index.js";
+import { toErrorMessage } from "../../shared/runtime/errors.js";
 
 const log = createLogger("pr-refresh-review");
 

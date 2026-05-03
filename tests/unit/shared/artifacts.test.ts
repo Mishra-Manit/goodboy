@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
-import { artifactPath, hasNonEmptyArtifact, requireNonEmptyArtifact } from "@src/shared/artifacts.js";
+import { artifactPath, hasNonEmptyArtifact, requireNonEmptyArtifact } from "@src/shared/artifacts/index.js";
 
 const tempDirs: string[] = [];
 

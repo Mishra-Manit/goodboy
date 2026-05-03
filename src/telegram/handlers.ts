@@ -4,14 +4,14 @@
  * retry). All replies go back through the `Ctx` object.
  */
 
-import { getRepo, listRepoNames } from "../shared/repos.js";
-import { createLogger } from "../shared/logger.js";
+import { getRepo, listRepoNames } from "../shared/domain/repos.js";
+import { createLogger } from "../shared/runtime/logger.js";
 import * as queries from "../db/repository.js";
 import { PIPELINES } from "../pipelines/index.js";
 import { cancelTask, type SendTelegram } from "../core/stage.js";
 import type { Intent } from "./intent-classifier.js";
 import type { Task } from "../db/repository.js";
-import { isTerminalStatus, type TaskKind } from "../shared/types.js";
+import { isTerminalStatus, type TaskKind } from "../shared/domain/types.js";
 
 const log = createLogger("telegram");
 

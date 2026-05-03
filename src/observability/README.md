@@ -24,7 +24,7 @@ Dependency rule: **no file outside `src/observability/` imports `@pydantic/logfi
 | Name | Default | Effect |
 |---|---|---|
 | `LOGFIRE_TOKEN` | unset | Required to actually export spans. Unset = SDK no-ops (`sendToLogfire: "if-token-present"`). |
-| `INSTANCE_ID` | — | Used as `deployment.environment` on every span. Already required by `shared/config.ts`. |
+| `INSTANCE_ID` | — | Used as `deployment.environment` on every span. Already required by `shared/runtime/config.ts`. |
 
 That's it. No kill switch flag; unsetting the token disables everything.
 

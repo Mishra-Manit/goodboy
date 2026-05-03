@@ -9,12 +9,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { rm } from "node:fs/promises";
 import path from "node:path";
-import { createLogger } from "../shared/logger.js";
-import { getRepo } from "../shared/repos.js";
+import { createLogger } from "../shared/runtime/logger.js";
+import { getRepo } from "../shared/domain/repos.js";
 import { removeWorktree } from "./git/worktree.js";
 import { parseNwo } from "./git/github.js";
 import * as queries from "../db/repository.js";
-import { emit } from "../shared/events.js";
+import { emit } from "../shared/runtime/events.js";
 import { prSessionPath } from "./pi/session-file.js";
 
 const exec = promisify(execFile);

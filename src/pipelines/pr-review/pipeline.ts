@@ -12,27 +12,27 @@
  */
 
 import { writeFile } from "node:fs/promises";
-import { createLogger } from "../../shared/logger.js";
-import { getRepoNwo } from "../../shared/repos.js";
+import { createLogger } from "../../shared/runtime/logger.js";
+import { getRepoNwo } from "../../shared/domain/repos.js";
 import { createPrWorktree, removeWorktree } from "../../core/git/worktree.js";
 import { getPrMetadata, getPrDiff, parsePrIdentifier } from "../../core/git/github.js";
-import { runImpactAnalyzers } from "./impact-analyzer.js";
-import { runPrAnalyst } from "./analyst.js";
-import { runPrDisplay } from "./display.js";
+import { runImpactAnalyzers } from "./stages/impact-analyzer.js";
+import { runPrAnalyst } from "./stages/analyst.js";
+import { runPrDisplay } from "./stages/display.js";
 import { handoffExternalReview } from "../pr-session/session.js";
 import { failTask, clearActiveSession, completeTask, type SendTelegram } from "../../core/stage.js";
 import * as queries from "../../db/repository.js";
-import { toErrorMessage } from "../../shared/errors.js";
+import { toErrorMessage } from "../../shared/runtime/errors.js";
 import {
   handlePipelineError,
   prepareTaskPipeline,
   withTaskPipeline,
   type TaskPipelineContext,
 } from "../common.js";
-import { memoryBlock } from "../../core/memory/render.js";
-import { codeReviewerFeedbackBlock } from "../../core/memory/code-reviewer-feedback.js";
-import { PR_IMPACT_VARIANT_COUNT, PR_REVIEW_DIRS, prImpactVariantPaths, prReviewArtifactPaths } from "./artifacts.js";
-import { permuteDiff } from "./diff-permute.js";
+import { memoryBlock } from "../../core/memory/output/render.js";
+import { codeReviewerFeedbackBlock } from "../../core/memory/feedback/code-reviewer-feedback.js";
+import { PR_IMPACT_VARIANT_COUNT, PR_REVIEW_DIRS, prImpactVariantPaths, prReviewArtifactPaths } from "./artifacts/index.js";
+import { permuteDiff } from "./diff/permute.js";
 
 const log = createLogger("pr-review");
 

@@ -5,9 +5,9 @@
  */
 
 import { Bot } from "grammy";
-import { loadEnv } from "../shared/config.js";
-import { createLogger } from "../shared/logger.js";
-import { listRepos } from "../shared/repos.js";
+import { loadEnv } from "../shared/runtime/config.js";
+import { createLogger } from "../shared/runtime/logger.js";
+import { listRepos } from "../shared/domain/repos.js";
 import { classifyMessage } from "./intent-classifier.js";
 import { handleIntent } from "./handlers.js";
 import type { SendTelegram } from "../core/stage.js";

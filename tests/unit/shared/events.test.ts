@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { subscribe, emit } from "@src/shared/events.js";
+import { subscribe, emit } from "@src/shared/runtime/events.js";
 
 // `listeners` is module-level state shared across every test. Track every
 // subscription here so afterEach can flush them even when an assertion throws

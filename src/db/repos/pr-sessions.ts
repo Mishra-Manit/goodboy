@@ -6,7 +6,7 @@
 import { eq, desc, and, inArray } from "drizzle-orm";
 import { getDb, schema } from "../index.js";
 import type { PrSession, PrSessionRun } from "../schema.js";
-import type { PrSessionMode, PrSessionWatchStatus } from "../../shared/types.js";
+import type { PrSessionMode, PrSessionWatchStatus } from "../../shared/domain/types.js";
 import { instanceId, prSessionsForInstance } from "./scope.js";
 
 // --- PR Sessions ---

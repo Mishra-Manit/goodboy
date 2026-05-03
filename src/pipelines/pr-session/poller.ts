@@ -4,8 +4,8 @@
  * address feedback. Runs on a 3-minute tick; skips sessions already in flight.
  */
 
-import { createLogger } from "../../shared/logger.js";
-import { getRepoNwo } from "../../shared/repos.js";
+import { createLogger } from "../../shared/runtime/logger.js";
+import { getRepoNwo } from "../../shared/domain/repos.js";
 import * as queries from "../../db/repository.js";
 import type { PrSession } from "../../db/repository.js";
 import {
@@ -14,7 +14,7 @@ import {
   getPrReviews,
   isPrClosed,
 } from "../../core/git/github.js";
-import type { PrComment } from "../../shared/types.js";
+import type { PrComment } from "../../shared/domain/types.js";
 import { resumePrSession } from "./session.js";
 import { cleanupPrSession } from "../../core/cleanup.js";
 import type { SendTelegram } from "../../core/stage.js";

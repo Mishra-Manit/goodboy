@@ -8,7 +8,7 @@
  * either way, the analyst sees variant reports or memory, never both.
  */
 
-import { prImpactVariantPaths, prReviewArtifactPaths } from "./artifacts.js";
+import { prImpactVariantPaths, prReviewArtifactPaths } from "../artifacts/index.js";
 
 export interface PrAnalystPromptOptions {
   repo: string;

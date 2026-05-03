@@ -6,8 +6,8 @@
 import { eq, desc, and, like } from "drizzle-orm";
 import { getDb, schema } from "../index.js";
 import type { MemoryRun } from "../schema.js";
-import type { MemoryRunKind, MemoryRunStatus, MemoryRunSource } from "../../shared/types.js";
-import { TEST_INSTANCE_PREFIX } from "../../shared/test-instance.js";
+import type { MemoryRunKind, MemoryRunStatus, MemoryRunSource } from "../../shared/domain/types.js";
+import { TEST_INSTANCE_PREFIX } from "../../shared/domain/test-instance.js";
 import { instanceId, memoryRunsVisible } from "./scope.js";
 
 // --- Memory Runs ---

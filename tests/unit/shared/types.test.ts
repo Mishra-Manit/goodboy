@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TERMINAL_STATUSES, isTerminalStatus } from "@src/shared/types.js";
+import { TERMINAL_STATUSES, isTerminalStatus } from "@src/shared/domain/types.js";
 
 describe("isTerminalStatus", () => {
   it("returns true for the canonical terminal statuses", () => {

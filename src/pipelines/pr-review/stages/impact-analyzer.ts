@@ -5,13 +5,13 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { createLogger } from "../../shared/logger.js";
-import { resolveModel } from "../../shared/config.js";
-import { TaskCancelledError, isTaskCancelled, runStage, type SendTelegram, type StageValidation } from "../../core/stage.js";
-import { impactAnalyzerSystemPrompt, impactAnalyzerInitialPrompt } from "./impact-prompts.js";
-import { toErrorMessage } from "../../shared/errors.js";
-import { artifactPath, hasNonEmptyArtifact } from "../../shared/artifacts.js";
-import { PR_IMPACT_VARIANT_COUNT, prImpactVariantFiles } from "./artifacts.js";
+import { createLogger } from "../../../shared/runtime/logger.js";
+import { resolveModel } from "../../../shared/runtime/config.js";
+import { TaskCancelledError, isTaskCancelled, runStage, type SendTelegram, type StageValidation } from "../../../core/stage.js";
+import { impactAnalyzerSystemPrompt, impactAnalyzerInitialPrompt } from "../prompts/impact.js";
+import { toErrorMessage } from "../../../shared/runtime/errors.js";
+import { artifactPath, hasNonEmptyArtifact } from "../../../shared/artifacts/index.js";
+import { PR_IMPACT_VARIANT_COUNT, prImpactVariantFiles } from "../artifacts/index.js";
 
 const log = createLogger("pr-impact");
 

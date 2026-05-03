@@ -15,7 +15,7 @@ import {
 } from "@opentelemetry/api";
 import { getTracer } from "./tracer.js";
 import { GenAi, Goodboy } from "./attributes.js";
-import type { StageName } from "../shared/types.js";
+import type { StageName } from "../shared/domain/types.js";
 
 // --- Pipeline span ---
 

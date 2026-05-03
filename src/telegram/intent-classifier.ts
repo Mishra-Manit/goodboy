@@ -5,8 +5,8 @@
  */
 
 import { z } from "zod";
-import { LIGHT_MODEL, structuredOutput } from "../shared/llm.js";
-import { createLogger } from "../shared/logger.js";
+import { LIGHT_MODEL, structuredOutput } from "../shared/llm/index.js";
+import { createLogger } from "../shared/runtime/logger.js";
 import { buildClassifierSystemPrompt, type ClassifierRepoContext } from "./prompts.js";
 
 const log = createLogger("intent-classifier");

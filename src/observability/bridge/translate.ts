@@ -11,7 +11,7 @@ import type {
   SessionMessageEntry,
   AssistantMessage,
   ToolResultMessage,
-} from "../../shared/session.js";
+} from "../../shared/contracts/session.js";
 import { truncate } from "../attributes.js";
 import type { EndChatSpan, SpanCommand, TranslatorState } from "./types.js";
 import { initialState } from "./types.js";

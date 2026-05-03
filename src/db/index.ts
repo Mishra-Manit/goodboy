@@ -6,7 +6,7 @@
 import { neon } from "@neondatabase/serverless";
 import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
 import * as schema from "./schema.js";
-import { loadEnv } from "../shared/config.js";
+import { loadEnv } from "../shared/runtime/config.js";
 
 type Db = NeonHttpDatabase<typeof schema>;
 

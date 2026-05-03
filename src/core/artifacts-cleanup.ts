@@ -7,8 +7,8 @@
 
 import path from "node:path";
 import { readdir, rm, stat } from "node:fs/promises";
-import { createLogger } from "../shared/logger.js";
-import { config } from "../shared/config.js";
+import { createLogger } from "../shared/runtime/logger.js";
+import { config } from "../shared/runtime/config.js";
 
 const log = createLogger("artifacts-cleanup");
 

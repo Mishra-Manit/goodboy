@@ -5,8 +5,8 @@
  */
 
 import type { ZodType } from "zod";
-import { loadEnv } from "./config.js";
-import { createLogger } from "./logger.js";
+import { loadEnv } from "../runtime/config.js";
+import { createLogger } from "../runtime/logger.js";
 
 const log = createLogger("llm");
 

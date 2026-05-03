@@ -62,9 +62,9 @@ These are real bugs or near-bugs. Land these before anything cosmetic.
 
 17. **DONE — Remove `shared -> core` imports.**
     Per `AGENTS.md`, the dependency direction is `pipelines/` → `core/` → `shared/` → `db/`, never reversed. Today:
-    - `shared/repos.ts` imports `parseNwo` from `core/git/github.ts`.
-    - `shared/agent-prompts.ts` imports memory IO from `core/memory`.
-    Move pure URL parsing into `shared/git-urls.ts` (or similar). Move `memoryBlock` rendering into `core/memory/render.ts` (a pure function over an in-memory state) and keep `shared/agent-prompts.ts` for stage-agnostic strings only.
+    - `shared/domain/repos.ts` imports `parseNwo` from `core/git/github.ts`.
+    - `shared/prompts/agent-prompts.ts` imports memory IO from `core/memory`.
+    Move pure URL parsing into `shared/domain/git-urls.ts` (or similar). Move `memoryBlock` rendering into `core/memory/output/render.ts` (a pure function over an in-memory state) and keep `shared/prompts/agent-prompts.ts` for stage-agnostic strings only.
 
 18. **Split the four oversized files.**
     Each is well past the 400-LOC suggested ceiling and mixes concerns:
@@ -77,12 +77,12 @@ These are real bugs or near-bugs. Land these before anything cosmetic.
     The dashboard hand-types API responses and `client.ts#request<T>` does `res.json() as Promise<T>`. We already have Zod schemas for PR review (`prReviewPageDtoSchema`, `reviewChatResponseSchema`); extend that pattern: Zod schemas for `Task`, `TaskStage`, `PrSession`, `MemoryRun`, `MemoryStatus`. Have `client.request` accept a schema and call `safeParse`. Same for SSE: `hooks/use-sse.ts` casts `JSON.parse(e.data) as SSEEvent` — replace with one Zod parse on entry.
 
 20. **Remove enum duplication between schema.ts and types.ts.**
-    `db/schema.ts` inlines enum values (`pgEnum("task_kind", ["coding_task", ...])`). `shared/types.ts` declares the same arrays as `as const`. There's no mechanism that proves they stay in sync. Either:
+    `db/schema.ts` inlines enum values (`pgEnum("task_kind", ["coding_task", ...])`). `shared/domain/types.ts` declares the same arrays as `as const`. There's no mechanism that proves they stay in sync. Either:
     - Generate `pgEnum` arrays from the shared `as const` arrays (drizzle-kit can load `.ts` via `tsx`; the comment that says it can't is now outdated for v0.30+), or
     - Add a unit test that imports both and asserts deep equality. The test is small and removes a real footgun.
 
 21. **`prSessionRuns.status` and `.trigger` should be enums.**
-    `schema.ts` declares both as `text` and the comments enumerate the legal values inline. Promote both to `pgEnum` (the migration is a pure constraint-add) and a corresponding `as const` array in `shared/types.ts`. Repo writes will then be type-checked.
+    `schema.ts` declares both as `text` and the comments enumerate the legal values inline. Promote both to `pgEnum` (the migration is a pure constraint-add) and a corresponding `as const` array in `shared/domain/types.ts`. Repo writes will then be type-checked.
 
 22. **`memoryRunActive` as `"TRUE"|"FALSE"` strings is awkward.**
     `pgEnum("memory_run_active", ["TRUE", "FALSE"])` exists because boolean defaults were painful at one point. With Drizzle's current Postgres support there's no reason not to use `boolean("active").notNull().default(true)`. Migration is straightforward; the dashboard already maps `"TRUE"` to "active" implicitly. Remove the string enum.
@@ -96,17 +96,17 @@ These are real bugs or near-bugs. Land these before anything cosmetic.
 25. **`isPersistedTaskId` is duct tape.**
     Tests pass synthetic taskIds like `"test-foo"`. `runStage` short-circuits the DB writes when the id isn't a UUID. That's fine for a unit test, but it leaks test-awareness into production code. Replace with an explicit `persistTaskRows: boolean` option on `runStage` — pipelines pass `true`, scripts/tests pass `false`. Same call-site complexity, no string sniffing.
 
-26. **`shared/test-instance.ts` is production-loaded.**
+26. **`shared/domain/test-instance.ts` is production-loaded.**
     `db/repository.ts#memoryRunsVisible` includes a `LIKE "${TEST_INSTANCE_PREFIX}%"` clause so manual-test runs are visible alongside real ones. That's a correctness foot-gun: production traffic now has to scan an extra OR clause forever. Move to a query option (`includeTestInstances`) callers opt into; default off. Today the API always includes them, which is wrong for prod.
 
 27. **`config.ts` mixes concerns.**
     The file holds the env Zod schema, the resolver helpers, *and* a `config` object with hardcoded paths. Split into `shared/env.ts` (loadEnv + resolveModel) and `shared/paths.ts` (the `config` object). Importing one shouldn't pull in the other.
 
-28. **`shared/llm.ts` retry policy lives at call sites.**
-    `core/git/worktree.ts#generateBranchName` retries 3× with bumped temperature; `intent-classifier.ts` retries zero times; `pr-review/analyst.ts` does not retry. Hoist a `withRetry({ attempts, onAttempt })` into `shared/llm.ts` so retry logic is one place.
+28. **`shared/llm/index.ts` retry policy lives at call sites.**
+    `core/git/worktree.ts#generateBranchName` retries 3× with bumped temperature; `intent-classifier.ts` retries zero times; `pr-review/analyst.ts` does not retry. Hoist a `withRetry({ attempts, onAttempt })` into `shared/llm/index.ts` so retry logic is one place.
 
 29. **DONE — Repo registry leaks `localPath` to the dashboard.**
-    `GET /api/repos` returns `listRepos()` directly, which includes `localPath`. The dashboard never needs this. Add a `Repo` DTO in `shared/repos.ts` (`{name, githubUrl?}`) and serialize that on the wire. Same for `worktreePath` on `Task` and `PrSession` rows — the dashboard never opens those paths.
+    `GET /api/repos` returns `listRepos()` directly, which includes `localPath`. The dashboard never needs this. Add a `Repo` DTO in `shared/domain/repos.ts` (`{name, githubUrl?}`) and serialize that on the wire. Same for `worktreePath` on `Task` and `PrSession` rows — the dashboard never opens those paths.
 
 30. **DONE — `api` reads `dashboard/dist/index.html` from disk on every SPA fallback request.**
     `src/index.ts:102`. Cache the file contents at startup; rebuild only on dev. Tiny win, but the current code has zero reason to hit disk per request.
@@ -123,7 +123,7 @@ A learning-focused section. Each item links a concrete pattern with at least one
     Today `tsconfig.json` has only `"strict": true`. Add (one at a time, fix fallout, commit):
     - `noUnusedLocals`, `noUnusedParameters` — small cleanup, exposes dead code.
     - `noFallthroughCasesInSwitch` — `telegram/handlers.ts#handleIntent` is an exhaustive switch; the flag adds insurance.
-    - `noImplicitOverride` — only useful once classes show up; `shared/errors.ts` patterns are fine.
+    - `noImplicitOverride` — only useful once classes show up; `shared/runtime/errors.ts` patterns are fine.
     - `exactOptionalPropertyTypes` — biggest payoff. Surfaces every `prop?: T` you assign `undefined` to (see #34).
     - `noUncheckedIndexedAccess` — exposes `array[i]` returning `T | undefined`. You'll find dozens of spots, and most are real (e.g. `displayPrompts.ts`, parsers in `transcript.ts`).
     - `noPropertyAccessFromIndexSignature` — minor, low signal.
@@ -237,10 +237,10 @@ A learning-focused section. Each item links a concrete pattern with at least one
     Backend uses `.js` extensions on internal imports (good). Dashboard uses `@dashboard/*` aliases (good). One inconsistency: `dashboard/src/components/log-viewer/index.ts` re-exports with explicit `.js` while `tests/` import paths use `@src/...`. Document the alias contract in `AGENTS.md` so future contributors don't reintroduce relative-path imports.
 
 49. **`readonly` is under-used.**
-    `shared/llm.ts` correctly uses `readonly` on every field of `ChatMessage`/`CompleteOptions`. Most other interfaces in the codebase are missing it (`PiSession`, `Repo`, `RunStageOptions`, `StageContext`, dashboard types). For DTOs and option bags, `readonly` is free safety. Add a lint rule once you adopt eslint.
+    `shared/llm/index.ts` correctly uses `readonly` on every field of `ChatMessage`/`CompleteOptions`. Most other interfaces in the codebase are missing it (`PiSession`, `Repo`, `RunStageOptions`, `StageContext`, dashboard types). For DTOs and option bags, `readonly` is free safety. Add a lint rule once you adopt eslint.
 
 50. **Branded types for ids.**
-    Many functions take `(taskId: string, prSessionId: string)` and at one point pass them in the wrong order would compile. Cheap improvement: branded types in `shared/types.ts`:
+    Many functions take `(taskId: string, prSessionId: string)` and at one point pass them in the wrong order would compile. Cheap improvement: branded types in `shared/domain/types.ts`:
     ```ts
     export type TaskId = string & { readonly __brand: "TaskId" };
     export type PrSessionId = string & { readonly __brand: "PrSessionId" };
@@ -337,12 +337,12 @@ A learning-focused section. Each item links a concrete pattern with at least one
 
 74. **PARTIAL — `AGENTS.md` rules vs reality drift.**
     - "No `console.log`" — `scripts/` legitimately uses `console.*` and isn't called out (see #79).
-    - "Every backend file declares `const log = createLogger(...)`" — `shared/errors.ts`, `shared/repos.ts`, `shared/types.ts`, `shared/test-instance.ts`, and `shared/artifacts.ts` are all backend and don't. They probably shouldn't (pure utility), so the rule should read "every backend file *with side effects*."
+    - "Every backend file declares `const log = createLogger(...)`" — `shared/runtime/errors.ts`, `shared/domain/repos.ts`, `shared/domain/types.ts`, `shared/domain/test-instance.ts`, and `shared/artifacts/index.ts` are all backend and don't. They probably shouldn't (pure utility), so the rule should read "every backend file *with side effects*."
     - "Immutability: never mutate arrays or objects" — broad to a fault (see #39). Restate as "function args are immutable; module-private mutation is allowed and encapsulated."
-    - "Magic numbers live in `shared/config.ts` or `shared/limits.ts`" — `shared/limits.ts` does not exist. Either create it (and migrate the `30 * 60 * 1000` style constants spread across `core/stage.ts`, `pipelines/pr-session/session.ts`, `core/memory/index.ts`) or drop the reference.
+    - "Magic numbers live in `shared/runtime/config.ts` or `shared/limits.ts`" — `shared/limits.ts` does not exist. Either create it (and migrate the `30 * 60 * 1000` style constants spread across `core/stage.ts`, `pipelines/pr-session/session.ts`, `core/memory/index.ts`) or drop the reference.
 
 75. **`.env.example` is missing `INSTANCE_ID` description, missing `LOGFIRE_*` non-token settings.**
-    Either document each var with a comment, or generate `.env.example` from the Zod schema in `shared/config.ts` so they stay in sync.
+    Either document each var with a comment, or generate `.env.example` from the Zod schema in `shared/runtime/config.ts` so they stay in sync.
 
 76. **No CHANGELOG, no migration log.**
     Schema migrations land via `drizzle/`. Consider a one-line `drizzle/CHANGES.md` so reviewers can see "what changed in 0007_…sql" without diffing the SQL.

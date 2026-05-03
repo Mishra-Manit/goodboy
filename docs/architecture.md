@@ -134,7 +134,7 @@ Node doesn't crash by default on unhandled promise rejections (it used to just l
 
 ## Config and the Lazy Singleton Pattern
 
-**File:** `src/shared/config.ts`
+**File:** `src/shared/runtime/config.ts`
 
 ```typescript
 let _env: Env | null = null;
@@ -170,7 +170,7 @@ This takes a JSON string from the environment, parses it, then validates the sha
 
 ## Type System -- Const Arrays as Source of Truth
 
-**File:** `src/shared/types.ts`
+**File:** `src/shared/domain/types.ts`
 
 ```typescript
 export const TASK_STATUSES = ["queued", "running", "complete", "failed", "cancelled"] as const;
@@ -213,7 +213,7 @@ This is a **discriminated union** -- the `type` field determines which shape the
 
 ## Event Bus -- Pub/Sub for SSE
 
-**File:** `src/shared/events.ts`
+**File:** `src/shared/runtime/events.ts`
 
 ```typescript
 const listeners = new Set<Listener>();
@@ -793,7 +793,7 @@ Belt and suspenders -- try the polite way first, then force-kill if it doesn't r
 
 ## Logging
 
-**Files:** `src/core/session-file.ts`, `src/core/session-broadcast.ts`, `src/shared/session.ts`.
+**Files:** `src/core/session-file.ts`, `src/core/session-broadcast.ts`, `src/shared/contracts/session.ts`.
 
 Logs are pi's native session JSONL files. We don't translate, we don't
 re-shape, we don't store a parallel log format. Every stage tells pi to
@@ -990,11 +990,11 @@ dashboard/src/
     Tasks.tsx, TaskDetail.tsx, PullRequests.tsx, PrSessionDetail.tsx, Repos.tsx
 ```
 
-Dependency direction: `pages/` -> `components/` + `hooks/` -> `lib/` -> `shared.ts` -> backend `src/shared/types.ts`. The path alias `@shared/*` wires that last hop; types are re-exported through `dashboard/src/shared.ts` so pages and components never import from outside `dashboard/src` directly.
+Dependency direction: `pages/` -> `components/` + `hooks/` -> `lib/` -> `shared.ts` -> backend `src/shared/domain/types.ts`. The path alias `@shared/*` wires that last hop; types are re-exported through `dashboard/src/shared.ts` so pages and components never import from outside `dashboard/src` directly.
 
 ### Shared wire types
 
-`dashboard/src/shared.ts` is a narrow re-export of `src/shared/types.ts` and `src/shared/session.ts` (`TaskKind`, `TaskStatus`, `StageStatus`, `StageName`, `SSEEvent`, `FileEntry`, `SessionEntry`, `SessionMessageEntry`, ...). The dashboard never redeclares these. When the backend adds a new `TaskKind`, TypeScript fails on the dashboard's `TASK_KIND_CONFIG` until every kind has a label, a stage list, and an artifact list.
+`dashboard/src/shared.ts` is a narrow re-export of `src/shared/domain/types.ts` and `src/shared/contracts/session.ts` (`TaskKind`, `TaskStatus`, `StageStatus`, `StageName`, `SSEEvent`, `FileEntry`, `SessionEntry`, `SessionMessageEntry`, ...). The dashboard never redeclares these. When the backend adds a new `TaskKind`, TypeScript fails on the dashboard's `TASK_KIND_CONFIG` until every kind has a label, a stage list, and an artifact list.
 
 ### Log viewer
 

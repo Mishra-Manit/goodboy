@@ -9,9 +9,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
-import { createLogger } from "../../shared/logger.js";
+import { createLogger } from "../../shared/runtime/logger.js";
 import { z } from "zod";
-import { LIGHT_MODEL, structuredOutput } from "../../shared/llm.js";
+import { LIGHT_MODEL, structuredOutput } from "../../shared/llm/index.js";
 import { stageSubagentAssets } from "../subagents/index.js";
 import { buildSlugPrompt, SLUG_SYSTEM_PROMPT } from "./prompts.js";
 

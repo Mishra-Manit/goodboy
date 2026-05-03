@@ -44,7 +44,7 @@ vi.mock("@src/core/memory/index.js", () => ({
   memoryWorktreeDir: (repo: string) => `/artifacts/memory-test-${repo}/checkout`,
 }));
 
-import { deleteRepoMemoryArtifacts } from "@src/core/memory/delete.js";
+import { deleteRepoMemoryArtifacts } from "@src/core/memory/lifecycle/delete.js";
 
 beforeEach(() => {
   execState.calls = [];

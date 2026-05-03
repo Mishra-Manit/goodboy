@@ -15,7 +15,7 @@ import {
   readZonesSidecar, memoryFilesValid, assertMemoryWorktreeClean,
   stateFileHash, listZoneDirs,
   type Zone,
-} from "./index.js";
+} from "../index.js";
 
 // --- Public API ---
 

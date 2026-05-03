@@ -85,7 +85,7 @@ vi.mock("@src/db/repository.js", () => ({
   },
 }));
 
-vi.mock("@src/shared/events.js", () => ({
+vi.mock("@src/shared/runtime/events.js", () => ({
   emit: (event: unknown) => {
     eventsHandler.emitted.push(event);
   },

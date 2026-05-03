@@ -10,7 +10,7 @@
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { TEST_INSTANCE_PREFIX } from "../../src/shared/test-instance.js";
+import { TEST_INSTANCE_PREFIX } from "../../src/shared/domain/test-instance.js";
 
 const [, , repoName] = process.argv;
 if (!repoName) {

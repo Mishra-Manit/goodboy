@@ -5,10 +5,10 @@
 
 import path from "node:path";
 import { readdir, rm } from "node:fs/promises";
-import { createLogger } from "../../shared/logger.js";
-import { config } from "../../shared/config.js";
-import * as queries from "../../db/repository.js";
-import { TEST_INSTANCE_PREFIX } from "../../shared/test-instance.js";
+import { createLogger } from "../../../shared/runtime/logger.js";
+import { config } from "../../../shared/runtime/config.js";
+import * as queries from "../../../db/repository.js";
+import { TEST_INSTANCE_PREFIX } from "../../../shared/domain/test-instance.js";
 
 const log = createLogger("memory-cleanup");
 

@@ -5,8 +5,8 @@
 
 import { and, eq, like, or } from "drizzle-orm";
 import { getDb, schema } from "../index.js";
-import { loadEnv } from "../../shared/config.js";
-import { TEST_INSTANCE_PREFIX } from "../../shared/test-instance.js";
+import { loadEnv } from "../../shared/runtime/config.js";
+import { TEST_INSTANCE_PREFIX } from "../../shared/domain/test-instance.js";
 
 /** Current runtime instance used to isolate dev/prod rows. */
 export function instanceId(): string {

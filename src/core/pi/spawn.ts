@@ -9,8 +9,8 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { createLogger } from "../../shared/logger.js";
-import { config } from "../../shared/config.js";
+import { createLogger } from "../../shared/runtime/logger.js";
+import { config } from "../../shared/runtime/config.js";
 import { attachJsonlReader } from "./jsonl-reader.js";
 
 const log = createLogger("pi-rpc");

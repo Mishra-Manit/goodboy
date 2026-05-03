@@ -4,8 +4,8 @@
  */
 
 import { readFile, stat } from "node:fs/promises";
-import { createLogger } from "../../shared/logger.js";
-import { prReviewArtifactSchema, type PrReviewArtifact } from "../../shared/pr-review.js";
+import { createLogger } from "../../../shared/runtime/logger.js";
+import { prReviewArtifactSchema, type PrReviewArtifact } from "../../../shared/contracts/pr-review.js";
 
 const log = createLogger("pr-review-read");
 

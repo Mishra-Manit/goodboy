@@ -4,9 +4,9 @@
  * caller (`runStage`, PR-session runner) owns the lifecycle.
  */
 
-import { emit } from "../../shared/events.js";
+import { emit } from "../../shared/runtime/events.js";
 import { watchSessionFile } from "./session-file.js";
-import type { StageName } from "../../shared/types.js";
+import type { StageName } from "../../shared/domain/types.js";
 
 interface TaskTarget {
   scope: "task";

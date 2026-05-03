@@ -25,14 +25,14 @@
 
 
 import { trace, type Span } from "@opentelemetry/api";
-import { createLogger } from "../../shared/logger.js";
-import { resolveModel } from "../../shared/config.js";
-import type { MemoryRunSource, StageStatus } from "../../shared/types.js";
+import { createLogger } from "../../shared/runtime/logger.js";
+import { resolveModel } from "../../shared/runtime/config.js";
+import type { MemoryRunSource, StageStatus } from "../../shared/domain/types.js";
 import { subagentCapability } from "../../core/subagents/index.js";
 import { runStage, isPersistedTaskId, type SendTelegram, type StageValidation } from "../../core/stage.js";
 import { taskSessionPath } from "../../core/pi/session-file.js";
 import * as queries from "../../db/repository.js";
-import { emit } from "../../shared/events.js";
+import { emit } from "../../shared/runtime/events.js";
 import { withPipelineSpan } from "../../observability/index.js";
 import { Goodboy } from "../../observability/attributes.js";
 import {
@@ -44,14 +44,14 @@ import {
   bucketPathsByZone, findUnzonedSubtrees,
   type Zone, type MemoryState,
 } from "../../core/memory/index.js";
-import { validateColdOutput, validateWarmOutput } from "../../core/memory/validate.js";
-import { ensureCodeReviewerFeedbackFile } from "../../core/memory/code-reviewer-feedback.js";
-import { startMemoryRun, type MemoryRunTracker } from "../../core/memory/run-tracker.js";
+import { validateColdOutput, validateWarmOutput } from "../../core/memory/output/validate.js";
+import { ensureCodeReviewerFeedbackFile } from "../../core/memory/feedback/code-reviewer-feedback.js";
+import { startMemoryRun, type MemoryRunTracker } from "../../core/memory/lifecycle/run-tracker.js";
 import {
   coldSystemPrompt, coldInitialPrompt,
   warmSystemPrompt, warmInitialPrompt,
 } from "./prompts.js";
-import { toErrorMessage } from "../../shared/errors.js";
+import { toErrorMessage } from "../../shared/runtime/errors.js";
 
 const log = createLogger("memory-pipeline");
 

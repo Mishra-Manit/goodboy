@@ -5,7 +5,7 @@ import {
   permuteDiff,
   seededShuffle,
   splitDiffByFile,
-} from "@src/pipelines/pr-review/diff-permute.js";
+} from "@src/pipelines/pr-review/diff/permute.js";
 
 const BLOCK_A = "diff --git a/src/a.ts b/src/a.ts\nindex 1..2 100644\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+a1\n";
 const BLOCK_B = "diff --git a/src/b.ts b/src/b.ts\nindex 1..2 100644\n--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1 +1 @@\n-b\n+b1\n";

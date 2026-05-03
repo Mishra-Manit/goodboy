@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { runImpactAnalyzers } from "@src/pipelines/pr-review/impact-analyzer.js";
+import { runImpactAnalyzers } from "@src/pipelines/pr-review/stages/impact-analyzer.js";
 
 const mocks = vi.hoisted(() => ({
   runStage: vi.fn(),

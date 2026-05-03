@@ -4,7 +4,7 @@
  * block and passes it in.
  */
 
-import { SHARED_RULES } from "../../shared/agent-prompts.js";
+import { SHARED_RULES } from "../../shared/prompts/agent-prompts.js";
 
 export function questionSystemPrompt(memory: string, question: string, artifactsDir: string): string {
   return `${memory}You are answering a question about a codebase. You have READ-ONLY access.

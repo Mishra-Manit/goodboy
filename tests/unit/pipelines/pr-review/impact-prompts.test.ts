@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   impactAnalyzerSystemPrompt,
   impactAnalyzerInitialPrompt,
-} from "@src/pipelines/pr-review/impact-prompts.js";
+} from "@src/pipelines/pr-review/prompts/impact.js";
 
 const REPO = "acme/widgets";
 const ARTIFACTS = "/tmp/artifacts/task-123";

@@ -2,8 +2,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readReviewArtifact } from "@src/pipelines/pr-review/read-review.js";
-import type { PrReviewArtifact } from "@src/shared/pr-review.js";
+import { readReviewArtifact } from "@src/pipelines/pr-review/artifacts/read-review.js";
+import type { PrReviewArtifact } from "@src/shared/contracts/pr-review.js";
 
 const validArtifact: PrReviewArtifact = {
   prTitle: "Add review page",

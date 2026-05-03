@@ -20,7 +20,7 @@ import { initObservability, shutdownObservability } from "../src/observability/l
 import { getTracer } from "../src/observability/tracer.js";
 import { bridgeSessionToOtel } from "../src/observability/bridge/index.js";
 import { Goodboy, GenAi } from "../src/observability/attributes.js";
-import type { StageName } from "../src/shared/types.js";
+import type { StageName } from "../src/shared/domain/types.js";
 
 const taskDir = process.argv[2];
 if (!taskDir) {

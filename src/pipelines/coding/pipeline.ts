@@ -5,8 +5,8 @@
  */
 
 import path from "node:path";
-import { createLogger } from "../../shared/logger.js";
-import { resolveModel } from "../../shared/config.js";
+import { createLogger } from "../../shared/runtime/logger.js";
+import { resolveModel } from "../../shared/runtime/config.js";
 import { subagentCapability } from "../../core/subagents/index.js";
 import { createWorktree, generateBranchName } from "../../core/git/worktree.js";
 import * as queries from "../../db/repository.js";
@@ -25,9 +25,9 @@ import {
   type WorktreeEnv,
 } from "./prompts.js";
 import { startPrSession } from "../pr-session/session.js";
-import { memoryBlock } from "../../core/memory/render.js";
-import { requireNonEmptyArtifact } from "../../shared/artifacts.js";
-import { toErrorMessage } from "../../shared/errors.js";
+import { memoryBlock } from "../../core/memory/output/render.js";
+import { requireNonEmptyArtifact } from "../../shared/artifacts/index.js";
+import { toErrorMessage } from "../../shared/runtime/errors.js";
 import {
   handlePipelineError,
   prepareTaskPipeline,

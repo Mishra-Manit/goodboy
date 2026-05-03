@@ -3,7 +3,7 @@ import {
   prReviewIssueSchema,
   prReviewReportSchema,
   prReviewPlanSchema,
-} from "@src/shared/types.js";
+} from "@src/shared/domain/types.js";
 
 const validIssue = {
   file: "src/a.ts",

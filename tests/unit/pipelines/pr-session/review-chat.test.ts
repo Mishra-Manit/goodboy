@@ -7,8 +7,8 @@ import {
   latestAssistantText,
   stripResultMarker,
 } from "@src/pipelines/pr-session/review-chat/index.js";
-import type { PrReviewAnnotation } from "@src/shared/pr-review.js";
-import type { FileEntry } from "@src/shared/session.js";
+import type { PrReviewAnnotation } from "@src/shared/contracts/pr-review.js";
+import type { FileEntry } from "@src/shared/contracts/session.js";
 
 const artifacts = {
   reviewPath: "/a/review.json",

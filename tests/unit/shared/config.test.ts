@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
-import { loadEnv, resetEnvForTesting, resolveModel } from "@src/shared/config.js";
+import { loadEnv, resetEnvForTesting, resolveModel } from "@src/shared/runtime/config.js";
 
 // Snapshot the seeded env from tests/setup/env.ts so individual tests can
 // mutate process.env without leaking into other test files.

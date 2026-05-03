@@ -6,7 +6,7 @@
  * with sibling variants downstream.
  */
 
-import { prImpactVariantFiles, prImpactVariantPaths, prReviewArtifactPaths } from "./artifacts.js";
+import { prImpactVariantFiles, prImpactVariantPaths, prReviewArtifactPaths } from "../artifacts/index.js";
 
 export function impactAnalyzerSystemPrompt(
   repo: string,

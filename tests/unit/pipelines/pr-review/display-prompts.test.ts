@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   prDisplayInitialPrompt,
   prDisplaySystemPrompt,
-} from "@src/pipelines/pr-review/display-prompts.js";
+} from "@src/pipelines/pr-review/prompts/display.js";
 
 const opts = {
   repo: "goodboy",

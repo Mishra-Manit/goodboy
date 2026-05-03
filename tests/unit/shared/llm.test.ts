@@ -5,7 +5,7 @@ import {
   mockFireworksResponse,
   mockFireworksNetworkError,
 } from "../../setup/msw.js";
-import { complete, structuredOutput } from "@src/shared/llm.js";
+import { complete, structuredOutput } from "@src/shared/llm/index.js";
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => server.resetHandlers());

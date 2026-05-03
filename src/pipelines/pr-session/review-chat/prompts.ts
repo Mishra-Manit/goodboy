@@ -4,7 +4,7 @@
  * system prompt and parsed by `parse-result.ts`.
  */
 
-import type { PrReviewAnnotation } from "../../../shared/pr-review.js";
+import type { PrReviewAnnotation } from "../../../shared/contracts/pr-review.js";
 import type { ReviewChatArtifacts, ReviewChatContext } from "./types.js";
 
 export const USER_MESSAGE_HEADER = "USER MESSAGE:";

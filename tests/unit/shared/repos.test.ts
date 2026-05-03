@@ -6,7 +6,7 @@ import {
   listRepoSummaries,
   getRepoNwo,
   buildPrUrl,
-} from "@src/shared/repos.js";
+} from "@src/shared/domain/repos.js";
 
 // `tests/setup/env.ts` seeds REGISTERED_REPOS with "myrepo" and "other".
 

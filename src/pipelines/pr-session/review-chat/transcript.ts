@@ -12,8 +12,8 @@ import {
   type PrReviewAnnotation,
   type ReviewChatMessage,
   type ReviewChatPart,
-} from "../../../shared/pr-review.js";
-import type { AssistantMessage, FileEntry, TextContent } from "../../../shared/session.js";
+} from "../../../shared/contracts/pr-review.js";
+import type { AssistantMessage, FileEntry, TextContent } from "../../../shared/contracts/session.js";
 import { ANNOTATION_HEADER, USER_MESSAGE_HEADER } from "./prompts.js";
 import { parseReviewChatResult } from "./parse-result.js";
 

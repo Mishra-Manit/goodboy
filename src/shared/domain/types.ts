@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import type { FileEntry } from "./session.js";
+import type { FileEntry } from "../contracts/session.js";
 
 // --- Task kinds ---
 

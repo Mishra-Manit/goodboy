@@ -5,7 +5,7 @@
 
 import path from "node:path";
 import { mkdir, rm, stat } from "node:fs/promises";
-import { config } from "./config.js";
+import { config } from "../runtime/config.js";
 
 // --- Paths ---
 

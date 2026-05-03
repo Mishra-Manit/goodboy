@@ -9,7 +9,7 @@
 import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { TEST_INSTANCE_PREFIX, isTestInstance } from "../../src/shared/test-instance.js";
+import { TEST_INSTANCE_PREFIX, isTestInstance } from "../../src/shared/domain/test-instance.js";
 
 const [, , repoName, instanceId] = process.argv;
 if (!repoName || !instanceId) {

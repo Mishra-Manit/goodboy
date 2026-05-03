@@ -1,6 +1,6 @@
 /** Shared types for the review-chat module. Pure data, no IO, no behavior. */
 
-import type { PrReviewAnnotation } from "../../../shared/pr-review.js";
+import type { PrReviewAnnotation } from "../../../shared/contracts/pr-review.js";
 
 export interface ReviewChatContext {
   message: string;

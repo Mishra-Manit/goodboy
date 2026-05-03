@@ -13,13 +13,13 @@ import { createTelegramBot } from "./telegram/index.js";
 import { createApi } from "./api/index.js";
 import { startPrPoller, stopPrPoller } from "./pipelines/pr-session/poller.js";
 import type { SendTelegram } from "./core/stage.js";
-import { loadEnv } from "./shared/config.js";
-import { createLogger } from "./shared/logger.js";
+import { loadEnv } from "./shared/runtime/config.js";
+import { createLogger } from "./shared/runtime/logger.js";
 import { initObservability, shutdownObservability, emitStartupEvent } from "./observability/index.js";
 import { findOrphanedMemoryDirs, cleanupStaleMemoryLocks } from "./core/memory/index.js";
 import { startArtifactsSweep, stopArtifactsSweep } from "./core/artifacts-cleanup.js";
 import { pruneWorktrees } from "./core/git/worktree.js";
-import { listRepos, listRepoNames } from "./shared/repos.js";
+import { listRepos, listRepoNames } from "./shared/domain/repos.js";
 import { reapRunningRows } from "./db/repository.js";
 const log = createLogger("main");
 
