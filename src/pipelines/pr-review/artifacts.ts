@@ -19,6 +19,7 @@ export const PR_REVIEW_FILES = {
   updatedContext: "pr-context.updated.json",
   updatedDiff: "pr.updated.diff",
   reviewPlan: "review-plan.json",
+  reviewerFeedback: "code-reviewer-feedback.md",
   summary: "summary.md",
   review: "review.json",
 } as const;
@@ -33,6 +34,7 @@ export interface PrReviewArtifactPaths {
   updatedContext: string;
   updatedDiff: string;
   reviewPlan: string;
+  reviewerFeedback: string;
   summary: string;
   review: string;
   reportsDir: string;
@@ -52,6 +54,7 @@ export function prReviewArtifactPaths(artifactsDir: string): PrReviewArtifactPat
     updatedContext: artifactPath(artifactsDir, PR_REVIEW_FILES.updatedContext),
     updatedDiff: artifactPath(artifactsDir, PR_REVIEW_FILES.updatedDiff),
     reviewPlan: artifactPath(artifactsDir, PR_REVIEW_FILES.reviewPlan),
+    reviewerFeedback: artifactPath(artifactsDir, PR_REVIEW_FILES.reviewerFeedback),
     summary: artifactPath(artifactsDir, PR_REVIEW_FILES.summary),
     review: artifactPath(artifactsDir, PR_REVIEW_FILES.review),
     reportsDir: path.join(artifactsDir, PR_REVIEW_DIRS.reports),

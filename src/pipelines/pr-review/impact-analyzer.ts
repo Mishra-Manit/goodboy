@@ -25,6 +25,7 @@ export interface ImpactAnalyzerOptions {
   sendTelegram: SendTelegram;
   /** Variant stages intentionally run silently to avoid three Telegram pings. */
   memoryBody: string;
+  reviewerFeedback: string;
 }
 
 export interface ImpactFanoutResult {
@@ -51,7 +52,7 @@ export async function runImpactAnalyzers(opts: ImpactAnalyzerOptions): Promise<I
 }
 
 async function runImpactVariant(opts: ImpactAnalyzerOptions, variant: number): Promise<number | null> {
-  const { taskId, repo, artifactsDir, worktreePath, sendTelegram, memoryBody } = opts;
+  const { taskId, repo, artifactsDir, worktreePath, sendTelegram, memoryBody, reviewerFeedback } = opts;
   const files = prImpactVariantFiles(variant);
 
   try {
@@ -60,7 +61,7 @@ async function runImpactVariant(opts: ImpactAnalyzerOptions, variant: number): P
       stage: "pr_impact",
       variant,
       cwd: worktreePath,
-      systemPrompt: impactAnalyzerSystemPrompt(repo, artifactsDir, worktreePath, memoryBody, variant),
+      systemPrompt: impactAnalyzerSystemPrompt(repo, artifactsDir, worktreePath, memoryBody, reviewerFeedback, variant),
       initialPrompt: impactAnalyzerInitialPrompt(artifactsDir, variant),
       model: resolveModel("PI_MODEL_PR_IMPACT"),
       sendTelegram,

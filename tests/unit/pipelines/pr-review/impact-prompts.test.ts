@@ -18,7 +18,7 @@ const SECTION_HEADERS = [
 ];
 
 describe("impactAnalyzerSystemPrompt", () => {
-  const prompt = impactAnalyzerSystemPrompt(REPO, ARTIFACTS, WORKTREE, MEMORY, 2);
+  const prompt = impactAnalyzerSystemPrompt(REPO, ARTIFACTS, WORKTREE, MEMORY, "", 2);
 
   it("contains every required section header", () => {
     for (const h of SECTION_HEADERS) expect(prompt).toContain(h);
@@ -45,13 +45,13 @@ describe("impactAnalyzerSystemPrompt", () => {
   });
 
   it("falls back to a no-memory message when memory is empty", () => {
-    const empty = impactAnalyzerSystemPrompt(REPO, ARTIFACTS, WORKTREE, "", 1);
+    const empty = impactAnalyzerSystemPrompt(REPO, ARTIFACTS, WORKTREE, "", "", 1);
     expect(empty).toContain("NO MEMORY AVAILABLE");
     expect(empty).toContain(REPO);
   });
 
   it("treats whitespace-only memory as empty", () => {
-    const ws = impactAnalyzerSystemPrompt(REPO, ARTIFACTS, WORKTREE, "   \n\n  ", 1);
+    const ws = impactAnalyzerSystemPrompt(REPO, ARTIFACTS, WORKTREE, "   \n\n  ", "", 1);
     expect(ws).toContain("NO MEMORY AVAILABLE");
   });
 });

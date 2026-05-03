@@ -13,6 +13,7 @@ export function impactAnalyzerSystemPrompt(
   artifactsDir: string,
   worktreePath: string,
   memoryBody: string,
+  reviewerFeedback: string,
   variant: number,
 ): string {
   const paths = prReviewArtifactPaths(artifactsDir);
@@ -20,6 +21,9 @@ export function impactAnalyzerSystemPrompt(
   const variantFiles = prImpactVariantFiles(variant);
   const memorySection = memoryBody.trim() || `NO MEMORY AVAILABLE for ${repo}. Work from the diff and live codebase only.
 The "Memory Gaps & Blind Spots" section should flag every touched area since nothing is documented.`;
+  const feedbackSection = reviewerFeedback.trim()
+    ? `${reviewerFeedback.trim()}\nActive code reviewer feedback rules are hard requirements and override generic style preferences.`
+    : "NO ACTIVE CODE REVIEWER FEEDBACK RULES.";
 
   return `You are the PR Impact Curator for "${repo}".
 
@@ -46,6 +50,8 @@ You MUST use the write tool to create ${variantPaths.impact}. The stage is succe
 Do NOT paste the report in your final assistant response. After writing the file, final-answer with only a brief confirmation.
 
 ${memorySection}
+
+${feedbackSection}
 
 YOUR TASK:
 1. Read ${paths.context} and ${variantPaths.diff}.

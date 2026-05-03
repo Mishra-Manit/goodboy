@@ -32,6 +32,7 @@ function options(dir: string) {
     worktreePath: dir,
     sendTelegram: noopSend,
     memoryBody: "memory",
+    reviewerFeedback: "",
   };
 }
 

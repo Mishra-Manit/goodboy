@@ -30,6 +30,7 @@ import {
   type TaskPipelineContext,
 } from "../common.js";
 import { memoryBlock } from "../../core/memory/render.js";
+import { codeReviewerFeedbackBlock } from "../../core/memory/code-reviewer-feedback.js";
 import { PR_IMPACT_VARIANT_COUNT, PR_REVIEW_DIRS, prImpactVariantPaths, prReviewArtifactPaths } from "./artifacts.js";
 import { permuteDiff } from "./diff-permute.js";
 
@@ -113,6 +114,8 @@ async function runPrReviewInner(
     await queries.updateTask(taskId, { prNumber, worktreePath, status: "running" });
 
     const fullMemory = await memoryBlock(task.repo);
+    const reviewerFeedback = await codeReviewerFeedbackBlock(task.repo);
+    await writeFile(paths.reviewerFeedback, reviewerFeedback || "No active code reviewer feedback rules.\n");
 
     // Stage 2: pr_impact fanout. Soft-fail; analyst falls back to full memory if all variants drop.
     const impactResult = await runImpactAnalyzers({
@@ -122,6 +125,7 @@ async function runPrReviewInner(
       worktreePath,
       sendTelegram,
       memoryBody: fullMemory,
+      reviewerFeedback,
     });
 
     // Stage 3: pr_analyst. Throws on hard failure.
@@ -137,6 +141,7 @@ async function runPrReviewInner(
       chatId,
       availableImpactVariants: impactResult.available,
       fallbackMemory: impactResult.ok ? "" : fullMemory,
+      reviewerFeedback,
     });
 
     // Snapshot post-analyst PR state so pr_display renders the actual reviewed diff.

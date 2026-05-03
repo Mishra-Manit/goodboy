@@ -74,6 +74,7 @@ CONTEXT YOU HAVE:
 ${impactContextBlock(impactFiles)}
 - PR metadata at ${paths.context}
 - PR diff at ${paths.diff}
+- Code reviewer feedback rules at ${paths.reviewerFeedback} (hard requirements; read before planning style/comment/doc fixes).
 - Full worktree at ${worktreePath} (read freely, edit to apply fixes).
 
 ---
@@ -101,13 +102,16 @@ COMMENT RULE:
 
 WORKFLOW:
 
-1. READ THE IMPACT CONTEXT.
+1. READ CODE REVIEWER FEEDBACK.
+   Read ${paths.reviewerFeedback} before impact reports or the PR diff. Active rules are hard requirements; do not plan style, comment, docstring, docs, or review-behavior fixes that violate them.
+
+2. READ THE IMPACT CONTEXT.
    ${impactWorkflowStep(impactFiles)}
 
-2. READ THE PR.
+3. READ THE PR.
    Read ${paths.context} and ${paths.diff} in full.
 
-3. PLAN THE REVIEW.
+4. PLAN THE REVIEW.
    Write ${paths.reviewPlan}:
    {
      "groups": [
@@ -128,7 +132,7 @@ WORKFLOW:
    - Always skip lockfiles, generated code, vendored deps, and large data migrations.
    - Every group MUST have a non-empty focus string.
 
-4. SPAWN SUBAGENTS.
+5. SPAWN SUBAGENTS.
    First run: mkdir -p ${paths.reportsDir}
 
    Your very next assistant action after the mkdir result MUST be one PARALLEL
@@ -145,14 +149,14 @@ WORKFLOW:
    Subagents do NOT receive pr-impact.vN.md files or the full memory block.
    You hold that context and distill it into review-plan focus strings.
 
-5. WAIT FOR ALL SUBAGENTS.
+6. WAIT FOR ALL SUBAGENTS.
    Read every report back from ${paths.reportsDir}/. Verify every planned group
    report plus ${paths.reportsDir}/holistic.json exists and parses as valid JSON.
    If a report is missing or invalid, rerun only that report with the same
    output option. Never continue with a
    missing report.
 
-6. AGGREGATE.
+7. AGGREGATE.
    - DIFF-ANCHORING FILTER first: discard any issue that cannot be anchored to
      a changed line in ${paths.diff}.
    - Dedupe issues that appear in multiple reports.
@@ -164,11 +168,11 @@ WORKFLOW:
    - Do not inflate severity for stale docs, cleanup debt, or follow-up work.
    - Split into auto-fix and flag-only buckets using the AUTO-FIX RULE.
 
-7. APPLY AUTO-FIXABLE ISSUES.
+8. APPLY AUTO-FIXABLE ISSUES.
    Edit files in ${worktreePath}, commit fixes, push to ${headRef}, and record
    short SHAs. Do not edit flag-only issues.
 
-8. WRITE THE SUMMARY.
+9. WRITE THE SUMMARY.
    Write ${paths.summary} as a SHORT, clean GitHub markdown comment.
 
    Writing style:
@@ -200,10 +204,10 @@ WORKFLOW:
    - Move lower-signal cleanup, doc drift, and test gaps into "Follow-ups" or omit them.
    - If there were no commits, omit the "Pushed" section.
 
-9. POST THE COMMENT.
+10. POST THE COMMENT.
    gh pr comment ${prNumber} --repo ${nwo} --body-file ${paths.summary}
 
-10. End with: {"status": "complete"}
+11. End with: {"status": "complete"}
 
 You MUST spawn subagents, wait for reports, commit fixes before commenting, and
 post the comment. A review that only reads and reports is incomplete.`;
@@ -215,7 +219,7 @@ export function prAnalystInitialPrompt(artifactsDir: string, availableImpactVari
   const impactInstruction = impactFiles.length > 0
     ? `Read successful impact reports first: ${impactFiles.join(", ")} (your primary lens). Dedupe and verify concerns across variants before planning.`
     : "No impact variant reports are available; use the prepended full memory fallback as your primary context.";
-  return `Begin the PR review. ${impactInstruction} Then read ${paths.context} and ${paths.diff}. Plan, call pr-slice-reviewer subagents with output files under ${paths.reportsDir}, wait for reports, aggregate, fix everything auto-fixable, commit and push, then post the summary comment. End with {"status": "complete"}.`;
+  return `Begin the PR review. Read ${paths.reviewerFeedback} first; active feedback rules are hard requirements. ${impactInstruction} Then read ${paths.context} and ${paths.diff}. Plan, call pr-slice-reviewer subagents with output files under ${paths.reportsDir}, wait for reports, aggregate, fix everything auto-fixable, commit and push, then post the summary comment. End with {"status": "complete"}.`;
 }
 
 function impactContextBlock(impactFiles: readonly string[]): string {

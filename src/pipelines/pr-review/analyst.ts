@@ -31,6 +31,7 @@ export interface PrAnalystOptions {
   chatId: string | null;
   availableImpactVariants: number[];
   fallbackMemory: string;
+  reviewerFeedback: string;
 }
 
 /** Throws on failure -- pipeline catches and fails the task. */
@@ -47,6 +48,7 @@ export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
     chatId,
     availableImpactVariants,
     fallbackMemory,
+    reviewerFeedback,
   } = opts;
   await stageSubagentAssets(worktreePath);
   const cap = subagentCapability();
@@ -55,8 +57,9 @@ export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
     log.warn(`No pr_impact variants available for ${taskId}; analyst running with full memory fallback`);
   }
 
-  const systemPrompt = (availableImpactVariants.length > 0 || !fallbackMemory.trim() ? "" : `${fallbackMemory}\n\n`)
-    + prAnalystSystemPrompt({
+  const feedbackPrefix = reviewerFeedback.trim() ? `${reviewerFeedback}\n\n` : "";
+  const memoryPrefix = availableImpactVariants.length > 0 || !fallbackMemory.trim() ? "" : `${fallbackMemory}\n\n`;
+  const systemPrompt = feedbackPrefix + memoryPrefix + prAnalystSystemPrompt({
       repo,
       nwo,
       headRef,
