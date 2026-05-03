@@ -23,6 +23,26 @@ import { TEST_INSTANCE_PREFIX } from "../shared/test-instance.js";
 
 export type { Task, TaskStage, PrSession, PrSessionRun, MemoryRun };
 
+// --- Helpers ---
+
+function instanceId(): string {
+  return loadEnv().INSTANCE_ID;
+}
+
+function tasksForInstance() {
+  return getDb()
+    .select({ id: schema.tasks.id })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.instance, instanceId()));
+}
+
+function prSessionsForInstance() {
+  return getDb()
+    .select({ id: schema.prSessions.id })
+    .from(schema.prSessions)
+    .where(eq(schema.prSessions.instance, instanceId()));
+}
+
 // --- Tasks ---
 
 export async function createTask(data: {
@@ -41,7 +61,7 @@ export async function createTask(data: {
       description: data.description,
       telegramChatId: data.telegramChatId,
       prIdentifier: data.prIdentifier ?? null,
-      instance: loadEnv().INSTANCE_ID,
+      instance: instanceId(),
     })
     .returning();
   return task;
@@ -49,7 +69,13 @@ export async function createTask(data: {
 
 export async function getTask(id: string): Promise<Task | null> {
   const db = getDb();
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id));
+  const [task] = await db
+    .select()
+    .from(schema.tasks)
+    .where(and(
+      eq(schema.tasks.id, id),
+      eq(schema.tasks.instance, instanceId()),
+    ));
   return task ?? null;
 }
 
@@ -59,7 +85,7 @@ export async function listTasks(filters?: { status?: TaskStatus; repo?: string; 
     .select()
     .from(schema.tasks)
     .where(and(
-      eq(schema.tasks.instance, loadEnv().INSTANCE_ID),
+      eq(schema.tasks.instance, instanceId()),
       filters?.status ? eq(schema.tasks.status, filters.status) : undefined,
       filters?.repo ? eq(schema.tasks.repo, filters.repo) : undefined,
       filters?.kind ? eq(schema.tasks.kind, filters.kind) : undefined,
@@ -83,7 +109,10 @@ export async function updateTask(
   const [updated] = await db
     .update(schema.tasks)
     .set({ ...data, updatedAt: new Date() })
-    .where(eq(schema.tasks.id, id))
+    .where(and(
+      eq(schema.tasks.id, id),
+      eq(schema.tasks.instance, instanceId()),
+    ))
     .returning();
   return updated;
 }
@@ -94,7 +123,7 @@ export async function findTaskByPrNumber(prNumber: number): Promise<Task | null>
     .select()
     .from(schema.tasks)
     .where(and(
-      eq(schema.tasks.instance, loadEnv().INSTANCE_ID),
+      eq(schema.tasks.instance, instanceId()),
       eq(schema.tasks.prNumber, prNumber),
     ));
   return task ?? null;
@@ -109,6 +138,16 @@ export async function createTaskStage(data: {
   piSessionId?: string;
 }): Promise<TaskStage> {
   const db = getDb();
+  const [task] = await db
+    .select({ id: schema.tasks.id })
+    .from(schema.tasks)
+    .where(and(
+      eq(schema.tasks.id, data.taskId),
+      eq(schema.tasks.instance, instanceId()),
+    ))
+    .limit(1);
+  if (!task) throw new Error(`Task ${data.taskId} not found for this instance`);
+
   const [stage] = await db.insert(schema.taskStages).values(data).returning();
   return stage;
 }
@@ -126,7 +165,10 @@ export async function updateTaskStage(
   const [updated] = await db
     .update(schema.taskStages)
     .set(data)
-    .where(eq(schema.taskStages.id, id))
+    .where(and(
+      eq(schema.taskStages.id, id),
+      inArray(schema.taskStages.taskId, tasksForInstance()),
+    ))
     .returning();
   return updated;
 }
@@ -136,7 +178,10 @@ export async function getStagesForTask(taskId: string): Promise<TaskStage[]> {
   return db
     .select()
     .from(schema.taskStages)
-    .where(eq(schema.taskStages.taskId, taskId))
+    .where(and(
+      eq(schema.taskStages.taskId, taskId),
+      inArray(schema.taskStages.taskId, tasksForInstance()),
+    ))
     .orderBy(asc(schema.taskStages.startedAt), asc(schema.taskStages.variant));
 }
 
@@ -162,10 +207,54 @@ export async function createPrSession(data: {
       mode: data.mode,
       sourceTaskId: data.sourceTaskId ?? null,
       telegramChatId: data.telegramChatId,
-      instance: loadEnv().INSTANCE_ID,
+      instance: instanceId(),
     })
     .returning();
   return session;
+}
+
+/** Create a PR session and atomically move branch/worktree ownership off the task row. */
+export async function createPrSessionAndTransferTaskOwnership(data: {
+  repo: string;
+  prNumber?: number;
+  branch: string;
+  worktreePath: string;
+  mode: PrSessionMode;
+  sourceTaskId: string;
+  telegramChatId: string | null;
+  lastPolledAt?: Date;
+}): Promise<PrSession> {
+  const db = getDb();
+  const instance = instanceId();
+
+  return db.transaction(async (tx) => {
+    const [session] = await tx
+      .insert(schema.prSessions)
+      .values({
+        repo: data.repo,
+        prNumber: data.prNumber ?? null,
+        branch: data.branch,
+        worktreePath: data.worktreePath,
+        mode: data.mode,
+        sourceTaskId: data.sourceTaskId,
+        telegramChatId: data.telegramChatId,
+        lastPolledAt: data.lastPolledAt ?? null,
+        instance,
+      })
+      .returning();
+
+    const [task] = await tx
+      .update(schema.tasks)
+      .set({ branch: null, worktreePath: null, updatedAt: new Date() })
+      .where(and(
+        eq(schema.tasks.id, data.sourceTaskId),
+        eq(schema.tasks.instance, instance),
+      ))
+      .returning({ id: schema.tasks.id });
+
+    if (!task) throw new Error(`Task ${data.sourceTaskId} not found for this instance`);
+    return session;
+  });
 }
 
 export async function getPrSession(id: string): Promise<PrSession | null> {
@@ -173,7 +262,10 @@ export async function getPrSession(id: string): Promise<PrSession | null> {
   const [session] = await db
     .select()
     .from(schema.prSessions)
-    .where(eq(schema.prSessions.id, id));
+    .where(and(
+      eq(schema.prSessions.id, id),
+      eq(schema.prSessions.instance, instanceId()),
+    ));
   return session ?? null;
 }
 
@@ -183,7 +275,7 @@ export async function listActivePrSessions(): Promise<PrSession[]> {
     .select()
     .from(schema.prSessions)
     .where(and(
-      eq(schema.prSessions.instance, loadEnv().INSTANCE_ID),
+      eq(schema.prSessions.instance, instanceId()),
       eq(schema.prSessions.status, "active"),
     ))
     .orderBy(desc(schema.prSessions.createdAt));
@@ -194,7 +286,7 @@ export async function listPrSessions(): Promise<PrSession[]> {
   return db
     .select()
     .from(schema.prSessions)
-    .where(eq(schema.prSessions.instance, loadEnv().INSTANCE_ID))
+    .where(eq(schema.prSessions.instance, instanceId()))
     .orderBy(desc(schema.prSessions.createdAt));
 }
 
@@ -203,7 +295,10 @@ export async function getPrSessionBySourceTask(sourceTaskId: string): Promise<Pr
   const [session] = await db
     .select()
     .from(schema.prSessions)
-    .where(eq(schema.prSessions.sourceTaskId, sourceTaskId));
+    .where(and(
+      eq(schema.prSessions.sourceTaskId, sourceTaskId),
+      eq(schema.prSessions.instance, instanceId()),
+    ));
   return session ?? null;
 }
 
@@ -222,7 +317,10 @@ export async function updatePrSession(
   const [updated] = await db
     .update(schema.prSessions)
     .set({ ...data, updatedAt: new Date() })
-    .where(eq(schema.prSessions.id, id))
+    .where(and(
+      eq(schema.prSessions.id, id),
+      eq(schema.prSessions.instance, instanceId()),
+    ))
     .returning();
   return updated;
 }
@@ -235,6 +333,16 @@ export async function createPrSessionRun(data: {
   comments?: unknown;
 }): Promise<PrSessionRun> {
   const db = getDb();
+  const [session] = await db
+    .select({ id: schema.prSessions.id })
+    .from(schema.prSessions)
+    .where(and(
+      eq(schema.prSessions.id, data.prSessionId),
+      eq(schema.prSessions.instance, instanceId()),
+    ))
+    .limit(1);
+  if (!session) throw new Error(`PR session ${data.prSessionId} not found for this instance`);
+
   const [run] = await db
     .insert(schema.prSessionRuns)
     .values({
@@ -259,9 +367,22 @@ export async function updatePrSessionRun(
   const [updated] = await db
     .update(schema.prSessionRuns)
     .set(data)
-    .where(eq(schema.prSessionRuns.id, id))
+    .where(and(
+      eq(schema.prSessionRuns.id, id),
+      inArray(schema.prSessionRuns.prSessionId, prSessionsForInstance()),
+    ))
     .returning();
   return updated;
+}
+
+/** Mark a PR session run complete through the instance-scoped write path. */
+export async function completePrSessionRun(id: string): Promise<PrSessionRun | undefined> {
+  return updatePrSessionRun(id, { status: "complete", completedAt: new Date() });
+}
+
+/** Mark a PR session run failed through the instance-scoped write path. */
+export async function failPrSessionRun(id: string, error: string): Promise<PrSessionRun | undefined> {
+  return updatePrSessionRun(id, { status: "failed", error, completedAt: new Date() });
 }
 
 export async function getRunsForPrSession(prSessionId: string): Promise<PrSessionRun[]> {
@@ -269,7 +390,10 @@ export async function getRunsForPrSession(prSessionId: string): Promise<PrSessio
   return db
     .select()
     .from(schema.prSessionRuns)
-    .where(eq(schema.prSessionRuns.prSessionId, prSessionId))
+    .where(and(
+      eq(schema.prSessionRuns.prSessionId, prSessionId),
+      inArray(schema.prSessionRuns.prSessionId, prSessionsForInstance()),
+    ))
     .orderBy(schema.prSessionRuns.startedAt);
 }
 
@@ -281,6 +405,7 @@ export async function getRunningPrSessionRun(prSessionId: string): Promise<PrSes
     .from(schema.prSessionRuns)
     .where(and(
       eq(schema.prSessionRuns.prSessionId, prSessionId),
+      inArray(schema.prSessionRuns.prSessionId, prSessionsForInstance()),
       eq(schema.prSessionRuns.status, "running"),
     ))
     .orderBy(desc(schema.prSessionRuns.startedAt))
@@ -292,7 +417,7 @@ export async function getRunningPrSessionRun(prSessionId: string): Promise<PrSes
 
 function memoryRunsVisible(includeInactive = false) {
   const instanceVisible = or(
-    eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID),
+    eq(schema.memoryRuns.instance, instanceId()),
     like(schema.memoryRuns.instance, `${TEST_INSTANCE_PREFIX}%`),
   );
 
@@ -337,7 +462,10 @@ export async function updateMemoryRun(
   const [run] = await db
     .update(schema.memoryRuns)
     .set(data)
-    .where(eq(schema.memoryRuns.id, id))
+    .where(and(
+      eq(schema.memoryRuns.id, id),
+      eq(schema.memoryRuns.instance, instanceId()),
+    ))
     .returning();
   return run;
 }
@@ -350,7 +478,7 @@ export async function listMemoryRuns(filters: {
   includeInactive?: boolean;
 } = {}): Promise<MemoryRun[]> {
   const instanceVisibility = filters.includeTests === false
-    ? eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID)
+    ? eq(schema.memoryRuns.instance, instanceId())
     : memoryRunsVisible(true);
   const visibility = filters.includeInactive
     ? instanceVisibility
@@ -390,7 +518,7 @@ export async function deactivateMemoryRunsForRepo(repo: string): Promise<number>
     .set({ active: "FALSE" })
     .where(and(
       eq(schema.memoryRuns.repo, repo),
-      eq(schema.memoryRuns.instance, loadEnv().INSTANCE_ID),
+      eq(schema.memoryRuns.instance, instanceId()),
       eq(schema.memoryRuns.active, "TRUE"),
     ))
     .returning({ id: schema.memoryRuns.id });
@@ -430,7 +558,7 @@ export async function reapRunningRows(
   memoryRuns: Array<Pick<MemoryRun, "id" | "repo" | "kind">>;
 }> {
   const db = getDb();
-  const instance = loadEnv().INSTANCE_ID;
+  const instance = instanceId();
   const now = new Date();
 
   const reapedTasks = await db
