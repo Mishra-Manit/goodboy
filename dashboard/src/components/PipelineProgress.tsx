@@ -3,7 +3,8 @@
 import { cn } from "@dashboard/lib/utils";
 import { formatDuration } from "@dashboard/lib/format";
 import { TASK_KIND_CONFIG, type TaskKind, type TaskStage } from "@dashboard/lib/api";
-import { displayStatus, rollupStages, type DisplayStatus } from "@dashboard/lib/pipeline-progress";
+import { displayStatus, rollupStages, type DisplayStatus, type StageRollup } from "@dashboard/lib/pipeline-progress";
+import { PR_IMPACT_VARIANT_COUNT } from "@shared/domain/pr-impact-variants.js";
 
 interface PipelineProgressProps {
   stages: TaskStage[];
@@ -30,6 +31,21 @@ const LABEL: Record<DisplayStatus, string> = {
   mixed: "text-warn",
 };
 
+function variantSlots(
+  name: string,
+  kind: TaskKind,
+  rollup: StageRollup | undefined,
+): Array<TaskStage | undefined> | null {
+  if (kind === "pr_review" && name === "pr_impact") {
+    const count = Math.max(PR_IMPACT_VARIANT_COUNT, rollup?.rows.length ?? 0);
+    return Array.from(
+      { length: count },
+      (_, index) => rollup?.rows.find((row) => row.variant === index + 1),
+    );
+  }
+  return rollup && rollup.rows.length > 1 ? rollup.rows : null;
+}
+
 export function PipelineProgress({ stages, kind, className, mini = false }: PipelineProgressProps) {
   const stageRollups = rollupStages(stages);
   const kindConfig = TASK_KIND_CONFIG[kind] ?? TASK_KIND_CONFIG.coding_task;
@@ -41,13 +57,26 @@ export function PipelineProgress({ stages, kind, className, mini = false }: Pipe
   if (mini) {
     return (
       <div className={cn("flex items-center gap-1.5", className)}>
-        {names.map((name) => (
-          <span
-            key={name}
-            title={name}
-            className={cn("h-1.5 w-1.5 rounded-full", DOT[stageRollups.get(name)?.status ?? "pending"])}
-          />
-        ))}
+        {names.map((name) => {
+          const rollup = stageRollups.get(name);
+          const slots = variantSlots(name, kind, rollup);
+          return slots ? (
+            <span key={name} className="flex items-center gap-0.5" title={name}>
+              {slots.map((stage, index) => (
+                <span
+                  key={`${name}#${stage?.variant ?? index + 1}`}
+                  className={cn("h-1.5 w-1.5 rounded-full", DOT[displayStatus(stage)])}
+                />
+              ))}
+            </span>
+          ) : (
+            <span
+              key={name}
+              title={name}
+              className={cn("h-1.5 w-1.5 rounded-full", DOT[rollup?.status ?? "pending"])}
+            />
+          );
+        })}
       </div>
     );
   }
@@ -56,19 +85,20 @@ export function PipelineProgress({ stages, kind, className, mini = false }: Pipe
     <div className={cn("flex items-start gap-14", className)}>
       {names.map((name, i) => {
         const rollup = stageRollups.get(name);
+        const slots = variantSlots(name, kind, rollup);
         const status = rollup?.status ?? "pending";
         return (
           <div key={name} className="relative flex flex-col items-center gap-1">
             {i > 0 && (
               <span className="absolute right-full top-1 h-px w-14 bg-text-ghost" aria-hidden />
             )}
-            {rollup && rollup.rows.length > 1 ? (
+            {slots ? (
               <span className="flex gap-0.5">
-                {rollup.rows.map((stage) => (
+                {slots.map((stage, index) => (
                   <span
-                    key={`${stage.stage}#${stage.variant ?? "main"}`}
+                    key={`${name}#${stage?.variant ?? index + 1}`}
                     className={cn("h-1.5 w-1.5 rounded-full", DOT[displayStatus(stage)])}
-                    title={`pr impact${stage.variant === null ? "" : ` v${stage.variant}`}: ${stage.status}`}
+                    title={`${name.replace(/_/g, " ")} v${stage?.variant ?? index + 1}: ${stage?.status ?? "pending"}`}
                   />
                 ))}
               </span>
