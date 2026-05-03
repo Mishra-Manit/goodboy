@@ -95,12 +95,14 @@ async function main(): Promise<void> {
 
   const app = new Hono();
   const api = createApi();
-  const spaIndexHtml = await readFile("./dashboard/dist/index.html", "utf-8");
   app.route("/", api);
   app.use("/*", serveStatic({ root: "./dashboard/dist" }));
 
-  // SPA fallback: serve cached index.html for any non-API route that didn't match a static file.
-  app.get("*", (c) => c.html(spaIndexHtml));
+  // Missing hashed assets should stay 404 instead of receiving index.html as JavaScript/CSS.
+  app.get("/assets/*", (c) => c.text("Not found", 404));
+
+  // SPA fallback: read index.html at request time so Vite build --watch hash changes do not go stale.
+  app.get("*", async (c) => c.html(await readFile("./dashboard/dist/index.html", "utf-8")));
 
   const server = serve({ fetch: app.fetch, port: env.PORT, hostname: env.HOST }, (info) => {
     log.info(`Server running on http://${env.HOST}:${info.port}`);
