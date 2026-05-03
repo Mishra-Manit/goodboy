@@ -1,6 +1,6 @@
 /**
  * Manual cold-start test driver for the memory pipeline.
- * Usage: npx tsx tests/scripts/run-memory-cold.ts <repo-name>
+ * Usage: npx tsx scripts/dev/run-memory-cold.ts <repo-name>
  *
  * Generates a TEST-prefixed instance ID so artifacts stay isolated from
  * production memory. Prints the instance ID at the end for reuse with
@@ -14,7 +14,7 @@ import { TEST_INSTANCE_PREFIX } from "../../src/shared/test-instance.js";
 
 const [, , repoName] = process.argv;
 if (!repoName) {
-  console.error("Usage: npx tsx tests/scripts/run-memory-cold.ts <repo-name>");
+  console.error("Usage: npx tsx scripts/dev/run-memory-cold.ts <repo-name>");
   process.exit(1);
 }
 

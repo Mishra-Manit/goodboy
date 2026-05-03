@@ -11,10 +11,10 @@ These are real bugs or near-bugs. Land these before anything cosmetic.
 1. **Scope every DB read/write by `INSTANCE_ID`.**
    `db/repository.ts` filters list queries, but several point reads and writes do not: `getTask`, `updateTask`, `getPrSession`, `updatePrSession`, `getPrSessionBySourceTask`, `findTaskByPrNumber` (technically yes), `createTaskStage`, `updateTaskStage`, `getStagesForTask`, `createPrSessionRun`, `updatePrSessionRun`, `getRunsForPrSession`, `getRunningPrSessionRun`, `updateMemoryRun`. Anyone with a stolen UUID from another instance can read/write across instances. Fix by joining through tasks/pr_sessions on instance, or by adding an instance column to child tables and filtering at the leaf. Add tests that prove cross-instance reads/writes are rejected.
 
-2. **Fix PR-session cleanup path.**
+2. **DONE — Fix PR-session cleanup path.**
    `prSessionPath()` (in `core/pi/session-file.ts`) stores files at `data/pr-sessions/<id>.session/<id>.jsonl`, but `cleanupPrSession()` in `core/cleanup.ts` deletes `data/pr-sessions/<id>.jsonl`. Closed sessions never have their transcript removed. Use `prSessionPath(id)` and remove its parent directory.
 
-3. **Await Telegram cancellation.**
+3. **DONE — Await Telegram cancellation.**
    `handleTaskCancel()` in `telegram/handlers.ts` calls `cancelTask(result.task.id)` without `await`. The DB write to `cancelled` and the user reply can fire before the pi process is killed and the memory lock is released. Await it.
 
 4. **Stop spawning `pi` directly from `pr-session/session.ts`.**
@@ -35,22 +35,22 @@ These are real bugs or near-bugs. Land these before anything cosmetic.
 9. **`/api/tasks/:id/cancel` does not respect `prSession` ownership.**
    When a coding task's PR session is the resource holder (worktree/branch are on the session row, not the task row), cancelling only the task doesn't kill the live pi turn inside the session. `cancelTask` in `core/stage.ts` only knows about task-keyed sessions (`activeSessions: Map<taskId, ...>`). PR-session turns register under `run.id`, not the source task. Add a session-scoped registry or a unified key.
 
-10. **`oneOf` cast bypasses Zod validation.**
+10. **DONE — `oneOf` cast bypasses Zod validation.**
     `api/index.ts#oneOf` uses `value as T` after a runtime `.includes` check. Fine in isolation, but it sets a precedent: replace with a small `parseEnumQuery(schema, value)` Zod helper so the *only* place that converts strings to enums is one validated wrapper.
 
-11. **`safeArtifactPath` allows `..` filenames in theory.**
+11. **DONE — `safeArtifactPath` allows `..` filenames in theory.**
     `ARTIFACT_NAME_PATTERN = /^[\w.-]+$/` matches `..`. The `name.startsWith(".")` check catches `..` because `..` starts with `.`. Good — but the invariant is fragile. Tighten the regex to `/^[\w][\w.-]*$/` and add a unit test for `..`, `.`, `foo/bar`, `foo\\bar`, `foo%2fbar`.
 
 12. **Dashboard `/api/events` reconnect leaks listeners on dev hot reload.**
     `hooks/use-sse.ts` uses module-level `listeners` and `es`. Vite's hot reload can keep both around between renders if the module is replaced. Add an HMR-safe guard or recreate state per app mount.
 
-13. **`telegram/index.ts#bot.use` swallows unauthorized requests silently.**
+13. **DONE — `telegram/index.ts#bot.use` swallows unauthorized requests silently.**
     The middleware just logs and returns. That's the right behavior for security, but it also returns `void` while the next handler chain has `Promise<void>` semantics — the implicit `undefined` return is fine but inconsistent with `return next()`. Make both branches `await`.
 
-14. **`useQuery` empty deps default.**
+14. **DONE — `useQuery` empty deps default.**
     `dashboard/src/hooks/use-query.ts` defaults `deps = []`, suppresses `react-hooks/exhaustive-deps` with a comment, and never re-runs even if the fetcher closes over fresh state. Replace with an explicit `key: string` (string-based cache key) or accept a stable async function via `useCallback` from the caller. See item 41 below.
 
-15. **`dashboard/src/pages/Tasks.tsx#useEffect` triggers fetches on a stringified `activeIds` dep.**
+15. **DONE — `dashboard/src/pages/Tasks.tsx#useEffect` triggers fetches on a stringified `activeIds` dep.**
     The effect joins ids into a comma string, then splits it again — a fragile workaround for "deps must be stable across renders." Use a `Set` + `useMemo` or a per-id keyed query.
 
 16. **`bridgeSessionToOtel` initialization race.**
@@ -60,7 +60,7 @@ These are real bugs or near-bugs. Land these before anything cosmetic.
 
 ## Architecture
 
-17. **Remove `shared -> core` imports.**
+17. **DONE — Remove `shared -> core` imports.**
     Per `AGENTS.md`, the dependency direction is `pipelines/` → `core/` → `shared/` → `db/`, never reversed. Today:
     - `shared/repos.ts` imports `parseNwo` from `core/git/github.ts`.
     - `shared/agent-prompts.ts` imports memory IO from `core/memory`.
@@ -73,7 +73,7 @@ These are real bugs or near-bugs. Land these before anything cosmetic.
     - `pipelines/pr-session/session.ts` (511) — split into `lifecycle.ts` (start/handoff/resume), `review-chat.ts`, and `runners.ts` (pi-turn primitive once #4 lands).
     - `db/repository.ts` (481) — split per aggregate: `tasks.repo.ts`, `stages.repo.ts`, `pr-sessions.repo.ts`, `memory-runs.repo.ts`, `reaper.ts`. Keep `index.ts` as a thin re-export so call sites stay `import * as queries from "./repository"`.
 
-19. **Make wire types real contracts at every boundary.**
+19. **PARTIAL — Make wire types real contracts at every boundary.**
     The dashboard hand-types API responses and `client.ts#request<T>` does `res.json() as Promise<T>`. We already have Zod schemas for PR review (`prReviewPageDtoSchema`, `reviewChatResponseSchema`); extend that pattern: Zod schemas for `Task`, `TaskStage`, `PrSession`, `MemoryRun`, `MemoryStatus`. Have `client.request` accept a schema and call `safeParse`. Same for SSE: `hooks/use-sse.ts` casts `JSON.parse(e.data) as SSEEvent` — replace with one Zod parse on entry.
 
 20. **Remove enum duplication between schema.ts and types.ts.**
@@ -105,10 +105,10 @@ These are real bugs or near-bugs. Land these before anything cosmetic.
 28. **`shared/llm.ts` retry policy lives at call sites.**
     `core/git/worktree.ts#generateBranchName` retries 3× with bumped temperature; `intent-classifier.ts` retries zero times; `pr-review/analyst.ts` does not retry. Hoist a `withRetry({ attempts, onAttempt })` into `shared/llm.ts` so retry logic is one place.
 
-29. **Repo registry leaks `localPath` to the dashboard.**
+29. **DONE — Repo registry leaks `localPath` to the dashboard.**
     `GET /api/repos` returns `listRepos()` directly, which includes `localPath`. The dashboard never needs this. Add a `Repo` DTO in `shared/repos.ts` (`{name, githubUrl?}`) and serialize that on the wire. Same for `worktreePath` on `Task` and `PrSession` rows — the dashboard never opens those paths.
 
-30. **`api` reads `dashboard/dist/index.html` from disk on every SPA fallback request.**
+30. **DONE — `api` reads `dashboard/dist/index.html` from disk on every SPA fallback request.**
     `src/index.ts:102`. Cache the file contents at startup; rebuild only on dev. Tiny win, but the current code has zero reason to hit disk per request.
 
 ---
@@ -142,7 +142,7 @@ A learning-focused section. Each item links a concrete pattern with at least one
     - API DTOs → choose one and document it.
     Pick a rule: "DB layer returns `null`, application layer returns `undefined`, network DTOs use `null` (so JSON round-trips cleanly)." Add a `nullToUndefined` helper for the seam, lint the rest.
 
-34. **Stop passing explicit `undefined` into optional props.**
+34. **PARTIAL — Stop passing explicit `undefined` into optional props.**
     Once `exactOptionalPropertyTypes` is on, this fails. Examples already in code:
     ```ts
     // core/stage.ts
@@ -154,7 +154,7 @@ A learning-focused section. Each item links a concrete pattern with at least one
 
 ### Validate at trust boundaries
 
-35. **`as` casts after `JSON.parse` are everywhere.**
+35. **PARTIAL — `as` casts after `JSON.parse` are everywhere.**
     Every parse-and-cast pair is a quiet trust violation:
     - `core/pi/session-file.ts#parseLine`: `JSON.parse(trimmed) as FileEntry`. Pi's session schema is non-trivial; one shape mismatch becomes a render bug. Wrap in a Zod schema (or hand-rolled `isFileEntry` type guard) once and reuse.
     - `core/git/github.ts#getPrMetadata`: `JSON.parse(stdout) as { number: number; ... }`. Same problem. Build a Zod schema, throw a typed error on mismatch.
@@ -162,7 +162,7 @@ A learning-focused section. Each item links a concrete pattern with at least one
     - `dashboard/src/lib/api/client.ts#request<T>`: `res.json() as Promise<T>`. Make `request` schema-aware (#19).
     - `dashboard/src/hooks/use-sse.ts`: `JSON.parse(e.data) as SSEEvent`. Same fix.
 
-36. **Non-null assertions (`!`) in core IO paths.**
+36. **PARTIAL — Non-null assertions (`!`) in core IO paths.**
     `core/pi/spawn.ts` accesses `proc.stdin!`, `proc.stdout!`, `proc.stderr!` four times. These are technically safe because we spawn with `stdio: ["pipe", "pipe", "pipe"]`, but the `!` hides that contract. Either:
     - Pull a tiny `assertPipes(proc)` helper that throws if any stream is null and returns a `{stdin, stdout, stderr}` triple, or
     - Use `unwrap(proc.stdin, "stdin")` once at the top.
@@ -175,7 +175,7 @@ A learning-focused section. Each item links a concrete pattern with at least one
     - `PrSessionRun.comments: PrComment[] | null` plus `trigger: string` could be `{ trigger: "comments"; comments: PrComment[] } | { trigger: "pr_creation" } | { trigger: "review_chat"; context: ... }`. Then the schema enforces "only `comments` triggers carry comments."
     - `MemoryRun.originTaskId | externalLabel` (one of the two is always null based on `source`). Express as `{source: "task"; originTaskId: string} | {source: "manual_test"; externalLabel: string}` at the application boundary; keep the wide row only at the DB seam.
 
-38. **`StageResult` and `LockInspection` are the right shape — apply the pattern more widely.**
+38. **PARTIAL — `StageResult` and `LockInspection` are the right shape — apply the pattern more widely.**
     Sites where it'd help:
     - `runStage`'s `postValidate`: today returns `{valid: false, reason?: string}`; make it `{valid: true, data: T} | {valid: false, reason: string}` so consumers can attach typed payload (see #36).
     - `withMemoryRun`'s `Promise<"ran" | "lock_held">`: fine, but consider `{kind: "ran"; result: T} | {kind: "lock_held"}` so callers don't always have to bolt the run's output onto a closed-over variable.
@@ -195,7 +195,7 @@ A learning-focused section. Each item links a concrete pattern with at least one
 40. **Module-level singletons should be readonly to the outside.**
     `_env`, `_db`, `locksHeldByTask`, `activeSessions`, `inFlight`, `refreshInFlight`, `timer`. Most are well-encapsulated. `inFlight` (poller) and `refreshInFlight` (api) live at module top — fine, but consider `Object.freeze({add, has, delete})` exports if you want to be paranoid. Mostly: keep them, and ensure no test imports them directly.
 
-41. **The `useQuery` deps escape hatch is a learning trap.**
+41. **DONE — The `useQuery` deps escape hatch is a learning trap.**
     Reasoning about *why* `eslint-disable react-hooks/exhaustive-deps` is "safe here" is hard. Replace the call signature with one of:
     - Cache-key based: `useQuery(key: string, fn: () => Promise<T>)`. Refetch when `key` changes; never inspect `fn`.
     - Stable-fn based: require callers to pass `useCallback(fn, deps)`. Then exhaustive-deps just works.
@@ -262,18 +262,18 @@ A learning-focused section. Each item links a concrete pattern with at least one
 
 ## Dashboard
 
-54. **Lazy-load the PR diff viewer.**
+54. **DONE — Lazy-load the PR diff viewer.**
     `vite build` emits hundreds of Shiki language/theme chunks because `@pierre/diffs` is imported eagerly into the main route. Lazy-load `PrReview.tsx` (or just `FileStack.tsx` / `FileDiff.tsx`) via `React.lazy` so the dashboard's shell ships < 200 KB.
 
-55. **Remove inline `style={}` for color/spacing.**
+55. **DONE — Remove inline `style={}` for color/spacing.**
     Existing offenders: `ResizablePanels.tsx` (geometry — keep), `AnnotationPopup.tsx` (positioning — keep), `LogViewer.tsx` (`style={{ maxHeight }}` — keep, height comes from prop). All current uses are geometry-only. Document the carve-out so the rule "no inline styles" doesn't get applied to the legitimate cases.
 
-56. **Remove dead props and `// TEMP:` markers.**
+56. **DONE — Remove dead props and `// TEMP:` markers.**
     - `ReviewChat` accepts `prNumber` and `branch` and uses neither.
     - `diffUpdatedAt` is marked `// TEMP:` in the API, the shared schema, and the UI. Either commit to it (rename to `diffRefreshedAt`, drop the comment, render unconditionally) or delete it.
     - `extractReviewChatMessages` in transcript.ts uses `entry.message.role !== "user"` plus a re-check inside the loop; tighten the early continue.
 
-57. **Replace the `useQuery` lint escape.**
+57. **DONE — Replace the `useQuery` lint escape.**
     See #14 / #41. This is the biggest readability win in the dashboard.
 
 58. **Stop fetching `fetchTask` for every active task.**
@@ -335,7 +335,7 @@ A learning-focused section. Each item links a concrete pattern with at least one
 73. **`docs/architecture.md` should be the canonical map.**
     `AGENTS.md` says "Deeper explanation lives in docs/architecture.md." Audit it against the current `src/` tree once #18 lands.
 
-74. **`AGENTS.md` rules vs reality drift.**
+74. **PARTIAL — `AGENTS.md` rules vs reality drift.**
     - "No `console.log`" — `scripts/` legitimately uses `console.*` and isn't called out (see #79).
     - "Every backend file declares `const log = createLogger(...)`" — `shared/errors.ts`, `shared/repos.ts`, `shared/types.ts`, `shared/test-instance.ts`, and `shared/artifacts.ts` are all backend and don't. They probably shouldn't (pure utility), so the rule should read "every backend file *with side effects*."
     - "Immutability: never mutate arrays or objects" — broad to a fault (see #39). Restate as "function args are immutable; module-private mutation is allowed and encapsulated."
@@ -351,21 +351,21 @@ A learning-focused section. Each item links a concrete pattern with at least one
 
 ## Bloat / Hygiene
 
-77. **Generated/runtime folders pollute local scans.**
+77. **DONE — Generated/runtime folders pollute local scans.**
     `artifacts/`, `data/`, `dashboard/dist/`, `handoffs/`, `docs/plans/` are gitignored but consume rg time. Add a `.ripgreprc` (or document `rg --type-add 'goodboy:*.{ts,tsx}' -tgoodboy`) so contributors don't accidentally grep through generated session JSONL.
 
 78. **Tracked file `frontend.pen` (1.3 MB) is in repo root.**
     Almost certainly not needed in source control. Move it to `assets/` or remove.
 
-79. **Decide whether `scripts/` is exempt from app rules.**
+79. **DONE — Decide whether `scripts/` is exempt from app rules.**
     Scripts use `console.*`, dynamic `import()`, and top-level await — all reasonable for CLIs. Either:
     - Add `// @goodboy/script` header convention plus an eslint override for `scripts/**`, or
     - Wrap output in a tiny `createScriptLogger()` that just hits `process.stdout.write`. Pick one and codify in AGENTS.md.
 
-80. **`tests/scripts/` mixes test scripts and production fixtures.**
+80. **DONE — `tests/scripts/` mixes test scripts and production fixtures.**
     `_memory-test-common.ts`, `clean-memory-tests.ts`, `run-memory-cold.ts`, `run-memory-warm.ts`, `run-telegram-intent-latency.ts`. These aren't tests, they're benchmarks/helpers. Move to `bench/` or `scripts/dev/` to clarify.
 
-81. **Narrow overbroad style rules in AGENTS.md.**
+81. **PARTIAL — Narrow overbroad style rules in AGENTS.md.**
     See #74. Tools to enforce what's left: add ESLint with `eslint-plugin-functional` (no-let-in-functions optional) and a custom rule for "no imports from `core/*` inside `shared/*`." Until tooling exists, the rules are aspirational.
 
 82. **Remove `dist/` from the repo if it's tracked.**

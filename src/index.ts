@@ -95,14 +95,12 @@ async function main(): Promise<void> {
 
   const app = new Hono();
   const api = createApi();
+  const spaIndexHtml = await readFile("./dashboard/dist/index.html", "utf-8");
   app.route("/", api);
   app.use("/*", serveStatic({ root: "./dashboard/dist" }));
 
-  // SPA fallback: serve index.html for any non-API route that didn't match a static file
-  app.get("*", async (c) => {
-    const html = await readFile("./dashboard/dist/index.html", "utf-8");
-    return c.html(html);
-  });
+  // SPA fallback: serve cached index.html for any non-API route that didn't match a static file.
+  app.get("*", (c) => c.html(spaIndexHtml));
 
   const server = serve({ fetch: app.fetch, port: env.PORT, hostname: env.HOST }, (info) => {
     log.info(`Server running on http://${env.HOST}:${info.port}`);

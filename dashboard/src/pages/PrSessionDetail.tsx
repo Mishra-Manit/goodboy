@@ -36,10 +36,13 @@ export function PrSessionDetail() {
   const [updatingWatch, setUpdatingWatch] = useState(false);
 
   const { data: session, loading, error, refetch } = useQuery(
+    `pr-session:${sessionId}`,
     () => fetchPrSessionDetail(sessionId),
-    [sessionId],
   );
-  const { data: transcript } = useQuery(() => fetchPrSessionTranscript(sessionId), [sessionId]);
+  const { data: transcript } = useQuery(
+    `pr-session-transcript:${sessionId}`,
+    () => fetchPrSessionTranscript(sessionId),
+  );
 
   useSSERefresh(refetch, (e) => e.type === "pr_session_update" && e.prSessionId === sessionId);
 

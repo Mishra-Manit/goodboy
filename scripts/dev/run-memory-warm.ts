@@ -1,6 +1,6 @@
 /**
  * Manual warm-patch test driver for the memory pipeline.
- * Usage: npx tsx tests/scripts/run-memory-warm.ts <repo-name> <TEST-instance-id>
+ * Usage: npx tsx scripts/dev/run-memory-warm.ts <repo-name> <TEST-instance-id>
  *
  * Reuses the memory directory created by run-memory-cold.ts. The instance ID
  * must be the TEST-prefixed value printed by the cold runner.
@@ -14,7 +14,7 @@ import { TEST_INSTANCE_PREFIX, isTestInstance } from "../../src/shared/test-inst
 const [, , repoName, instanceId] = process.argv;
 if (!repoName || !instanceId) {
   console.error(
-    `Usage: npx tsx tests/scripts/run-memory-warm.ts <repo-name> <${TEST_INSTANCE_PREFIX}instance-id>`,
+    `Usage: npx tsx scripts/dev/run-memory-warm.ts <repo-name> <${TEST_INSTANCE_PREFIX}instance-id>`,
   );
   process.exit(1);
 }

@@ -125,7 +125,6 @@ export interface PrSessionWithRuns extends PrSession {
 
 export interface Repo {
   name: string;
-  localPath: string;
   githubUrl?: string;
 }
 

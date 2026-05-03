@@ -19,9 +19,15 @@ const KILL_GRACE_MS = 2000;
 
 // --- Public types ---
 
-interface PiEvent {
-  type: string;
-  [key: string]: unknown;
+type PiEvent =
+  | { type: "extension_ui_request"; id: string; method: string }
+  | { type: "agent_end" }
+  | { type: "response"; success?: boolean; command?: unknown; error?: unknown };
+
+interface ProcessPipes {
+  stdin: NodeJS.WritableStream;
+  stdout: NodeJS.ReadableStream;
+  stderr: NodeJS.ReadableStream;
 }
 
 export interface PiSession {
@@ -62,6 +68,7 @@ export function spawnPiSession(options: SpawnOptions): PiSession {
     stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env, ...(envOverrides ?? {}) },
   });
+  const pipes = assertPipes(proc);
 
   let resolveCompletion: (() => void) | null = null;
   let rejectCompletion: ((err: Error) => void) | null = null;
@@ -76,18 +83,18 @@ export function spawnPiSession(options: SpawnOptions): PiSession {
 
   function handleEvent(event: PiEvent): void {
     switch (event.type) {
-      case "extension_ui_request": return handleUiRequest(event, proc);
+      case "extension_ui_request": return handleUiRequest(event, pipes);
       case "agent_end":             return completeOnce();
       case "response":              return logFailedResponse(id, event);
     }
   }
 
-  attachJsonlReader(proc.stdout!, (line) => {
-    try { handleEvent(JSON.parse(line) as PiEvent); }
-    catch { /* non-JSON line; pi occasionally emits banners -- ignore */ }
+  attachJsonlReader(pipes.stdout, (line) => {
+    const event = parsePiEvent(line);
+    if (event) handleEvent(event);
   });
 
-  proc.stderr!.on("data", (chunk: Buffer) => {
+  pipes.stderr.on("data", (chunk: Buffer) => {
     const text = chunk.toString().trim();
     if (text) log.debug(`[${id} stderr] ${text}`);
   });
@@ -104,7 +111,7 @@ export function spawnPiSession(options: SpawnOptions): PiSession {
     process: proc,
 
     sendPrompt(message: string) {
-      proc.stdin!.write(JSON.stringify({ type: "prompt", message }) + "\n");
+      pipes.stdin.write(JSON.stringify({ type: "prompt", message }) + "\n");
       log.debug(`Sent prompt to session ${id}`);
     },
 
@@ -125,7 +132,7 @@ export function spawnPiSession(options: SpawnOptions): PiSession {
       rejectCompletion?.(new Error("Session killed"));
       rejectCompletion = null;
       resolveCompletion = null;
-      try { proc.stdin!.write(JSON.stringify({ type: "abort" }) + "\n"); }
+      try { pipes.stdin.write(JSON.stringify({ type: "abort" }) + "\n"); }
       catch { /* stdin may already be closed */ }
       const killTimer = setTimeout(() => {
         if (proc.exitCode === null) proc.kill("SIGTERM");
@@ -136,6 +143,38 @@ export function spawnPiSession(options: SpawnOptions): PiSession {
 }
 
 // --- Pure helpers ---
+
+function assertPipes(proc: ChildProcess): ProcessPipes {
+  const { stdin, stdout, stderr } = proc;
+  if (!stdin || !stdout || !stderr) {
+    throw new Error("Expected pi subprocess stdio pipes to be available");
+  }
+  return { stdin, stdout, stderr };
+}
+
+function parsePiEvent(line: string): PiEvent | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || !("type" in parsed)) return null;
+  const event = parsed as Record<string, unknown>;
+  if (event.type === "agent_end") return { type: "agent_end" };
+  if (event.type === "response") {
+    return {
+      type: "response",
+      ...(typeof event.success === "boolean" ? { success: event.success } : {}),
+      ...(event.command !== undefined ? { command: event.command } : {}),
+      ...(event.error !== undefined ? { error: event.error } : {}),
+    };
+  }
+  if (event.type === "extension_ui_request" && typeof event.id === "string" && typeof event.method === "string") {
+    return { type: "extension_ui_request", id: event.id, method: event.method };
+  }
+  return null;
+}
 
 function buildPiArgs(opts: {
   sessionPath: string;
@@ -159,17 +198,15 @@ function buildPiArgs(opts: {
  * Auto-respond to extension UI prompts (select/confirm/input/editor) so
  * unattended pi sessions don't hang waiting for human input.
  */
-function handleUiRequest(event: PiEvent, proc: ChildProcess): void {
-  const method = event.method as string;
-  const reqId = event.id as string;
-  if (!["select", "confirm", "input", "editor"].includes(method)) return;
-  const response = method === "confirm"
-    ? { type: "extension_ui_response", id: reqId, confirmed: true }
-    : { type: "extension_ui_response", id: reqId, cancelled: true };
-  proc.stdin!.write(JSON.stringify(response) + "\n");
+function handleUiRequest(event: Extract<PiEvent, { type: "extension_ui_request" }>, pipes: ProcessPipes): void {
+  if (!["select", "confirm", "input", "editor"].includes(event.method)) return;
+  const response = event.method === "confirm"
+    ? { type: "extension_ui_response", id: event.id, confirmed: true }
+    : { type: "extension_ui_response", id: event.id, cancelled: true };
+  pipes.stdin.write(JSON.stringify(response) + "\n");
 }
 
-function logFailedResponse(id: string, event: PiEvent): void {
+function logFailedResponse(id: string, event: Extract<PiEvent, { type: "response" }>): void {
   if (event.success) return;
   log.warn(`[${id}] Command ${String(event.command)} failed: ${String(event.error)}`);
 }

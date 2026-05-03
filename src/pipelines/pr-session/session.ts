@@ -22,7 +22,7 @@ import {
 import { broadcastSessionFile } from "../../core/pi/session-broadcast.js";
 import * as queries from "../../db/repository.js";
 import { prSessionPrompt, formatCommentsPrompt, prCreationPrompt } from "./prompts.js";
-import { memoryBlock } from "../../shared/agent-prompts.js";
+import { memoryBlock } from "../../core/memory/render.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import { parsePrNumberFromUrl } from "../../core/git/github.js";
 import { taskArtifactsDir } from "../../shared/artifacts.js";

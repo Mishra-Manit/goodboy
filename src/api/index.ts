@@ -8,12 +8,11 @@
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
-import { readFile, stat } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { subscribe } from "../shared/events.js";
 import * as queries from "../db/repository.js";
-import { listRepos, buildPrUrl, getRepo } from "../shared/repos.js";
+import { listRepoSummaries, buildPrUrl, getRepo } from "../shared/repos.js";
 import {
   memoryStatus,
   currentHeadSha,
@@ -40,6 +39,7 @@ import {
 import { cancelTask as cancelRunningTask, type SendTelegram } from "../core/stage.js";
 import { PIPELINES } from "../pipelines/index.js";
 import { dismissTask } from "../core/cleanup.js";
+import { safeArtifactPath } from "./helpers.js";
 import { taskArtifactsDir } from "../shared/artifacts.js";
 import { prReviewArtifactPaths } from "../pipelines/pr-review/artifacts.js";
 import { readReviewArtifact } from "../pipelines/pr-review/read-review.js";
@@ -66,7 +66,9 @@ const log = createLogger("api");
 const SSE_PING_INTERVAL_MS = 30_000;
 const MEMORY_RUN_STATUS_POLL_MS = 1_000;
 const UUID_PATTERN = /^[0-9a-f-]{36}$/;
-const ARTIFACT_NAME_PATTERN = /^[\w.-]+$/;
+const taskStatusQuerySchema = z.enum(TASK_STATUSES);
+const taskKindQuerySchema = z.enum(TASK_KINDS);
+const memoryRunKindQuerySchema = z.enum(MEMORY_RUN_KINDS);
 const prSessionWatchBodySchema = z.object({
   watchStatus: z.enum(PR_SESSION_WATCH_STATUSES),
 });
@@ -85,9 +87,9 @@ export function createApi(): Hono {
 
   app.get("/api/tasks", async (c) => {
     const tasks = await queries.listTasks({
-      status: oneOf(c.req.query("status"), TASK_STATUSES),
+      status: parseEnumQuery(taskStatusQuerySchema, c.req.query("status")),
       repo: c.req.query("repo"),
-      kind: oneOf(c.req.query("kind"), TASK_KINDS),
+      kind: parseEnumQuery(taskKindQuerySchema, c.req.query("kind")),
     });
     return c.json(tasks);
   });
@@ -117,7 +119,7 @@ export function createApi(): Hono {
 
   app.get("/api/tasks/:id/artifacts/:name", async (c) => {
     const { id, name } = c.req.param();
-    const filePath = safeArtifactPath(id, name);
+    const filePath = safeTaskArtifactPath(id, name);
     if (!filePath) return notFound(c);
     try {
       return c.text(await readFile(filePath, "utf-8"));
@@ -159,7 +161,7 @@ export function createApi(): Hono {
 
   // --- Repos ---
 
-  app.get("/api/repos", (c) => c.json(listRepos()));
+  app.get("/api/repos", (c) => c.json(listRepoSummaries()));
 
   // --- Memory ---
 
@@ -195,7 +197,7 @@ export function createApi(): Hono {
     const limit = parseLimit(c.req.query("limit"));
     const includeTests = c.req.query("includeTests") !== "false";
     const includeInactive = c.req.query("includeInactive") === "true";
-    const kind = oneOf(c.req.query("kind"), MEMORY_RUN_KINDS);
+    const kind = parseEnumQuery(memoryRunKindQuerySchema, c.req.query("kind"));
 
     const runs = await queries.listMemoryRuns({ repo, limit, includeTests, includeInactive, kind });
     return c.json(runs);
@@ -343,18 +345,12 @@ export function createApi(): Hono {
       .catch(() => readFile(paths.diff, "utf8"))
       .catch(() => "");
 
-    // TEMP: surface pr.updated.diff mtime so the UI can show a refresh marker. Remove once verified.
-    const diffUpdatedAt = await stat(paths.updatedDiff)
-      .then((s) => s.mtime.toISOString())
-      .catch(() => null);
-
     return c.json({
       session: sessionDto,
       run: {
         ...reviewResult.artifact,
         diffPatch,
         createdAt: reviewResult.createdAt.toISOString(),
-        diffUpdatedAt,
       },
     } satisfies PrReviewPageDto);
   });
@@ -452,9 +448,13 @@ function notFound(c: Context) {
   return c.json({ error: "Not found" }, 404);
 }
 
-/** Return `value` if it's one of the allowed literals, else `undefined`. */
-function oneOf<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {
-  return value && (allowed as readonly string[]).includes(value) ? (value as T) : undefined;
+function parseEnumQuery<T extends z.ZodEnum<[string, ...string[]]>>(
+  schema: T,
+  value: string | undefined,
+): z.infer<T> | undefined {
+  if (!value) return undefined;
+  const result = schema.safeParse(value);
+  return result.success ? result.data : undefined;
 }
 
 function parseLimit(value: string | undefined): number | undefined {
@@ -535,10 +535,7 @@ async function maybeRefreshDiffFromWorktree(
   return work;
 }
 
-function safeArtifactPath(id: string, name: string): string | null {
+function safeTaskArtifactPath(id: string, name: string): string | null {
   if (!UUID_PATTERN.test(id)) return null;
-  if (!ARTIFACT_NAME_PATTERN.test(name) || name.startsWith(".")) return null;
-  const base = path.resolve(config.artifactsDir);
-  const full = path.resolve(path.join(base, id, name));
-  return full.startsWith(base + path.sep) ? full : null;
+  return safeArtifactPath(id, name);
 }

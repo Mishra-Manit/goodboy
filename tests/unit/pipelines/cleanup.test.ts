@@ -58,6 +58,10 @@ vi.mock("@src/core/git/worktree.js", () => ({
   },
 }));
 
+vi.mock("@src/core/pi/session-file.js", () => ({
+  prSessionPath: (id: string) => `/tmp/goodboy-pr-sessions/${id}.session/${id}.jsonl`,
+}));
+
 vi.mock("@src/db/repository.js", () => ({
   getTask: (id: string) => {
     queriesHandler.getTask.calls.push([id]);
@@ -259,6 +263,10 @@ describe("cleanupPrSession", () => {
 
     expect(worktreeHandler.calls).toHaveLength(1);
     expect(fsHandler.calls).toHaveLength(1);
+    expect(fsHandler.calls[0]).toEqual([
+      "/tmp/goodboy-pr-sessions/ps1.session",
+      { recursive: true, force: true },
+    ]);
     expect(queriesHandler.updatePrSession.calls[0][1]).toMatchObject({
       status: "closed",
       worktreePath: null,

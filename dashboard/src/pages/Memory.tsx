@@ -43,8 +43,8 @@ export function Memory() {
   const [deletingRepo, setDeletingRepo] = useState<string | null>(null);
 
   const query = useQuery(
+    `memory:${hideTests}:${kind}:${runsVersion}`,
     () => loadMemoryPage({ hideTests, kind }),
-    [hideTests, kind, runsVersion],
   );
 
   useSSERefresh(query.refetch, (event) => event.type === "memory_run_update");

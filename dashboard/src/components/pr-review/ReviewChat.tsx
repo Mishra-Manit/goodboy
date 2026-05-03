@@ -19,8 +19,6 @@ import type {
 interface ReviewChatProps {
   sessionId: string;
   mode: PrSessionMode;
-  prNumber: number | null;
-  branch: string | null;
   activeFile: string | null;
   attachedAnnotation: PrReviewAnnotation | null;
   onClearAnnotation: () => void;

@@ -29,8 +29,7 @@ import { getPrReviewTarget, getPrReviewUrl } from "@dashboard/lib/pr-review";
 import { buildStageTabs, stageSessionKey, type StageSessionLike } from "@dashboard/lib/stage-tabs";
 import { cn, shortId } from "@dashboard/lib/utils";
 import { ArrowUpRight } from "lucide-react";
-
-const TERMINAL = new Set(["complete", "failed", "cancelled"]);
+import { isTerminalStatus } from "@dashboard/shared";
 
 export function TaskDetail() {
   const { id } = useParams<{ id: string }>();
@@ -40,10 +39,10 @@ export function TaskDetail() {
   const navigate = useNavigate();
   const now = useNow();
 
-  const { data: task, loading, error, refetch } = useQuery(() => fetchTask(taskId), [taskId]);
+  const { data: task, loading, error, refetch } = useQuery(`task:${taskId}`, () => fetchTask(taskId));
   const { data: sessionData, refetch: refetchSession } = useQuery(
+    `task-session:${taskId}`,
     () => fetchTaskSession(taskId),
-    [taskId],
   );
 
   useSSERefresh(
@@ -94,15 +93,15 @@ interface TaskViewProps {
 function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: TaskViewProps) {
   const navigate = useNavigate();
   const kindConfig = TASK_KIND_CONFIG[task.kind] ?? TASK_KIND_CONFIG.coding_task;
-  const isActive = !TERMINAL.has(task.status);
+  const isActive = !isTerminalStatus(task.status);
   const prReviewUrl = getPrReviewUrl(task);
   const prReviewTarget = getPrReviewTarget(task);
 
   // Page owns the linked-session fetch so the banner stays a pure component.
   // Skip the request unless this is a pr_review task.
   const { data: prSession } = useQuery(
+    `task-pr-session:${task.id}:${task.kind}`,
     () => (task.kind === "pr_review" ? fetchPrSessionBySourceTask(task.id) : Promise.resolve(null)),
-    [task.id, task.kind],
   );
 
   const tabs = useMemo(

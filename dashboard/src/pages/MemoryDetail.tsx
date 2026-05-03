@@ -29,10 +29,10 @@ export function MemoryDetail() {
   const navigate = useNavigate();
   const now = useNow();
 
-  const { data: run, loading, error, refetch } = useQuery(() => fetchMemoryRun(runId), [runId]);
+  const { data: run, loading, error, refetch } = useQuery(`memory-run:${runId}`, () => fetchMemoryRun(runId));
   const { data: sessionData, refetch: refetchSession } = useQuery(
+    `memory-run-session:${runId}`,
     () => fetchMemoryRunSession(runId),
-    [runId],
   );
 
   const liveEntries = useMemoryRunStream({

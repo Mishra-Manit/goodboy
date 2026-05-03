@@ -5,7 +5,7 @@
  */
 
 import { loadEnv } from "./config.js";
-import { parseNwo } from "../core/git/github.js";
+import { parseNwo } from "./git-urls.js";
 
 export interface Repo {
   name: string;
@@ -14,9 +14,22 @@ export interface Repo {
   envNotes?: string;
 }
 
+export interface RepoSummary {
+  name: string;
+  githubUrl?: string;
+}
+
 /** All registered repos. */
 export function listRepos(): readonly Repo[] {
   return Object.entries(loadEnv().REGISTERED_REPOS).map(([name, entry]) => ({ name, ...entry }));
+}
+
+/** Public repo DTO for dashboard/API callers. Never exposes local filesystem paths. */
+export function listRepoSummaries(): readonly RepoSummary[] {
+  return listRepos().map((repo) => ({
+    name: repo.name,
+    ...(repo.githubUrl ? { githubUrl: repo.githubUrl } : {}),
+  }));
 }
 
 /** Just the names, in registry order. Used for prompt context and validation. */

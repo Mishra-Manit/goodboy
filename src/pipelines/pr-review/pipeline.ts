@@ -29,7 +29,7 @@ import {
   withTaskPipeline,
   type TaskPipelineContext,
 } from "../common.js";
-import { memoryBlock } from "../../shared/agent-prompts.js";
+import { memoryBlock } from "../../core/memory/render.js";
 import { PR_IMPACT_VARIANT_COUNT, PR_REVIEW_DIRS, prImpactVariantPaths, prReviewArtifactPaths } from "./artifacts.js";
 import { permuteDiff } from "./diff-permute.js";
 

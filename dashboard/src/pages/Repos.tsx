@@ -8,7 +8,7 @@ import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { RepoRow } from "@dashboard/components/rows/RepoRow";
 
 export function Repos() {
-  const { data, loading, error, refetch } = useQuery(() => fetchRepos());
+  const { data, loading, error, refetch } = useQuery("repos", fetchRepos);
 
   return (
     <div>

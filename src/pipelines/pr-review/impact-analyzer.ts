@@ -7,7 +7,7 @@
 import { readFile } from "node:fs/promises";
 import { createLogger } from "../../shared/logger.js";
 import { resolveModel } from "../../shared/config.js";
-import { TaskCancelledError, isTaskCancelled, runStage, type SendTelegram } from "../../core/stage.js";
+import { TaskCancelledError, isTaskCancelled, runStage, type SendTelegram, type StageValidation } from "../../core/stage.js";
 import { impactAnalyzerSystemPrompt, impactAnalyzerInitialPrompt } from "./impact-prompts.js";
 import { toErrorMessage } from "../../shared/errors.js";
 import { artifactPath, hasNonEmptyArtifact } from "../../shared/artifacts.js";
@@ -81,7 +81,7 @@ async function runImpactVariant(opts: ImpactAnalyzerOptions, variant: number): P
 async function validateImpactArtifact(
   artifactsDir: string,
   filename: string,
-): Promise<{ valid: boolean; reason?: string }> {
+): Promise<StageValidation> {
   const exists = await hasNonEmptyArtifact(artifactsDir, filename);
   if (!exists) return { valid: false, reason: `Impact analyzer failed to write ${filename}` };
 

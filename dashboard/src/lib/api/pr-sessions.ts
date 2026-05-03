@@ -10,7 +10,7 @@ import type {
   ReviewChatResponse,
   ReviewChatPostResponse,
 } from "@dashboard/shared";
-import { request } from "./client.js";
+import { request, requestJson } from "./client.js";
 import type {
   PrSession,
   PrSessionWatchStatus,
@@ -38,31 +38,21 @@ export async function fetchPrSessionTranscript(id: string): Promise<{ entries: F
 }
 
 export async function fetchPrReviewPage(id: string): Promise<PrReviewPageDto> {
-  const result = prReviewPageDtoSchema.safeParse(await request<unknown>(`/api/pr-sessions/${id}/review`));
-  if (!result.success) throw new Error("Unexpected review response from server");
-  return result.data;
+  return requestJson(`/api/pr-sessions/${id}/review`, prReviewPageDtoSchema);
 }
 
 export async function fetchReviewChat(id: string): Promise<ReviewChatResponse> {
-  const result = reviewChatResponseSchema.safeParse(
-    await request<unknown>(`/api/pr-sessions/${id}/review-chat`),
-  );
-  if (!result.success) throw new Error("Unexpected review chat response from server");
-  return result.data;
+  return requestJson(`/api/pr-sessions/${id}/review-chat`, reviewChatResponseSchema);
 }
 
 export async function sendReviewChatMessage(
   id: string,
   body: ReviewChatRequest,
 ): Promise<ReviewChatPostResponse> {
-  const result = reviewChatPostResponseSchema.safeParse(
-    await request<unknown>(`/api/pr-sessions/${id}/review-chat`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  );
-  if (!result.success) throw new Error("Unexpected review chat reply from server");
-  return result.data;
+  return requestJson(`/api/pr-sessions/${id}/review-chat`, reviewChatPostResponseSchema, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export async function setPrSessionWatchStatus(

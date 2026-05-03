@@ -6,40 +6,64 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { z, type ZodType } from "zod";
 import { createLogger } from "../../shared/logger.js";
 import { PR_DIFF_CONTEXT_LINES } from "../../shared/config.js";
+import { parseNwo, parsePrIdentifier, parsePrNumberFromUrl } from "../../shared/git-urls.js";
 import type { PrComment, PrReviewState } from "../../shared/types.js";
 
-// --- Pure parsers ---
-
-/** Extract "owner/repo" from a GitHub URL. Accepts HTTPS and SSH, with or without `.git`. */
-export function parseNwo(githubUrl: string): string | null {
-  const match = githubUrl.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/);
-  return match?.[1] ?? null;
-}
-
-/** Extract the PR number from a full URL like `https://github.com/org/repo/pull/42`. */
-export function parsePrNumberFromUrl(prUrl: string): number | null {
-  const match = prUrl.match(/\/pull\/(\d+)/);
-  if (!match) return null;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-/** Parse a user-supplied PR identifier. Accepts a full URL, `#42`, or `42`. */
-export function parsePrIdentifier(identifier: string): number | null {
-  const fromUrl = parsePrNumberFromUrl(identifier);
-  if (fromUrl !== null) return fromUrl;
-  const numMatch = identifier.match(/#?(\d+)/);
-  if (!numMatch) return null;
-  const parsed = Number(numMatch[1]);
-  return Number.isFinite(parsed) ? parsed : null;
-}
+export { parseNwo, parsePrIdentifier, parsePrNumberFromUrl };
 
 // --- gh CLI wrappers ---
 
 const exec = promisify(execFile);
 const log = createLogger("pr-session-gh");
+
+const prCommentsResponseSchema = z.object({
+  comments: z.array(z.object({
+    id: z.union([z.string(), z.number()]),
+    author: z.object({ login: z.string() }),
+    body: z.string(),
+    createdAt: z.string(),
+  })),
+});
+
+const prReviewCommentsResponseSchema = z.array(z.object({
+  id: z.number(),
+  user: z.object({ login: z.string() }),
+  body: z.string(),
+  created_at: z.string(),
+  path: z.string().nullable().optional(),
+  line: z.number().nullable().optional(),
+}));
+
+const prReviewsResponseSchema = z.array(z.object({
+  id: z.number(),
+  user: z.object({ login: z.string() }).nullable(),
+  body: z.string(),
+  state: z.string(),
+  submitted_at: z.string().nullable(),
+}));
+
+const prMetadataResponseSchema = z.object({
+  number: z.number(),
+  title: z.string(),
+  body: z.string().nullable(),
+  labels: z.array(z.object({ name: z.string() })),
+  author: z.object({ login: z.string() }),
+  baseRefName: z.string(),
+  headRefName: z.string(),
+  headRefOid: z.string(),
+  files: z.array(z.object({
+    path: z.string(),
+    additions: z.number(),
+    deletions: z.number(),
+  })),
+});
+
+const prStateResponseSchema = z.object({ state: z.string() });
+
+type PrReviewResponse = z.infer<typeof prReviewsResponseSchema>[number];
 
 /**
  * Run `gh` and parse stdout. Returns the fallback (defaults to `null`) on
@@ -49,10 +73,11 @@ const log = createLogger("pr-session-gh");
 async function ghJson<T>(
   args: readonly string[],
   warnLabel: string,
+  schema: ZodType<T>,
 ): Promise<T | null> {
   try {
     const { stdout } = await exec("gh", [...args]);
-    return JSON.parse(stdout) as T;
+    return schema.parse(JSON.parse(stdout));
   } catch (err) {
     log.warn(`${warnLabel}: ${String(err)}`);
     return null;
@@ -61,11 +86,10 @@ async function ghJson<T>(
 
 /** Top-level issue comments on a PR. Returns `[]` on error (logged). */
 export async function getPrComments(nwo: string, prNumber: number): Promise<PrComment[]> {
-  const data = await ghJson<{
-    comments: Array<{ id: string; author: { login: string }; body: string; createdAt: string }>;
-  }>(
+  const data = await ghJson(
     ["pr", "view", String(prNumber), "--repo", nwo, "--json", "comments"],
     `Failed to fetch PR comments for ${nwo}#${prNumber}`,
+    prCommentsResponseSchema,
   );
   return (data?.comments ?? []).map((c) => ({
     kind: "conversation",
@@ -78,12 +102,10 @@ export async function getPrComments(nwo: string, prNumber: number): Promise<PrCo
 
 /** Inline code-level review comments on a PR. Returns `[]` on error (logged). */
 export async function getPrReviewComments(nwo: string, prNumber: number): Promise<PrComment[]> {
-  const data = await ghJson<Array<{
-    id: number; user: { login: string }; body: string;
-    created_at: string; path?: string; line?: number;
-  }>>(
+  const data = await ghJson(
     ["api", `/repos/${nwo}/pulls/${prNumber}/comments`, "--paginate"],
     `Failed to fetch review comments for ${nwo}#${prNumber}`,
+    prReviewCommentsResponseSchema,
   );
   return (data ?? []).map((c) => ({
     kind: "inline",
@@ -98,23 +120,27 @@ export async function getPrReviewComments(nwo: string, prNumber: number): Promis
 
 /** Submitted PR reviews with non-empty top-level bodies. Returns `[]` on error (logged). */
 export async function getPrReviews(nwo: string, prNumber: number): Promise<PrComment[]> {
-  const data = await ghJson<Array<{
-    id: number; user: { login: string } | null; body: string;
-    state: string; submitted_at: string | null;
-  }>>(
+  const data = await ghJson(
     ["api", `/repos/${nwo}/pulls/${prNumber}/reviews`, "--paginate"],
     `Failed to fetch PR reviews for ${nwo}#${prNumber}`,
+    prReviewsResponseSchema,
   );
   return (data ?? [])
-    .filter((r) => r.body.trim().length > 0 && r.user)
+    .filter(hasReviewBodyAndAuthor)
     .map((r) => ({
       kind: "review_summary",
       id: String(r.id),
-      author: r.user!.login,
+      author: r.user.login,
       body: r.body,
       createdAt: r.submitted_at ?? new Date().toISOString(),
       state: mapReviewState(r.state),
     }));
+}
+
+function hasReviewBodyAndAuthor(
+  review: PrReviewResponse,
+): review is PrReviewResponse & { user: { login: string } } {
+  return review.body.trim().length > 0 && review.user !== null;
 }
 
 function mapReviewState(raw: string): PrReviewState {
@@ -143,17 +169,7 @@ export async function getPrMetadata(nwo: string, prNumber: number): Promise<PrMe
     "--repo", nwo,
     "--json", "number,title,body,labels,author,baseRefName,headRefName,headRefOid,files",
   ]);
-  const data = JSON.parse(stdout) as {
-    number: number;
-    title: string;
-    body: string | null;
-    labels: Array<{ name: string }>;
-    author: { login: string };
-    baseRefName: string;
-    headRefName: string;
-    headRefOid: string;
-    files: Array<{ path: string; additions: number; deletions: number }>;
-  };
+  const data = prMetadataResponseSchema.parse(JSON.parse(stdout));
   return {
     number: data.number,
     title: data.title,
@@ -196,7 +212,7 @@ export async function isPrClosed(
       "--repo", nwo,
       "--json", "state",
     ]);
-    const data = JSON.parse(stdout) as { state: string };
+    const data = prStateResponseSchema.parse(JSON.parse(stdout));
     return data.state !== "OPEN";
   } catch (err) {
     log.warn(`Failed to check PR state for ${nwo}#${prNumber}`, err);

@@ -1,6 +1,6 @@
 /** Tasks home: live tasks up top, history grouped by date below. */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   fetchTask,
@@ -21,8 +21,7 @@ import { PageState } from "@dashboard/components/PageState";
 import { groupByDate } from "@dashboard/lib/task-grouping";
 import { cn, shortId } from "@dashboard/lib/utils";
 import { timeAgo } from "@dashboard/lib/format";
-
-const ACTIVE_STATUSES = new Set(["queued", "running"]);
+import { isTerminalStatus } from "@dashboard/shared";
 const HISTORY_FILTERS = ["all", "complete", "failed", "cancelled"] as const;
 type HistoryFilter = (typeof HISTORY_FILTERS)[number];
 
@@ -30,25 +29,33 @@ export function Tasks() {
   const navigate = useNavigate();
   const now = useNow();
 
-  const query = useQuery(() => fetchTasks());
+  const query = useQuery("tasks", fetchTasks);
   const [taskDetails, setTaskDetails] = useState<Map<string, TaskWithStages>>(new Map());
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
 
   useSSERefresh(query.refetch, (e) => e.type === "task_update");
 
   // Prefetch stage details for every active task so the pipeline progress renders.
-  const activeIds = (query.data ?? []).filter((t) => ACTIVE_STATUSES.has(t.status)).map((t) => t.id).join(",");
+  const activeIds = useMemo(
+    () => (query.data ?? []).filter((t) => !isTerminalStatus(t.status)).map((t) => t.id),
+    [query.data],
+  );
   useEffect(() => {
-    if (!activeIds) return;
-    const ids = activeIds.split(",");
-    for (const id of ids) {
-      if (!taskDetails.has(id)) {
-        fetchTask(id).then((detail) =>
-          setTaskDetails((prev) => new Map(prev).set(id, detail)),
-        );
-      }
-    }
-  }, [activeIds]);
+    const missingIds = activeIds.filter((id) => !taskDetails.has(id));
+    if (missingIds.length === 0) return;
+
+    let cancelled = false;
+    void Promise.all(missingIds.map((id) => fetchTask(id))).then((details) => {
+      if (cancelled) return;
+      setTaskDetails((prev) =>
+        details.reduce((next, detail) => new Map(next).set(detail.id, detail), prev),
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeIds, taskDetails]);
 
   // Keep stage details fresh as pipelines progress.
   useSSE((event) => {
@@ -69,8 +76,8 @@ export function Tasks() {
 
       <PageState data={query.data} loading={query.loading} error={query.error} onRetry={query.refetch}>
         {(tasks) => {
-          const active = tasks.filter((t) => ACTIVE_STATUSES.has(t.status));
-          const completed = tasks.filter((t) => !ACTIVE_STATUSES.has(t.status));
+          const active = tasks.filter((t) => !isTerminalStatus(t.status));
+          const completed = tasks.filter((t) => isTerminalStatus(t.status));
           const historyCounts = countByStatus(completed);
           const filteredHistory = historyFilter === "all"
             ? completed

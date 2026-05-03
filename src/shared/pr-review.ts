@@ -102,8 +102,6 @@ export const prReviewPageDtoSchema = z.object({
     z.object({
       diffPatch: z.string(),
       createdAt: z.string(),
-      // TEMP: refresh marker for testing pr_review refresh-on-commit. Remove once verified.
-      diffUpdatedAt: z.string().nullable(),
     }),
   ).nullable(),
 });

@@ -79,7 +79,7 @@ A change is complete when **all** of these pass:
 4. New env vars are in `.env.example`.
 5. Schema changes have a generated file in `drizzle/` and have been applied with `npm run db:migrate` before the code that reads them merges.
 6. Commit messages use conventional prefixes (`feat:`, `fix:`, `refactor:`, `chore:`, `perf:`), one logical unit per commit.
-7. No emojis. No `console.log`. No default exports. No mutated arrays or objects.
+7. No emojis. No `console.log` in app code. No default exports. Do not mutate function inputs or app data.
 
 Never report "done" without running `npm run build && npm test`.
 
@@ -90,10 +90,10 @@ Never report "done" without running `npm run build && npm test`.
 - File length: 200–400 LOC typical, 800 hard ceiling. When a file crosses 400, split along the pure/IO seam before adding more.
 - Named exports only. No default exports.
 - ESM: `.js` extensions on internal imports. `node:` protocol on Node builtins.
-- Immutability: never mutate arrays or objects — always return new ones.
-- Every backend file declares `const log = createLogger("<short-name>")` at the top. No `console.log` / `console.error`.
+- Immutability: never mutate function inputs or app data — return new values. Encapsulated module-private registries may mutate internally.
+- Backend files with side effects declare `const log = createLogger("<short-name>")` at the top. Pure utility/type modules do not need loggers. No `console.log` / `console.error` in app code.
 - Module-level singletons use `_` prefix (`_env`, `_db`), lazy init via a `loadX()` / `getX()` accessor, never exported.
-- Magic numbers live in `shared/config.ts` or `shared/limits.ts`, never inline.
+- Magic numbers live in named constants near their domain or in shared config modules, never inline.
 - Section files with two or more responsibilities using `// --- Tasks ---` style headers (see `db/repository.ts`, `api/index.ts`).
 
 ## When Touching Pipelines
@@ -107,12 +107,16 @@ Never report "done" without running `npm run build && npm test`.
 ## When Editing the Dashboard
 
 - Props: named `interface` above the function. Defaults via destructuring.
-- Styling: `cn()` from `lib/utils.ts` for every conditional class. No inline `style={}`.
+- Styling: `cn()` from `lib/utils.ts` for every conditional class. No inline `style={}` except geometry from runtime measurements (drag positions, dynamic max heights).
 - Pages own data state. Components are stateless or hold only UI-local state.
 - Three-state guard on every page: `loading && !data` → spinner, `error && !data` → error + retry, empty → `<EmptyState />`.
 - Tailwind v4 semantic tokens only: `bg-glass`, `text-accent`, `text-fail`, `text-warn`. Micro-scale text (`text-[8px]` to `text-sm`). Never `text-base`.
 - Fonts: `font-display` for headings, `font-body` for prose, `font-mono` for IDs/status/logs.
 - Shared wire types live in `src/shared/types.ts`. The dashboard consumes them via `@goodboy/shared` or a narrow re-export; never hand-duplicate `TaskStatus`, `TASK_KIND_CONFIG`, etc.
+
+## Scripts
+
+Files under `scripts/**` are CLI/dev utilities. They may use `console.*`, dynamic imports, and top-level await. Keep those exemptions out of `src/**` and `dashboard/src/**`.
 
 ## When Working with the Database
 

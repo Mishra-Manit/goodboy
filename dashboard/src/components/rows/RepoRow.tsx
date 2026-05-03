@@ -12,7 +12,7 @@ interface RepoRowProps {
 }
 
 export function RepoRow({ repo }: RepoRowProps) {
-  const { data: memory } = useQuery(() => fetchMemoryStatus(repo.name), [repo.name]);
+  const { data: memory } = useQuery(`repo-memory:${repo.name}`, () => fetchMemoryStatus(repo.name));
 
   return (
     <div className="group rounded-lg bg-glass px-4 py-3.5 animate-fade-up">
@@ -30,7 +30,6 @@ export function RepoRow({ repo }: RepoRowProps) {
           </a>
         )}
       </div>
-      <code className="font-mono text-[11px] text-text-void">{repo.localPath}</code>
       {memory && <MemoryBlock memory={memory} />}
     </div>
   );
