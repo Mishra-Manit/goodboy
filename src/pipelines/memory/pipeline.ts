@@ -45,6 +45,7 @@ import {
   type Zone, type MemoryState,
 } from "../../core/memory/index.js";
 import { validateColdOutput, validateWarmOutput } from "../../core/memory/validate.js";
+import { ensureCodeReviewerFeedbackFile } from "../../core/memory/code-reviewer-feedback.js";
 import { startMemoryRun, type MemoryRunTracker } from "../../core/memory/run-tracker.js";
 import {
   coldSystemPrompt, coldInitialPrompt,
@@ -83,6 +84,8 @@ async function runMemoryInner(opts: RunMemoryOptions, pipelineSpan: Span): Promi
   const { taskId, repo, repoPath } = opts;
 
   try {
+    await ensureCodeReviewerFeedbackFile(repo);
+
     const outcome = await withMemoryRun(repo, repoPath, taskId, async (worktree) => {
       const headSha = await currentHeadSha(worktree);
       pipelineSpan.setAttribute(Goodboy.MemorySha, headSha);
