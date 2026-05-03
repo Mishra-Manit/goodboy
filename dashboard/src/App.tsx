@@ -10,6 +10,7 @@ import { PrSessionDetail } from "@dashboard/pages/PrSessionDetail";
 import { Repos } from "@dashboard/pages/Repos";
 import { Memory } from "@dashboard/pages/Memory";
 import { MemoryDetail } from "@dashboard/pages/MemoryDetail";
+import { ReviewerFeedback } from "@dashboard/pages/ReviewerFeedback";
 
 const PrReview = lazy(() => import("@dashboard/pages/PrReview").then((mod) => ({ default: mod.PrReview })));
 
@@ -26,6 +27,7 @@ export function App() {
         <Route path="/repos" element={<Repos />} />
         <Route path="/memory" element={<Memory />} />
         <Route path="/memory/:id" element={<MemoryDetail />} />
+        <Route path="/memory/feedback/:repo" element={<ReviewerFeedback />} />
       </Route>
     </Routes>
   );

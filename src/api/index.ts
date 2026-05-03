@@ -20,6 +20,7 @@ import {
   releaseLock,
 } from "../core/memory/index.js";
 import { cleanupTestMemoryRuns } from "../core/memory/cleanup.js";
+import { listCodeReviewerFeedback } from "../core/memory/code-reviewer-feedback.js";
 import { deleteRepoMemoryArtifacts } from "../core/memory/delete.js";
 import { config } from "../shared/config.js";
 import { createLogger } from "../shared/logger.js";
@@ -257,6 +258,18 @@ export function createApi(): Hono {
       });
       await new Promise(() => {});
     });
+  });
+
+  app.get("/api/memory/feedback/:repo", async (c) => {
+    const name = c.req.param("repo");
+    if (!getRepo(name)) return c.json({ error: "unknown repo" }, 404);
+    const statusFilter = c.req.query("status") ?? "all";
+    const valid = ["active", "inactive", "all"] as const;
+    const status = (valid as readonly string[]).includes(statusFilter)
+      ? (statusFilter as "active" | "inactive" | "all")
+      : "all";
+    const rules = await listCodeReviewerFeedback(name, status);
+    return c.json(rules);
   });
 
   app.delete("/api/memory/tests", async (c) => {

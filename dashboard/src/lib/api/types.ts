@@ -157,6 +157,32 @@ export interface MemoryStatus {
 
 export type MemoryRunActive = "TRUE" | "FALSE";
 
+// --- Code Reviewer Feedback ---
+
+export type CodeReviewerFeedbackStatus = "active" | "inactive";
+
+export type CodeReviewerFeedbackScope =
+  | { type: "global" }
+  | { type: "path"; paths: string[] }
+  | { type: "review_behavior" };
+
+export interface CodeReviewerFeedbackSource {
+  type: "github_comment" | "dashboard_chat";
+  prNumber: number;
+  originalText: string;
+}
+
+export interface CodeReviewerFeedbackRule {
+  id: string;
+  status: CodeReviewerFeedbackStatus;
+  title: string;
+  rule: string;
+  scope: CodeReviewerFeedbackScope;
+  source: CodeReviewerFeedbackSource;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MemoryRun {
   id: string;
   instance: string;

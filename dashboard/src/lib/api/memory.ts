@@ -1,7 +1,9 @@
 /** Memory run API helpers. */
 
 import { request } from "./client.js";
-import type { FileEntry, MemoryRun, MemoryRunKind } from "./types.js";
+import type { CodeReviewerFeedbackRule, FileEntry, MemoryRun, MemoryRunKind } from "./types.js";
+
+export type FeedbackListStatus = "active" | "inactive" | "all";
 
 export interface MemoryRunsQuery {
   repo?: string;
@@ -48,3 +50,12 @@ export async function deleteMemoryRepo(repo: string): Promise<{
     method: "DELETE",
   });
 }
+
+export async function fetchReviewerFeedback(
+  repo: string,
+  status: FeedbackListStatus = "all",
+): Promise<CodeReviewerFeedbackRule[]> {
+  const params = new URLSearchParams({ status });
+  return request(`/api/memory/feedback/${encodeURIComponent(repo)}?${params}`);
+}
+
