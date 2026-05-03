@@ -121,6 +121,48 @@ export interface PrSessionWithRuns extends PrSession {
   runs: PrSessionRun[];
 }
 
+/** Dashboard state derived from open GitHub PRs plus Goodboy tasks/sessions. */
+export type PrInboxState =
+  | "not_started"
+  | "owned"
+  | "review_running"
+  | "review_failed"
+  | "reviewed";
+
+/** Open PR row with precomputed action flags so the UI stays dumb. */
+export interface PrInboxRow {
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  headRef: string;
+  baseRef: string;
+  updatedAt: string;
+  isDraft: boolean;
+  reviewDecision: string | null;
+  labels: readonly string[];
+  state: PrInboxState;
+  ownSessionId: string | null;
+  reviewSessionId: string | null;
+  reviewTaskId: string | null;
+  watchSessionId: string | null;
+  watchStatus: PrSessionWatchStatus | null;
+  canStartReview: boolean;
+  canRetryReview: boolean;
+  canRerunReview: boolean;
+}
+
+export interface PrInboxResponse {
+  rows: PrInboxRow[];
+  githubError: string | null;
+}
+
+export interface CreatePrReviewResponse {
+  ok: true;
+  task: Task;
+}
+
 // --- Repos + session transcripts ---
 
 export interface Repo {

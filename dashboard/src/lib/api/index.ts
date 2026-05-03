@@ -3,5 +3,6 @@
 export * from "./types.js";
 export * from "./tasks.js";
 export * from "./pr-sessions.js";
+export * from "./pr-reviews.js";
 export * from "./repos.js";
 export * from "./memory.js";
