@@ -34,7 +34,7 @@ vi.mock("node:child_process", () => {
   return { execFile };
 });
 
-import { getPrComments, getPrReviewComments, isPrClosed } from "@src/core/git/github.js";
+import { getPrComments, getPrReviewComments, isPrClosed, isPrOpen, listOpenPrs } from "@src/core/git/github.js";
 
 function stubExecOk(stdout: string) {
   handler.impl = async () => ({ stdout, stderr: "" });
@@ -121,6 +121,71 @@ describe("getPrReviewComments", () => {
       "/repos/foo/bar/pulls/7/comments",
       "--paginate",
     ]);
+  });
+});
+
+describe("listOpenPrs", () => {
+  it("maps open PR rows from gh", async () => {
+    stubExecOk(await readFile("tests/fixtures/gh/pr-list-open.json", "utf-8"));
+
+    await expect(listOpenPrs("acme/goodboy")).resolves.toEqual([{
+      number: 12,
+      title: "Add dashboard PR discovery",
+      url: "https://github.com/acme/goodboy/pull/12",
+      author: "manit",
+      headRef: "feat/pr-discovery",
+      baseRef: "main",
+      updatedAt: "2026-05-03T12:00:00Z",
+      isDraft: false,
+      reviewDecision: null,
+      labels: ["backend"],
+    }]);
+  });
+
+  it("invokes gh pr list with the expected argv", async () => {
+    stubExecOk("[]");
+    await listOpenPrs("acme/goodboy");
+
+    expect(handler.calls[0]).toEqual([
+      "gh",
+      [
+        "pr",
+        "list",
+        "--repo",
+        "acme/goodboy",
+        "--state",
+        "open",
+        "--json",
+        "number,title,url,author,headRefName,baseRefName,updatedAt,isDraft,reviewDecision,labels",
+      ],
+    ]);
+  });
+
+  it("throws on malformed JSON", async () => {
+    stubExecOk("not json");
+    await expect(listOpenPrs("acme/goodboy")).rejects.toThrow();
+  });
+
+  it("throws on exec failure", async () => {
+    stubExecThrow();
+    await expect(listOpenPrs("acme/goodboy")).rejects.toThrow("gh blew up");
+  });
+});
+
+describe("isPrOpen", () => {
+  it("returns true for OPEN state", async () => {
+    stubExecOk(JSON.stringify({ state: "OPEN" }));
+    await expect(isPrOpen("foo/bar", 1)).resolves.toBe(true);
+  });
+
+  it("returns false for CLOSED state", async () => {
+    stubExecOk(JSON.stringify({ state: "CLOSED" }));
+    await expect(isPrOpen("foo/bar", 1)).resolves.toBe(false);
+  });
+
+  it("throws on exec failure", async () => {
+    stubExecThrow();
+    await expect(isPrOpen("foo/bar", 1)).rejects.toThrow("gh blew up");
   });
 });
 

@@ -1,0 +1,14 @@
+[
+  {
+    "number": 12,
+    "title": "Add dashboard PR discovery",
+    "url": "https://github.com/acme/goodboy/pull/12",
+    "author": { "login": "manit" },
+    "headRefName": "feat/pr-discovery",
+    "baseRefName": "main",
+    "updatedAt": "2026-05-03T12:00:00Z",
+    "isDraft": false,
+    "reviewDecision": null,
+    "labels": [{ "name": "backend" }]
+  }
+]

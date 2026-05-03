@@ -63,6 +63,20 @@ const prMetadataResponseSchema = z.object({
 
 const prStateResponseSchema = z.object({ state: z.string() });
 
+// Shape emitted by `gh pr list --json ...`; mapped below into the smaller dashboard DTO.
+const openPrListResponseSchema = z.array(z.object({
+  number: z.number(),
+  title: z.string(),
+  url: z.string(),
+  author: z.object({ login: z.string() }),
+  headRefName: z.string(),
+  baseRefName: z.string(),
+  updatedAt: z.string(),
+  isDraft: z.boolean(),
+  reviewDecision: z.string().nullable(),
+  labels: z.array(z.object({ name: z.string() })),
+}));
+
 type PrReviewResponse = z.infer<typeof prReviewsResponseSchema>[number];
 
 /**
@@ -162,6 +176,47 @@ export interface PrMetadata {
   changedFiles: readonly { path: string; additions: number; deletions: number }[];
 }
 
+/** Minimal GitHub PR metadata shown in the dashboard inbox. */
+export interface GitHubOpenPr {
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  headRef: string;
+  baseRef: string;
+  updatedAt: string;
+  isDraft: boolean;
+  reviewDecision: string | null;
+  labels: readonly string[];
+}
+
+/** Open PRs for a repo, fetched live from GitHub. Throws so callers can surface GitHub auth/network failures. */
+export async function listOpenPrs(nwo: string): Promise<GitHubOpenPr[]> {
+  const { stdout } = await exec("gh", [
+    "pr",
+    "list",
+    "--repo",
+    nwo,
+    "--state",
+    "open",
+    "--json",
+    "number,title,url,author,headRefName,baseRefName,updatedAt,isDraft,reviewDecision,labels",
+  ]);
+  const rows = openPrListResponseSchema.parse(JSON.parse(stdout));
+  return rows.map((row) => ({
+    number: row.number,
+    title: row.title,
+    url: row.url,
+    author: row.author.login,
+    headRef: row.headRefName,
+    baseRef: row.baseRefName,
+    updatedAt: row.updatedAt,
+    isDraft: row.isDraft,
+    reviewDecision: row.reviewDecision,
+    labels: row.labels.map((label) => label.name),
+  }));
+}
+
 /** Fetch PR metadata needed by the pr-review pipeline. Throws on gh failure. */
 export async function getPrMetadata(nwo: string, prNumber: number): Promise<PrMetadata> {
   const { stdout } = await exec("gh", [
@@ -199,6 +254,17 @@ export async function getPrDiff(worktreePath: string, baseRef: string): Promise<
     `--unified=${PR_DIFF_CONTEXT_LINES}`,
   ]);
   return stdout;
+}
+
+/** True when the PR exists and is currently open. Throws on gh failure. */
+export async function isPrOpen(nwo: string, prNumber: number): Promise<boolean> {
+  const { stdout } = await exec("gh", [
+    "pr", "view", String(prNumber),
+    "--repo", nwo,
+    "--json", "state",
+  ]);
+  const data = prStateResponseSchema.parse(JSON.parse(stdout));
+  return data.state === "OPEN";
 }
 
 /** True if the PR is merged or closed. Returns `false` on error (logged). */

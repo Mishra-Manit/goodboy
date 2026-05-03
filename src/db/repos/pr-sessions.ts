@@ -37,7 +37,9 @@ export async function createPrSession(data: {
   return session;
 }
 
-/** Create a PR session and atomically move branch/worktree ownership off the task row. */
+/** Create a PR session and move branch/worktree ownership off the task row.
+ *  NOTE: Not atomic — neon-http driver does not support transactions.
+ *  On partial failure, the session row is deleted to maintain consistency. */
 export async function createPrSessionAndTransferTaskOwnership(data: {
   repo: string;
   prNumber?: number;
@@ -51,23 +53,23 @@ export async function createPrSessionAndTransferTaskOwnership(data: {
   const db = getDb();
   const instance = instanceId();
 
-  return db.transaction(async (tx) => {
-    const [session] = await tx
-      .insert(schema.prSessions)
-      .values({
-        repo: data.repo,
-        prNumber: data.prNumber ?? null,
-        branch: data.branch,
-        worktreePath: data.worktreePath,
-        mode: data.mode,
-        sourceTaskId: data.sourceTaskId,
-        telegramChatId: data.telegramChatId,
-        lastPolledAt: data.lastPolledAt ?? null,
-        instance,
-      })
-      .returning();
+  const [session] = await db
+    .insert(schema.prSessions)
+    .values({
+      repo: data.repo,
+      prNumber: data.prNumber ?? null,
+      branch: data.branch,
+      worktreePath: data.worktreePath,
+      mode: data.mode,
+      sourceTaskId: data.sourceTaskId,
+      telegramChatId: data.telegramChatId,
+      lastPolledAt: data.lastPolledAt ?? null,
+      instance,
+    })
+    .returning();
 
-    const [task] = await tx
+  try {
+    const [task] = await db
       .update(schema.tasks)
       .set({ branch: null, worktreePath: null, updatedAt: new Date() })
       .where(and(
@@ -76,9 +78,18 @@ export async function createPrSessionAndTransferTaskOwnership(data: {
       ))
       .returning({ id: schema.tasks.id });
 
-    if (!task) throw new Error(`Task ${data.sourceTaskId} not found for this instance`);
-    return session;
-  });
+    if (!task) {
+      throw new Error(`Task ${data.sourceTaskId} not found for this instance`);
+    }
+  } catch (err) {
+    // Roll back: delete the orphaned session row
+    await db
+      .delete(schema.prSessions)
+      .where(and(eq(schema.prSessions.id, session.id), eq(schema.prSessions.instance, instance)));
+    throw err;
+  }
+
+  return session;
 }
 
 export async function getPrSession(id: string): Promise<PrSession | null> {

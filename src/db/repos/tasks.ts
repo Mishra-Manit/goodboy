@@ -3,7 +3,7 @@
  * Stage rows inherit instance isolation from their parent task row.
  */
 
-import { eq, desc, asc, and, inArray } from "drizzle-orm";
+import { eq, desc, asc, and, inArray, or } from "drizzle-orm";
 import { getDb, schema } from "../index.js";
 import type { Task, TaskStage } from "../schema.js";
 import type { TaskStatus, TaskKind, StageStatus, StageName } from "../../shared/domain/types.js";
@@ -11,11 +11,12 @@ import { instanceId, tasksForInstance } from "./scope.js";
 
 // --- Tasks ---
 
+/** Create a task from Telegram or dashboard; dashboard-created tasks intentionally have no chat id. */
 export async function createTask(data: {
   repo: string;
   kind: TaskKind;
   description: string;
-  telegramChatId: string;
+  telegramChatId: string | null;
   prIdentifier?: string;
 }): Promise<Task> {
   const db = getDb();
@@ -93,6 +94,37 @@ export async function findTaskByPrNumber(prNumber: number): Promise<Task | null>
       eq(schema.tasks.prNumber, prNumber),
     ));
   return task ?? null;
+}
+
+/** All PR review tasks for a repo, newest first, used to enrich the open-PR inbox. */
+export async function listPrReviewTasksForRepo(repo: string): Promise<Task[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(schema.tasks)
+    .where(and(
+      eq(schema.tasks.instance, instanceId()),
+      eq(schema.tasks.repo, repo),
+      eq(schema.tasks.kind, "pr_review"),
+    ))
+    .orderBy(desc(schema.tasks.createdAt));
+}
+
+/** Tasks tied to a PR by either normalized prNumber or legacy prIdentifier. */
+export async function listTasksForRepoAndPr(repo: string, prNumber: number): Promise<Task[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(schema.tasks)
+    .where(and(
+      eq(schema.tasks.instance, instanceId()),
+      eq(schema.tasks.repo, repo),
+      or(
+        eq(schema.tasks.prNumber, prNumber),
+        eq(schema.tasks.prIdentifier, String(prNumber)),
+      ),
+    ))
+    .orderBy(desc(schema.tasks.createdAt));
 }
 
 // --- Task Stages ---
