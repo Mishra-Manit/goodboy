@@ -66,12 +66,11 @@ export async function startPrSession(options: {
 }): Promise<void> {
   const { sourceTaskId, repo, branch, worktreePath, artifactsDir, sendTelegram, chatId } = options;
 
-  const prSession = await queries.createPrSession({
+  const prSession = await queries.createPrSessionAndTransferTaskOwnership({
     repo, branch, worktreePath,
     mode: "own", sourceTaskId,
     telegramChatId: chatId,
   });
-  await transferTaskGitOwnership(sourceTaskId, prSession.id);
 
   const run = await queries.createPrSessionRun({
     prSessionId: prSession.id,
@@ -294,11 +293,7 @@ export async function runReviewChatTurn(options: {
   const changed = beforeSha !== null && afterSha !== null && beforeSha !== afterSha;
 
   if (!parsed) {
-    await queries.updatePrSessionRun(run.id, {
-      status: "failed",
-      error: "missing review_chat result marker",
-      completedAt: new Date(),
-    });
+    await queries.failPrSessionRun(run.id, "missing review_chat result marker");
     return { status: "failed", changed };
   }
 
@@ -391,14 +386,12 @@ export async function handoffExternalReview(options: {
 }): Promise<string> {
   const { sourceTaskId, repo, prNumber, branch, worktreePath, chatId } = options;
 
-  const prSession = await queries.createPrSession({
+  const prSession = await queries.createPrSessionAndTransferTaskOwnership({
     repo, prNumber, branch, worktreePath,
     mode: "review", sourceTaskId,
     telegramChatId: chatId,
+    lastPolledAt: new Date(),
   });
-
-  await transferTaskGitOwnership(sourceTaskId, prSession.id);
-  await queries.updatePrSession(prSession.id, { lastPolledAt: new Date() });
 
   log.info(`Handed off task ${sourceTaskId} -> PR session ${prSession.id} (review mode)`);
   return prSession.id;
@@ -483,13 +476,9 @@ async function runSessionTurnInner(turn: SessionTurn): Promise<void> {
 
   try {
     await withTimeout(session.waitForCompletion(), SESSION_TIMEOUT_MS, timeoutLabel);
-    await queries.updatePrSessionRun(run.id, { status: "complete", completedAt: new Date() });
+    await queries.completePrSessionRun(run.id);
   } catch (err) {
-    await queries.updatePrSessionRun(run.id, {
-      status: "failed",
-      error: toErrorMessage(err),
-      completedAt: new Date(),
-    });
+    await queries.failPrSessionRun(run.id, toErrorMessage(err));
     throw err;
   } finally {
     session.kill();
@@ -501,16 +490,6 @@ async function runSessionTurnInner(turn: SessionTurn): Promise<void> {
 }
 
 // --- Helpers ---
-
-/** Move worktree/branch ownership from the originating task row to the PR session row. */
-async function transferTaskGitOwnership(taskId: string, prSessionId: string): Promise<void> {
-  try {
-    await queries.updateTask(taskId, { worktreePath: null, branch: null });
-  } catch (err) {
-    await queries.updatePrSession(prSessionId, { status: "closed", worktreePath: null, branch: null });
-    throw err;
-  }
-}
 
 /**
  * Rebase-pull in the worktree in case comments arrived alongside manual pushes.
