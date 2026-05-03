@@ -1,5 +1,6 @@
+import path from "node:path";
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
-import { loadEnv, resetEnvForTesting, resolveModel } from "@src/shared/runtime/config.js";
+import { config, loadEnv, resetEnvForTesting, resolveModel } from "@src/shared/runtime/config.js";
 
 // Snapshot the seeded env from tests/setup/env.ts so individual tests can
 // mutate process.env without leaking into other test files.
@@ -16,6 +17,13 @@ afterAll(() => {
   for (const key of Object.keys(process.env)) delete process.env[key];
   for (const [key, value] of Object.entries(SNAPSHOT)) process.env[key] = value;
   resetEnvForTesting();
+});
+
+describe("config paths", () => {
+  it("resolves durable data directories from the project root", () => {
+    expect(config.artifactsDir).toBe(path.resolve(process.cwd(), "artifacts"));
+    expect(config.prSessionsDir).toBe(path.resolve(process.cwd(), "data/pr-sessions"));
+  });
 });
 
 describe("loadEnv — REGISTERED_REPOS transform", () => {
