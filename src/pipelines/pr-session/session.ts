@@ -27,7 +27,7 @@ import { codeReviewerFeedbackBlock } from "../../core/memory/feedback/code-revie
 import { codeReviewerFeedbackCapability } from "../../core/pi/extensions.js";
 import { codeReviewerFeedbackToolPolicy } from "../../shared/prompts/code-reviewer-feedback.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
-import { parsePrNumberFromUrl } from "../../core/git/github.js";
+import { parsePrNumberFromUrl, revParseHead } from "../../core/git/github.js";
 import { taskArtifactsDir } from "../../shared/artifacts/index.js";
 import { prReviewArtifactPaths } from "../pr-review/artifacts/index.js";
 import type { PrComment } from "../../shared/domain/types.js";
@@ -146,7 +146,7 @@ export async function resumePrSession(options: {
     : "";
   const feedbackCap = mode === "review" ? codeReviewerFeedbackCapability() : null;
 
-  const beforeSha = await headSha(worktreePath);
+  const beforeSha = await revParseHead(worktreePath);
 
   try {
     await runSessionTurn({
@@ -169,7 +169,7 @@ export async function resumePrSession(options: {
       envOverrides: feedbackCap?.envOverrides,
     });
 
-    const afterSha = await headSha(worktreePath);
+    const afterSha = await revParseHead(worktreePath);
     if (
       beforeSha && afterSha && beforeSha !== afterSha &&
       prSession.sourceTaskId && prNumber
@@ -244,7 +244,7 @@ export async function runReviewChatTurn(options: {
   if (existing) throw new ReviewChatBusyError();
 
   await pullLatest(worktreePath, prSessionId, branch);
-  const beforeSha = await headSha(worktreePath);
+  const beforeSha = await revParseHead(worktreePath);
 
   const reviewerFeedback = await codeReviewerFeedbackBlock(session.repo);
   const feedbackPolicy = codeReviewerFeedbackToolPolicy(session.repo, prNumber, "dashboard_chat");
@@ -289,7 +289,7 @@ export async function runReviewChatTurn(options: {
     return { status: "failed", changed: false };
   }
 
-  const afterSha = await headSha(worktreePath);
+  const afterSha = await revParseHead(worktreePath);
   const changed = beforeSha !== null && afterSha !== null && beforeSha !== afterSha;
 
   if (!parsed) {
@@ -360,15 +360,7 @@ async function resolveReviewChatArtifacts(sourceTaskId: string): Promise<ReviewC
   };
 }
 
-async function headSha(cwd: string): Promise<string | null> {
-  try {
-    const { stdout } = await exec("git", ["rev-parse", "HEAD"], { cwd });
-    return stdout.trim() || null;
-  } catch (err) {
-    log.warn(`git rev-parse failed in ${cwd}`, err);
-    return null;
-  }
-}
+
 
 /**
  * Promote a finished `pr_review` task into a watchable PR session. The

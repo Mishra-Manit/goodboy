@@ -3,41 +3,9 @@
 import type { GitHubOpenPr } from "../core/git/github.js";
 import type { PrSession, Task } from "../db/repository.js";
 import { isTerminalStatus } from "../shared/domain/types.js";
+import type { PrInboxRow, PrInboxState } from "../shared/contracts/pr-inbox.js";
 
-// Ordered by display meaning, not priority. Priority lives in composePrInboxRows.
-export const PR_INBOX_STATES = [
-  "not_started",
-  "owned",
-  "review_running",
-  "review_failed",
-  "reviewed",
-] as const;
-
-export type PrInboxState = (typeof PR_INBOX_STATES)[number];
-
-/** One dashboard row: live GitHub PR fields plus Goodboy's best-known review state. */
-export interface PrInboxRow {
-  repo: string;
-  number: number;
-  title: string;
-  url: string;
-  author: string;
-  headRef: string;
-  baseRef: string;
-  updatedAt: string;
-  isDraft: boolean;
-  reviewDecision: string | null;
-  labels: readonly string[];
-  state: PrInboxState;
-  ownSessionId: string | null;
-  reviewSessionId: string | null;
-  reviewTaskId: string | null;
-  watchSessionId: string | null;
-  watchStatus: "watching" | "muted" | null;
-  canStartReview: boolean;
-  canRetryReview: boolean;
-  canRerunReview: boolean;
-}
+export type { PrInboxRow, PrInboxState } from "../shared/contracts/pr-inbox.js";
 
 /** Merge live GitHub rows with persisted tasks/sessions without touching IO. */
 export function composePrInboxRows(input: {

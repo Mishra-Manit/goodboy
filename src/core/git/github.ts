@@ -4,10 +4,9 @@
  * regex logic stays independently testable.
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { z, type ZodType } from "zod";
 import { createLogger } from "../../shared/runtime/logger.js";
+import { exec } from "./exec.js";
 import { PR_DIFF_CONTEXT_LINES } from "../../shared/runtime/config.js";
 import { parseNwo, parsePrIdentifier, parsePrNumberFromUrl } from "../../shared/domain/git-urls.js";
 import type { PrComment, PrReviewState } from "../../shared/domain/types.js";
@@ -16,7 +15,6 @@ export { parseNwo, parsePrIdentifier, parsePrNumberFromUrl };
 
 // --- gh CLI wrappers ---
 
-const exec = promisify(execFile);
 const log = createLogger("pr-session-gh");
 
 const prCommentsResponseSchema = z.object({
@@ -265,6 +263,17 @@ export async function isPrOpen(nwo: string, prNumber: number): Promise<boolean> 
   ]);
   const data = prStateResponseSchema.parse(JSON.parse(stdout));
   return data.state === "OPEN";
+}
+
+/** Best-effort HEAD sha for a git repo. Returns `null` on any failure. */
+export async function revParseHead(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await exec("git", ["rev-parse", "HEAD"], { cwd });
+    return stdout.trim() || null;
+  } catch (err) {
+    log.warn(`git rev-parse HEAD failed in ${cwd}`, err);
+    return null;
+  }
 }
 
 /** True if the PR is merged or closed. Returns `false` on error (logged). */

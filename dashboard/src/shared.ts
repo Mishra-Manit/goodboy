@@ -48,7 +48,31 @@ export type {
 export { TASK_KIND_CONFIG } from "@shared/domain/task-kinds.js";
 export type { TaskKindConfig } from "@shared/domain/task-kinds.js";
 
+export { shortId } from "@shared/lib/strings.js";
+
 export { TEST_INSTANCE_PREFIX, isTestInstance } from "@shared/domain/test-instance.js";
+
+export type { PrInboxRow, PrInboxState, PrInboxResponse } from "@shared/contracts/pr-inbox.js";
+
+export type {
+  Task,
+  TaskStage,
+  TaskWithStages,
+  PrSession,
+  PrSessionWithUrl,
+  PrSessionRun,
+  PrSessionWithRuns,
+  MemoryZone,
+  MemoryStatus,
+  MemoryRun,
+  RepoSummary,
+  CodeReviewerFeedbackRule,
+  CodeReviewerFeedbackStatus,
+  CodeReviewerFeedbackScope,
+  CodeReviewerFeedbackSource,
+  StageSession,
+  CreateTaskResponse,
+} from "@shared/contracts/wire.js";
 
 export type {
   FileEntry,

@@ -6,6 +6,7 @@ export default defineConfig({
     alias: {
       "@src": path.resolve(__dirname, "src"),
       "@dashboard": path.resolve(__dirname, "dashboard/src"),
+      "@shared": path.resolve(__dirname, "src/shared"),
     },
   },
   test: {

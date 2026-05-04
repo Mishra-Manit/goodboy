@@ -5,10 +5,11 @@
  */
 
 import { getRepo, listRepoNames } from "../shared/domain/repos.js";
+import { shortId } from "../shared/lib/strings.js";
 import { createLogger } from "../shared/runtime/logger.js";
 import * as queries from "../db/repository.js";
 import { PIPELINES } from "../pipelines/index.js";
-import { cancelTask, type SendTelegram } from "../core/stage.js";
+import { cancelAndUpdateTask, type SendTelegram } from "../core/stage.js";
 import type { Intent } from "./intent-classifier.js";
 import type { Task } from "../db/repository.js";
 import { isTerminalStatus, type TaskKind } from "../shared/domain/types.js";
@@ -112,8 +113,7 @@ async function handleTaskCancel(intent: Extract<Intent, { type: "task_cancel" }>
   const result = await findTaskByPrefix(intent.taskPrefix);
   if (!result.ok) return void ctx.reply(result.message);
 
-  await cancelTask(result.task.id);
-  await queries.updateTask(result.task.id, { status: "cancelled" });
+  await cancelAndUpdateTask(result.task.id);
   await ctx.reply(`Cancelled task ${shortId(result.task.id)}.`);
 }
 
@@ -135,10 +135,6 @@ async function handleTaskRetry(intent: Extract<Intent, { type: "task_retry" }>, 
 }
 
 // --- Helpers (pure) ---
-
-function shortId(id: string): string {
-  return id.slice(0, 8);
-}
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 3)}...` : s;

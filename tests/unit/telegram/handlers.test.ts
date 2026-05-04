@@ -42,6 +42,7 @@ const { pipelineHandlers, queriesHandler, stageHandler } = vi.hoisted(() => ({
   },
   stageHandler: {
     cancelTask: { calls: [] as unknown[][], returns: true as boolean },
+    cancelAndUpdateTask: { calls: [] as unknown[][], impl: async () => undefined },
   },
 }));
 
@@ -67,6 +68,10 @@ vi.mock("@src/core/stage.js", () => ({
   cancelTask: (...args: unknown[]) => {
     stageHandler.cancelTask.calls.push(args);
     return stageHandler.cancelTask.returns;
+  },
+  cancelAndUpdateTask: (...args: unknown[]) => {
+    stageHandler.cancelAndUpdateTask.calls.push(args);
+    return stageHandler.cancelAndUpdateTask.impl();
   },
 }));
 vi.mock("@src/db/repository.js", () => ({
@@ -154,6 +159,7 @@ beforeEach(() => {
   });
   stageHandler.cancelTask.calls.length = 0;
   stageHandler.cancelTask.returns = true;
+  stageHandler.cancelAndUpdateTask.calls.length = 0;
 });
 
 describe("handleIntent — coding_task", () => {
@@ -257,18 +263,16 @@ describe("handleIntent — task_status", () => {
 });
 
 describe("handleIntent — task_cancel", () => {
-  it("calls cancelTask and marks the task cancelled", async () => {
+  it("calls cancelAndUpdateTask and replies", async () => {
     queriesHandler.listTasks.impl = async () => [
       mkTask({ id: "abcd1234-0000-4000-8000-000000000000", status: "running" }),
     ];
     const ctx = makeCtx();
     await handleIntent({ type: "task_cancel", taskPrefix: "abcd1234" }, ctx);
-    expect(stageHandler.cancelTask.calls[0][0]).toBe(
+    expect(stageHandler.cancelAndUpdateTask.calls[0][0]).toBe(
       "abcd1234-0000-4000-8000-000000000000",
     );
-    const update = queriesHandler.updateTask.calls[0];
-    expect(update[0]).toBe("abcd1234-0000-4000-8000-000000000000");
-    expect(update[1]).toEqual({ status: "cancelled" });
+    expect(queriesHandler.updateTask.calls).toHaveLength(0);
     expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("Cancelled"));
   });
 

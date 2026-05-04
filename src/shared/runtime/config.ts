@@ -91,6 +91,9 @@ export function resetEnvForTesting(): void {
 /** Number of surrounding context lines included in PR diffs. Increase for more breathing room. */
 export const PR_DIFF_CONTEXT_LINES = 10;
 
+/** SSE keep-alive ping interval used by every streaming endpoint. */
+export const SSE_PING_INTERVAL_MS = 30_000;
+
 export const config = {
   artifactsDir: path.resolve(__dirname, "../../../artifacts"),
   prSessionsDir: path.resolve(__dirname, "../../../data/pr-sessions"),

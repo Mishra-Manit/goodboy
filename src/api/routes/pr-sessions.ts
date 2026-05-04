@@ -2,8 +2,6 @@
 
 import type { Hono } from "hono";
 import { readFile } from "node:fs/promises";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { z } from "zod";
 import * as queries from "../../db/repository.js";
 import { buildPrUrl } from "../../shared/domain/repos.js";
@@ -29,10 +27,10 @@ import {
   type ReviewChatPostResponse,
   type ReviewChatResponse,
 } from "../../shared/contracts/pr-review.js";
+import { exec } from "../../core/git/exec.js";
 import { notFound, UUID_PATTERN } from "../http.js";
 
 const log = createLogger("api-pr-sessions");
-const execFileAsync = promisify(execFile);
 const prSessionWatchBodySchema = z.object({
   watchStatus: z.enum(PR_SESSION_WATCH_STATUSES),
 });
@@ -199,7 +197,7 @@ async function maybeRefreshDiffFromWorktree(
   const work = (async () => {
     let workHead: string;
     try {
-      const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: session.worktreePath! });
+      const { stdout } = await exec("git", ["rev-parse", "HEAD"], { cwd: session.worktreePath! });
       workHead = stdout.trim();
     } catch (err) {
       log.warn(`maybeRefreshDiffFromWorktree: rev-parse failed for ${session.id}: ${toErrorMessage(err)}`);

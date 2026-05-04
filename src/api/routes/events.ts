@@ -2,9 +2,8 @@
 
 import type { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { SSE_PING_INTERVAL_MS } from "../../shared/runtime/config.js";
 import { subscribe } from "../../shared/runtime/events.js";
-
-const SSE_PING_INTERVAL_MS = 30_000;
 
 /** Register the live event stream route. */
 export function registerEventRoutes(app: Hono): void {
