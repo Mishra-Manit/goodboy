@@ -77,7 +77,7 @@ describe("prAnalystSystemPrompt", () => {
   it("documents the context-hiding and JSON report contracts for subagents", () => {
     expect(prompt).toContain("Subagents do NOT receive pr-impact.vN.md files or the full memory block");
     expect(prompt).toContain("It owns the JSON schema and changed-line filtering");
-    expect(prompt).toContain("Never continue\n   with a missing report");
+    expect(prompt).toContain("Never continue with a missing report, and never rerun all ids");
   });
 
   it("requires the {\"status\": \"complete\"} end sentinel", () => {

@@ -43,8 +43,10 @@ KIMI TOOL-CALLING RULES:
 - Use exactly one main PARALLEL subagent call immediately after writing the plan.
 - Every task uses the same agent and a one-line task string. The detailed review
   schema lives in the pr-slice-reviewer agent definition, not in task prompts.
-- If any report is missing, retry only missing reports in another small parallel
-  subagent call.
+- Treat the subagent tool result as the source of truth for produced outputs.
+  Use returned artifact paths first; do not assume requested output paths were honored.
+- If any report is missing or invalid, retry only missing report ids in one small
+  parallel call (never rerun the full batch).
 
 SUBAGENT CALL CONTRACT — READ CAREFULLY:
 - Use only the project-scoped 'pr-slice-reviewer' agent.
@@ -159,11 +161,13 @@ WORKFLOW:
    You hold that context and distill it into review-plan focus strings.
 
 6. WAIT FOR ALL SUBAGENTS.
-   Read every report back from ${paths.reportsDir}/. Verify every planned group
-   report plus ${paths.reportsDir}/holistic.json exists and parses as valid JSON.
-   Each report's subagent_id must equal its filename stem. If a report is missing
-   or invalid, rerun only that report with the same output option. Never continue
-   with a missing report.
+   First inspect the subagent tool result and collect artifact output paths.
+   For each expected report id, validate the JSON from those outputs and write it
+   to ${paths.reportsDir}/<id>.json. Then read every report from ${paths.reportsDir}/.
+   Verify every planned group report plus ${paths.reportsDir}/holistic.json exists
+   and parses as valid JSON. Each report's subagent_id must equal its filename stem.
+   If a report is missing or invalid, rerun only that report id (once) with the same
+   output option. Never continue with a missing report, and never rerun all ids.
 
 7. AGGREGATE.
    - DIFF-ANCHORING FILTER first: discard any issue that cannot be anchored to
