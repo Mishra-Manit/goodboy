@@ -12,10 +12,12 @@
  */
 
 import {
-  readZonesSidecar, memoryFilesValid, assertMemoryWorktreeClean,
+  ROOT_MEMORY_FILES, ZONE_MEMORY_FILES, memoryDir, assertMemoryWorktreeClean,
   stateFileHash, listZoneDirs,
   type Zone,
 } from "../index.js";
+import { validateFileOutput } from "../../../shared/agent-output/validation.js";
+import { memoryOutputs } from "../../../pipelines/memory/output-contracts.js";
 
 // --- Public API ---
 
@@ -32,11 +34,19 @@ export type WarmValidation =
  * caller can write .state.json without re-reading it from disk.
  */
 export async function validateColdOutput(repo: string): Promise<ColdValidation> {
-  const zones = await readZonesSidecar(repo);
-  if (zones === null) return { valid: false, reason: ".zones.json missing or invalid" };
+  const zonesResult = await validateFileOutput(memoryOutputs.zones.resolve(memoryDir(repo), undefined));
+  if (!zonesResult.valid) return { valid: false, reason: zonesResult.reason };
+  if (!zonesResult.data) return { valid: false, reason: ".zones.json parsed without data" };
 
-  const fileCheck = memoryFilesValid(repo, zones);
-  if (!fileCheck.valid) return { valid: false, reason: fileCheck.reason ?? "memory files invalid" };
+  const zones = zonesResult.data.zones;
+  const names = new Set<string>();
+  for (const zone of zones) {
+    if (names.has(zone.name)) return { valid: false, reason: `duplicate zone name "${zone.name}"` };
+    names.add(zone.name);
+  }
+
+  const fileCheck = await validateMemoryFiles(repo, zones);
+  if (!fileCheck.valid) return fileCheck;
 
   const clean = await assertMemoryWorktreeClean(repo);
   if (!clean.clean) {
@@ -67,13 +77,28 @@ export async function validateWarmOutput(
     return { valid: false, reason: `warm created unauthorized zones: ${added.join(", ")}` };
   }
 
-  const fileCheck = memoryFilesValid(repo, expectedZones);
-  if (!fileCheck.valid) return { valid: false, reason: fileCheck.reason ?? "memory files invalid" };
+  const fileCheck = await validateMemoryFiles(repo, expectedZones);
+  if (!fileCheck.valid) return fileCheck;
 
   const clean = await assertMemoryWorktreeClean(repo);
   if (!clean.clean) {
     return { valid: false, reason: `memory worktree dirty after warm: ${clean.dirty.slice(0, 5).join(", ")}` };
   }
 
+  return { valid: true };
+}
+
+async function validateMemoryFiles(repo: string, zones: readonly Zone[]): Promise<WarmValidation> {
+  const rootDir = memoryDir(repo);
+  for (const file of ROOT_MEMORY_FILES) {
+    const result = await validateFileOutput(memoryOutputs.rootFile.resolve(rootDir, { file }));
+    if (!result.valid) return { valid: false, reason: result.reason };
+  }
+  for (const zone of zones) {
+    for (const file of ZONE_MEMORY_FILES) {
+      const result = await validateFileOutput(memoryOutputs.zoneFile.resolve(rootDir, { zone: zone.name, file }));
+      if (!result.valid) return { valid: false, reason: result.reason };
+    }
+  }
   return { valid: true };
 }

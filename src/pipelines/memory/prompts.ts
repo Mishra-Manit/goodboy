@@ -4,7 +4,9 @@
  * Both share the same citation discipline and section contract.
  */
 
+import { finalResponsePromptBlock, outputContractPromptBlock } from "../../shared/agent-output/prompts.js";
 import { ROOT_MEMORY_FILES, ZONE_MEMORY_FILES, ROOT_DIR, type Zone } from "../../core/memory/index.js";
+import { memoryOutputs, rootMemoryContracts, zoneMemoryContracts } from "./output-contracts.js";
 
 const CITATIONS = `
 CITATIONS ARE MANDATORY. Every concrete claim must cite a source file:
@@ -136,7 +138,7 @@ SUBAGENTS AVAILABLE
 -------------------
 You have the 'subagent' tool. Use only the project-scoped 'codebase-explorer'
 agent from .pi/agents/codebase-explorer.md — a read-only code research agent that
-returns structured Finding / Evidence / Caveats markdown. Dispatch many in one call:
+returns strict JSON final responses with answer, evidence, and caveats. Dispatch many in one call:
     { "tasks": [
         { "agent": "codebase-explorer", "task": "<specific scoped question>" },
         ...
@@ -151,6 +153,7 @@ Up to 8 tool calls per batch. Do not pass model, skill, cwd, context, or other o
 export function coldSystemPrompt(
   repo: string, memoryDir: string, worktree: string, manifest: string,
 ): string {
+  const knownOutputs = [memoryOutputs.zones.resolve(memoryDir, undefined), ...rootMemoryContracts(memoryDir)];
   return `You are the Memory agent for the "${repo}" repo — COLD START.
 
 No prior memory exists. Your job has two phases:
@@ -207,10 +210,14 @@ ${sharedPolicyTail(memoryDir, worktree)}
 FILE MANIFEST (format: "<path>\\t<line-count>", filtered for noise):
 ${manifest}
 
+${outputContractPromptBlock(knownOutputs)}
+
+${finalResponsePromptBlock()}
+
 Write ${memoryDir}/.zones.json first, then all memory files under
 ${memoryDir}/${ROOT_DIR}/ and ${memoryDir}/<zone>/ for each declared zone.
 Do NOT write ${memoryDir}/.state.json — the pipeline owns that file.
-When done, end your output with "MEMORY_MAINTAINER_DONE".`;
+When done, finish with the exact final-response JSON. Do not write the final response into any memory file.`;
 }
 
 export function coldInitialPrompt(repo: string, memoryDir: string): string {
@@ -254,6 +261,10 @@ export function warmSystemPrompt(
   const hintsBlock = unzonedHints.length > 0
     ? `\nUNZONED NEW SUBTREES DETECTED:\n${unzonedHints.join("\n")}\n\nAppend a note to _root/map.md's "Zone index" section flagging each for operator review. Example:\n    - new subtree \`services/billing/\` appeared; rebuild memory to evaluate as a zone.\n`
     : "";
+  const expectedOutputs = [
+    ...rootMemoryContracts(memoryDir),
+    ...zones.flatMap((zone) => zoneMemoryContracts(memoryDir, zone.name)),
+  ];
 
   return `You are the Memory agent for the "${repo}" repo — WARM PATCH.
 
@@ -288,8 +299,12 @@ If a pattern no longer has supporting code, remove the pattern. If a type
 was removed, drop the glossary entry. Prune — memory that only grows decays.
 
 ${sharedPolicyTail(memoryDir, worktree)}
+${outputContractPromptBlock(expectedOutputs)}
+
+${finalResponsePromptBlock()}
+
 Write patches only to files that need updating. Leave untouched files alone.
-When done, end your output with "MEMORY_MAINTAINER_DONE".`;
+When done, finish with the exact final-response JSON. Do not write the final response into any memory file.`;
 }
 
 export function warmInitialPrompt(repo: string, memoryDir: string): string {

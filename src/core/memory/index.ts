@@ -90,9 +90,6 @@ export function memoryDir(repo: string): string {
 export function memoryStatePath(repo: string): string {
   return path.join(memoryDir(repo), ".state.json");
 }
-export function zonesSidecarPath(repo: string): string {
-  return path.join(memoryDir(repo), ".zones.json");
-}
 export function memoryLockPath(repo: string): string {
   return path.join(memoryDir(repo), ".lock");
 }
@@ -308,27 +305,6 @@ export async function writeState(
   const tmp = `${memoryStatePath(repo)}.tmp`;
   await writeFile(tmp, JSON.stringify(state, null, 2), "utf8");
   await rename(tmp, memoryStatePath(repo));
-}
-
-/** Read .zones.json written by the cold agent. Null if missing or invalid. */
-export async function readZonesSidecar(repo: string): Promise<readonly Zone[] | null> {
-  try {
-    const raw = await readFile(zonesSidecarPath(repo), "utf8");
-    const parsed = zonesSidecarSchema.safeParse(JSON.parse(raw));
-    if (!parsed.success) {
-      log.warn(`Invalid .zones.json for ${repo}: ${parsed.error.message}`);
-      return null;
-    }
-    const names = new Set<string>();
-    for (const z of parsed.data.zones) {
-      if (names.has(z.name)) {
-        log.warn(`Duplicate zone name "${z.name}" in ${repo}`);
-        return null;
-      }
-      names.add(z.name);
-    }
-    return parsed.data.zones;
-  } catch { return null; }
 }
 
 // --- Lock (atomic create via wx flag) ---
