@@ -113,7 +113,7 @@ export function PullRequests() {
 
   function handleRetry(row: PrInboxRow) {
     if (!row.reviewTaskId) return Promise.resolve();
-    return runAction(`${row.repo}#${row.number}:retry`, () => retryTask(row.reviewTaskId!));
+    return runAction(`${row.repo}#${row.number}:retry`, () => retryTask(row.reviewTaskId!).then(() => undefined));
   }
 
   async function handleToggleWatch(row: PrInboxRow) {

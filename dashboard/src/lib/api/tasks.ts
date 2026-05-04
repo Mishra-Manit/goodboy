@@ -1,7 +1,7 @@
 /** Task + artifact endpoints. */
 
 import { request, requestText } from "./client.js";
-import type { Task, TaskWithStages, StageSession } from "./types.js";
+import type { Task, TaskWithStages, StageSession, RetryTaskResponse } from "./types.js";
 
 export async function fetchTasks(filters?: {
   status?: string;
@@ -28,8 +28,8 @@ export async function fetchArtifact(taskId: string, name: string): Promise<strin
   return requestText(`/api/tasks/${taskId}/artifacts/${name}`);
 }
 
-export async function retryTask(id: string): Promise<void> {
-  await request(`/api/tasks/${id}/retry`, { method: "POST" });
+export async function retryTask(id: string): Promise<RetryTaskResponse> {
+  return request(`/api/tasks/${id}/retry`, { method: "POST" });
 }
 
 export async function cancelTask(id: string): Promise<void> {

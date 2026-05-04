@@ -28,6 +28,17 @@ const { pipelineHandlers, queriesHandler, stageHandler } = vi.hoisted(() => ({
       calls: [] as unknown[][],
       impl: async (_id: string, _data: unknown) => undefined,
     },
+    createRetryTask: {
+      calls: [] as unknown[][],
+      impl: async (source: Record<string, unknown>) => ({
+        ...source,
+        id: "dcba4321-0000-4000-8000-000000000000",
+        status: "queued",
+        error: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+    },
   },
   stageHandler: {
     cancelTask: { calls: [] as unknown[][], returns: true as boolean },
@@ -70,6 +81,10 @@ vi.mock("@src/db/repository.js", () => ({
   updateTask: (id: string, data: unknown) => {
     queriesHandler.updateTask.calls.push([id, data]);
     return queriesHandler.updateTask.impl(id, data);
+  },
+  createRetryTask: (source: Record<string, unknown>) => {
+    queriesHandler.createRetryTask.calls.push([source]);
+    return queriesHandler.createRetryTask.impl(source);
   },
 }));
 
@@ -129,6 +144,14 @@ beforeEach(() => {
   });
   queriesHandler.listTasks.impl = async () => [];
   queriesHandler.updateTask.impl = async () => undefined;
+  queriesHandler.createRetryTask.impl = async (source) => ({
+    ...source,
+    id: "dcba4321-0000-4000-8000-000000000000",
+    status: "queued",
+    error: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
   stageHandler.cancelTask.calls.length = 0;
   stageHandler.cancelTask.returns = true;
 });
@@ -262,15 +285,16 @@ describe("handleIntent — task_cancel", () => {
 });
 
 describe("handleIntent — task_retry", () => {
-  it("re-queues a failed task and starts the pipeline", async () => {
-    queriesHandler.listTasks.impl = async () => [
-      mkTask({ id: "abcd1234-0000-4000-8000-000000000000", status: "failed" }),
-    ];
+  it("creates a fresh retry task and starts the pipeline", async () => {
+    const failedTask = mkTask({ id: "abcd1234-0000-4000-8000-000000000000", status: "failed" });
+    queriesHandler.listTasks.impl = async () => [failedTask];
     const ctx = makeCtx();
     await handleIntent({ type: "task_retry", taskPrefix: "abcd1234" }, ctx);
-    expect(queriesHandler.updateTask.calls[0][1]).toEqual({ status: "queued", error: null });
+    expect(queriesHandler.createRetryTask.calls[0][0]).toBe(failedTask);
+    expect(queriesHandler.updateTask.calls).toHaveLength(0);
     expect(pipelineHandlers.runPipeline.calls).toHaveLength(1);
-    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("Retrying"));
+    expect(pipelineHandlers.runPipeline.calls[0][0]).toBe("dcba4321-0000-4000-8000-000000000000");
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("as dcba4321"));
   });
 
   it("refuses to retry a running task", async () => {

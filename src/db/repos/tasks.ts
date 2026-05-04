@@ -22,16 +22,20 @@ export async function createTask(data: {
   const db = getDb();
   const [task] = await db
     .insert(schema.tasks)
-    .values({
-      repo: data.repo,
-      kind: data.kind,
-      description: data.description,
-      telegramChatId: data.telegramChatId,
-      prIdentifier: data.prIdentifier ?? null,
-      instance: instanceId(),
-    })
+    .values(taskInsertValues(data))
     .returning();
   return task;
+}
+
+/** Create a fresh execution for a failed task without carrying runtime state forward. */
+export async function createRetryTask(source: Task): Promise<Task> {
+  return createTask({
+    repo: source.repo,
+    kind: source.kind,
+    description: source.description,
+    telegramChatId: source.telegramChatId,
+    prIdentifier: source.prIdentifier ?? (source.prNumber === null ? undefined : String(source.prNumber)),
+  });
 }
 
 export async function getTask(id: string): Promise<Task | null> {
@@ -125,6 +129,25 @@ export async function listTasksForRepoAndPr(repo: string, prNumber: number): Pro
       ),
     ))
     .orderBy(desc(schema.tasks.createdAt));
+}
+
+// --- Helpers ---
+
+function taskInsertValues(data: {
+  repo: string;
+  kind: TaskKind;
+  description: string;
+  telegramChatId: string | null;
+  prIdentifier?: string;
+}) {
+  return {
+    repo: data.repo,
+    kind: data.kind,
+    description: data.description,
+    telegramChatId: data.telegramChatId,
+    prIdentifier: data.prIdentifier ?? null,
+    instance: instanceId(),
+  };
 }
 
 // --- Task Stages ---

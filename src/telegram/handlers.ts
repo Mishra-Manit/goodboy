@@ -127,10 +127,10 @@ async function handleTaskRetry(intent: Extract<Intent, { type: "task_retry" }>, 
     return;
   }
 
-  await queries.updateTask(task.id, { status: "queued", error: null });
-  await ctx.reply(`Retrying task ${shortId(task.id)}...`);
-  PIPELINES[task.kind](task.id, ctx.sendTelegram).catch((err) => {
-    log.error(`Pipeline error for task ${task.id}`, err);
+  const retry = await queries.createRetryTask(task);
+  await ctx.reply(`Retrying task ${shortId(task.id)} as ${shortId(retry.id)}...`);
+  PIPELINES[retry.kind](retry.id, ctx.sendTelegram).catch((err) => {
+    log.error(`Pipeline error for task ${retry.id}`, err);
   });
 }
 

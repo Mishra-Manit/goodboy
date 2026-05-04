@@ -6,6 +6,7 @@ import { z } from "zod";
 import * as queries from "../../db/repository.js";
 import { listRepoSummaries } from "../../shared/domain/repos.js";
 import { toErrorMessage } from "../../shared/runtime/errors.js";
+import { emit } from "../../shared/runtime/events.js";
 import { createLogger } from "../../shared/runtime/logger.js";
 import { TASK_KINDS, TASK_STATUSES } from "../../shared/domain/types.js";
 import { readSessionFile, taskSessionPath } from "../../core/pi/session-file.js";
@@ -77,9 +78,10 @@ export function registerTaskRoutes(app: Hono): void {
     if (!task) return notFound(c);
     if (task.status !== "failed") return c.json({ error: "Task is not in failed state" }, 409);
 
-    await queries.updateTask(task.id, { status: "queued", error: null });
-    PIPELINES[task.kind](task.id, noopSend).catch((err) => log.error(`Retry error ${task.id}`, err));
-    return c.json({ ok: true });
+    const retry = await queries.createRetryTask(task);
+    emit({ type: "task_update", taskId: retry.id, status: retry.status, kind: retry.kind });
+    PIPELINES[retry.kind](retry.id, noopSend).catch((err) => log.error(`Retry error ${retry.id}`, err));
+    return c.json({ ok: true, task: retry }, 201);
   });
 
   app.post("/api/tasks/:id/cancel", async (c) => {

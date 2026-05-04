@@ -163,6 +163,11 @@ export interface CreatePrReviewResponse {
   task: Task;
 }
 
+export interface RetryTaskResponse {
+  ok: true;
+  task: Task;
+}
+
 // --- Repos + session transcripts ---
 
 export interface Repo {
