@@ -14,7 +14,7 @@
 import { writeFile } from "node:fs/promises";
 import { createLogger } from "../../shared/runtime/logger.js";
 import { getRepoNwo } from "../../shared/domain/repos.js";
-import { createPrWorktree, removeWorktree } from "../../core/git/worktree.js";
+import { createPrWorktree, removeWorktree, worktreeExists } from "../../core/git/worktree.js";
 import { getPrMetadata, getPrDiff, parsePrIdentifier } from "../../core/git/github.js";
 import { runImpactAnalyzers } from "./stages/impact-analyzer.js";
 import { runPrAnalyst } from "./stages/analyst.js";
@@ -87,18 +87,33 @@ async function runPrReviewInner(
     return;
   }
 
+  const ownedSession = await findOwnedPrSession(task.repo, prNumber);
+  let ownedReviewRunId: string | null = null;
   let worktreePath: string;
-  try {
-    worktreePath = await createPrWorktree(repo.localPath, headRef, taskId);
-  } catch (err) {
-    await failTask(taskId, `Failed to create worktree: ${toErrorMessage(err)}`, sendTelegram, chatId);
-    return;
+  let ownsWorktree = false;
+
+  if (ownedSession) {
+    const borrowed = await borrowOwnedWorktree(ownedSession);
+    if (!borrowed.ok) {
+      await failTask(taskId, borrowed.reason, sendTelegram, chatId);
+      return;
+    }
+    worktreePath = borrowed.worktreePath;
+    ownedReviewRunId = borrowed.runId;
+  } else {
+    try {
+      worktreePath = await createPrWorktree(repo.localPath, headRef, taskId);
+      ownsWorktree = true;
+    } catch (err) {
+      await failTask(taskId, `Failed to create worktree: ${toErrorMessage(err)}`, sendTelegram, chatId);
+      return;
+    }
   }
 
   // Once handoffExternalReview persists the pr_sessions row, the worktree
-  // belongs to the session and the pipeline must not delete it. `handedOff`
-  // gates the cleanup in `finally`.
-  let handedOff = false;
+  // belongs to the session and the pipeline must not delete it. `ownsWorktree`
+  // gates cleanup for external reviews; owned reviews only borrow a session
+  // worktree and must never remove it.
 
   try {
     // Diff is fetched after the worktree exists so we can run git diff inside it,
@@ -111,7 +126,11 @@ async function runPrReviewInner(
       writeFile(prImpactVariantPaths(artifactsDir, variant.variant).diff, variant.diff)
     )));
 
-    await queries.updateTask(taskId, { prNumber, worktreePath, status: "running" });
+    await queries.updateTask(taskId, {
+      prNumber,
+      status: "running",
+      ...(ownsWorktree ? { worktreePath } : {}),
+    });
 
     const fullMemory = await memoryBlock(task.repo);
     const reviewerFeedback = await codeReviewerFeedbackBlock(task.repo);
@@ -167,20 +186,25 @@ async function runPrReviewInner(
       availableImpactVariants: impactResult.available,
     });
 
-    // Promote the finished task into a watchable PR session. The session
-    // takes ownership of the worktree from this point on.
-    await handoffExternalReview({
-      sourceTaskId: taskId,
-      repo: task.repo,
-      prNumber,
-      branch: headRef,
-      worktreePath,
-      chatId,
-    });
-    handedOff = true;
+    if (ownedReviewRunId) {
+      await queries.completePrSessionRun(ownedReviewRunId);
+    } else {
+      // Promote the finished external review into a watchable PR session. The
+      // session takes ownership of the worktree from this point on.
+      await handoffExternalReview({
+        sourceTaskId: taskId,
+        repo: task.repo,
+        prNumber,
+        branch: headRef,
+        worktreePath,
+        chatId,
+      });
+      ownsWorktree = false;
+    }
 
     await completeTask(taskId);
   } catch (err) {
+    if (ownedReviewRunId) await queries.failPrSessionRun(ownedReviewRunId, toErrorMessage(err));
     await handlePipelineError({
       taskId,
       err,
@@ -190,10 +214,36 @@ async function runPrReviewInner(
     });
   } finally {
     clearActiveSession(taskId);
-    if (!handedOff) {
+    if (ownsWorktree) {
       await removeWorktree(repo.localPath, worktreePath);
     }
   }
+}
+
+async function findOwnedPrSession(repo: string, prNumber: number): Promise<queries.PrSession | null> {
+  const sessions = await queries.listPrSessionsForRepoAndPr(repo, prNumber);
+  return sessions.find((session) => session.mode === "own" && session.status === "active") ?? null;
+}
+
+type BorrowedOwnedWorktree =
+  | { ok: true; worktreePath: string; runId: string }
+  | { ok: false; reason: string };
+
+/** Borrow an owned PR session's checkout without taking cleanup ownership. */
+async function borrowOwnedWorktree(session: queries.PrSession): Promise<BorrowedOwnedWorktree> {
+  if (!session.worktreePath) return { ok: false, reason: "Owned PR session has no worktree to review." };
+  if (!await worktreeExists(session.worktreePath)) {
+    return { ok: false, reason: "Owned PR session worktree is missing. Run reconcile, then retry review." };
+  }
+
+  const running = await queries.getRunningPrSessionRun(session.id);
+  if (running) return { ok: false, reason: "Owned PR session is already running. Retry after it finishes." };
+
+  const run = await queries.createPrSessionRun({
+    prSessionId: session.id,
+    trigger: "review",
+  });
+  return { ok: true, worktreePath: session.worktreePath, runId: run.id };
 }
 
 function padDiffVariants(
