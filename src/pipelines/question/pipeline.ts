@@ -10,6 +10,7 @@ import { createLogger } from "../../shared/runtime/logger.js";
 import { resolveModel } from "../../shared/runtime/config.js";
 import { notifyTelegram, runStage, clearActiveSession, completeTask, type SendTelegram } from "../../core/stage.js";
 import { questionSystemPrompt, questionInitialPrompt } from "./prompts.js";
+import { questionOutputs } from "./output-contracts.js";
 import { memoryBlock } from "../../core/memory/output/render.js";
 import {
   handlePipelineError,
@@ -49,7 +50,8 @@ async function runQuestionInner(
   const absArtifacts = path.resolve(artifactsDir);
 
   try {
-    await runStage({
+    const answerOutput = questionOutputs.answer.resolve(absArtifacts, undefined);
+    const result = await runStage({
       taskId,
       stage: "answering",
       cwd: repo.localPath,
@@ -59,9 +61,14 @@ async function runQuestionInner(
       sendTelegram,
       chatId,
       stageLabel: "Answering",
+      outputs: [answerOutput],
     });
 
-    await sendAnswerToTelegram(artifactsDir, sendTelegram, chatId);
+    if (!result.ok) {
+      throw new Error(`Question answer validation failed: ${result.reason}`);
+    }
+
+    await sendAnswerToTelegram(answerOutput.path, sendTelegram, chatId);
 
     await completeTask(taskId);
   } catch (err) {
@@ -80,12 +87,12 @@ async function runQuestionInner(
 // --- Helpers ---
 
 async function sendAnswerToTelegram(
-  artifactsDir: string,
+  answerPath: string,
   sendTelegram: SendTelegram,
   chatId: string | null,
 ): Promise<void> {
   try {
-    const answer = await readFile(path.join(artifactsDir, "answer.md"), "utf-8");
+    const answer = await readFile(answerPath, "utf-8");
     const message = answer.length > TELEGRAM_ANSWER_CAP
       ? `${answer.slice(0, TELEGRAM_ANSWER_TRUNCATED_AT)}\n\n... (truncated, full answer in dashboard)`
       : answer;

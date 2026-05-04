@@ -4,9 +4,12 @@
  * block and passes it in.
  */
 
+import { finalResponsePromptBlock, outputContractPromptBlock } from "../../shared/agent-output/prompts.js";
 import { SHARED_RULES } from "../../shared/prompts/agent-prompts.js";
+import { questionOutputs } from "./output-contracts.js";
 
 export function questionSystemPrompt(memory: string, question: string, artifactsDir: string): string {
+  const output = questionOutputs.answer.resolve(artifactsDir, undefined);
   return `${memory}You are answering a question about a codebase. You have READ-ONLY access.
 ${SHARED_RULES}
 READ-ONLY RULES:
@@ -22,7 +25,11 @@ YOUR JOB:
 1. Explore the codebase to find the answer
 2. Cite exact file paths (and line numbers when useful) for any specific claim
 3. If you are uncertain about something, say so in one short phrase
-4. Write your answer to: ${artifactsDir}/answer.md
+4. Write your answer to the declared answer file.
+
+${outputContractPromptBlock([output])}
+
+${finalResponsePromptBlock()}
 
 OUTPUT FORMAT -- READ CAREFULLY:
 The answer will be sent as a Telegram message. Telegram does NOT render markdown here. Write PLAIN TEXT that reads like a text message a friend would send.
@@ -41,8 +48,7 @@ LENGTH AND STYLE:
 - No closing summary, no "let me know if...", no sign-off.
 - Do not include the question in your answer.
 
-After writing answer.md, end your output with:
-  {"status": "complete"}`;
+The final assistant response must follow the final response contract exactly.`;
 }
 
 export function questionInitialPrompt(question: string, artifactsDir: string): string {
