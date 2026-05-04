@@ -17,6 +17,7 @@ import type {
   PrSessionWithRuns,
   FileEntry,
   PrReviewPageDto,
+  PrSessionReconcileSummary,
 } from "./types.js";
 
 export async function fetchPrSessions(): Promise<PrSession[]> {
@@ -63,4 +64,8 @@ export async function setPrSessionWatchStatus(
     method: "POST",
     body: JSON.stringify({ watchStatus }),
   });
+}
+
+export async function reconcilePrSessions(apply: boolean): Promise<PrSessionReconcileSummary> {
+  return request(`/api/pr-sessions/reconcile${apply ? "?apply=1" : ""}`, { method: "POST" });
 }

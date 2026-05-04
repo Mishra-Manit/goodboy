@@ -7,9 +7,11 @@ import {
   fetchPrInbox,
   fetchRepos,
   fetchTask,
+  reconcilePrSessions,
   retryTask,
   setPrSessionWatchStatus,
   type PrInboxRow,
+  type PrSessionReconcileSummary,
   type TaskWithStages,
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
@@ -37,6 +39,10 @@ export function PullRequests() {
   const [taskDetails, setTaskDetails] = useState<Map<string, TaskWithStages>>(new Map());
   const [actionKey, setActionKey] = useState<string | null>(null);
   const [watchKey, setWatchKey] = useState<string | null>(null);
+  const [reconcileState, setReconcileState] = useState<{
+    busy: boolean;
+    summary: PrSessionReconcileSummary | null;
+  }>({ busy: false, summary: null });
 
   // Restore the last selected repo when possible; fall back if the registry changed.
   useEffect(() => {
@@ -127,6 +133,28 @@ export function PullRequests() {
     }
   }
 
+  async function handleReconcile() {
+    if (reconcileState.busy) return;
+    setReconcileState((prev) => ({ ...prev, busy: true }));
+    try {
+      const preview = await reconcilePrSessions(false);
+      const repairs = preview.wouldRecreate + preview.wouldMute;
+      if (repairs === 0) {
+        setReconcileState({ busy: false, summary: preview });
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `Repair ${repairs} PR session${repairs === 1 ? "" : "s"}? Missing worktrees will be recreated; unrecoverable sessions will be muted.`,
+      );
+      const summary = confirmed ? await reconcilePrSessions(true) : preview;
+      if (confirmed) inboxQuery.refetch();
+      setReconcileState({ busy: false, summary });
+    } catch {
+      setReconcileState({ busy: false, summary: null });
+    }
+  }
+
   function selectRepo(next: string | null) {
     setRepo(next);
     saveSelectedRepo(next);
@@ -155,6 +183,17 @@ export function PullRequests() {
           />
           <button
             type="button"
+            disabled={reconcileState.busy}
+            onClick={handleReconcile}
+            className={cn(
+              "h-8 rounded-full border border-glass-border bg-glass px-3 font-mono text-[10px] tracking-wide transition-colors",
+              reconcileState.busy ? "cursor-wait text-text-void" : "text-text-ghost hover:border-glass-hover hover:text-accent",
+            )}
+          >
+            {reconcileState.busy ? "checking..." : "reconcile"}
+          </button>
+          <button
+            type="button"
             onClick={inboxQuery.refetch}
             className="h-8 rounded-full border border-glass-border bg-glass px-3 font-mono text-[10px] tracking-wide text-text-ghost transition-colors hover:border-glass-hover hover:text-accent"
           >
@@ -162,6 +201,8 @@ export function PullRequests() {
           </button>
         </div>
       </header>
+
+      {reconcileState.summary && <ReconcileNotice summary={reconcileState.summary} />}
 
       <PageState
         data={reposQuery.data}
@@ -215,6 +256,25 @@ export function PullRequests() {
 }
 
 // --- Components ---
+
+interface ReconcileNoticeProps {
+  summary: PrSessionReconcileSummary;
+}
+
+function ReconcileNotice({ summary }: ReconcileNoticeProps) {
+  const changed = summary.recreated + summary.muted;
+  const pending = summary.wouldRecreate + summary.wouldMute;
+  const detail = summary.applied
+    ? `${changed} repaired, ${summary.healthy} healthy, ${summary.errors} errors`
+    : `${pending} need repair, ${summary.healthy} healthy`;
+
+  return (
+    <div className="mb-5 rounded-lg border border-glass-border bg-glass px-4 py-3">
+      <p className="font-mono text-[11px] text-text">PR session reconcile {summary.applied ? "applied" : "preview"}</p>
+      <p className="mt-1 font-mono text-[10px] text-text-ghost">{detail}</p>
+    </div>
+  );
+}
 
 interface RepoSelectProps {
   value: string;
@@ -329,7 +389,9 @@ function renderAction(
 ): ReactNode {
   if (row.canRetryReview) return <ActionButton busy={active} onClick={onRetry}>Retry review</ActionButton>;
   if (row.canRerunReview) return <ActionButton busy={active} onClick={onRerun}>Re-run review</ActionButton>;
-  if (row.canStartReview) return <ActionButton busy={active} onClick={onStart}>Start review</ActionButton>;
+  if (row.canStartReview) {
+    return <ActionButton busy={active} onClick={onStart}>{row.state === "owned" ? "Review owned PR" : "Start review"}</ActionButton>;
+  }
   return null;
 }
 
