@@ -13,6 +13,11 @@ export const PR_INBOX_STATES = [
 
 export type PrInboxState = (typeof PR_INBOX_STATES)[number];
 
+export type PrInboxOpenTarget =
+  | { type: "task"; taskId: string }
+  | { type: "pr_session"; sessionId: string }
+  | { type: "external"; url: string };
+
 /** Open PR row with precomputed action flags so the UI stays dumb. */
 export interface PrInboxRow {
   repo: string;
@@ -32,6 +37,7 @@ export interface PrInboxRow {
   reviewTaskId: string | null;
   watchSessionId: string | null;
   watchStatus: "watching" | "muted" | null;
+  openTarget: PrInboxOpenTarget;
   canStartReview: boolean;
   canRetryReview: boolean;
   canRerunReview: boolean;

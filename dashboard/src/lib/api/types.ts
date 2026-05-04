@@ -69,6 +69,7 @@ export type {
   CodeReviewerFeedbackSource,
   StageSession,
   CreateTaskResponse,
+  PrInboxOpenTarget,
   PrInboxRow,
   PrInboxState,
   PrInboxResponse,
