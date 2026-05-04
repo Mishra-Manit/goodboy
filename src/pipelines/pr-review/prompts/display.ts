@@ -70,18 +70,52 @@ Minimal valid shape to copy before filling details:
   "orderedChapterIds": ["post-mortem"]
 }
 
+Report issue conversion:
+When selecting an issue from a subagent report, convert it into a dashboard annotation like this:
+- report issue 'file' becomes annotation 'filePath'
+- report issue 'line_start' becomes annotation 'line'
+- report issue 'category' and 'severity' are ranking inputs only; dashboard 'kind' comes from the allowed dashboard kind values below
+- unresolved report issues use 'kind: "concern"'
+- report issues use 'side: "new"' by default; GitHub/diff side 'right' maps to 'new', and 'left' maps to 'old'
+- use 'side: "old"' only when the selected line is a deletion line from the old file in the updated diff
+- copy or rewrite report 'title' into annotation 'title'
+- rewrite report 'rationale' + 'suggested_fix' into one short annotation 'body'
+
+Allowed dashboard enum values to copy exactly:
+- side: "old" or "new"
+- kind: "user_change", "goodboy_fix", "concern", or "note"
+
+Converted issue example:
+{
+  "filePath": "backend/coliseum/agents/post_mortem/main.py",
+  "side": "new",
+  "line": 164,
+  "kind": "concern",
+  "title": "Empty trade context reaches LLM",
+  "body": "When all context loads fail, the model gets no trade data; return early before building the prompt."
+}
+
+Chapter construction from selected annotations:
+- Set each chapter 'files' array to the unique annotation 'filePath' values in that chapter.
+- Every annotation 'filePath' must appear in the same chapter's 'files' array.
+- Prefer one chapter per file unless several files share one clear theme.
+
 Safe generation order:
 1. Start from the minimal valid shape above.
 2. Fill prTitle and headSha from pr-context.updated.json.
-3. Define chapters[]: id, title, files, rationale.
-4. Add annotations, verifying each annotation.filePath appears in that chapter's files[].
-5. Write orderedChapterIds last by copying every chapter id in display order.
+3. Convert selected report issues into dashboard annotations using the conversion rules above.
+4. Define chapters[]: id, title, files, rationale, annotations.
+5. Verify each annotation.filePath appears in that chapter's files[].
+6. Write orderedChapterIds last by copying every chapter id in display order.
 
 Annotation kinds:
 - user_change: neutral commentary on something the PR author wrote.
 - goodboy_fix: an edit goodboy made (in pr.updated.diff but not pr.diff). Explain why.
 - concern: something still wrong or risky that is traceable to a changed line in this PR.
 - note: an FYI observation that isn't a fix or a problem.
+
+Dashboard enum rule:
+Use only the side and kind values listed in this schema. Report categories such as correctness, tests, security, style, and report severities such as blocker, major, minor, nit are useful for ranking findings, but they are not dashboard kind values.
 `;
 
 // --- Public API ---
@@ -178,6 +212,10 @@ ${SCHEMA_DOC}
 Output rules:
 - Write valid JSON to ${paths.review} (outside the worktree; this is the only file you may write). No markdown code fences, comments, status markers, or text outside the JSON object in the file.
 - The top-level keys must be exactly the dashboard artifact keys from the schema: prTitle, headSha, summary, chapters, orderedChapterIds.
+- Every chapter object must include id, title, files, rationale, annotations.
+- Every annotation object must include filePath, side, line, kind, title, body.
+- Annotation side values must be exactly "old" or "new"; use "new" for normal report issues.
+- Annotation kind values must be exactly "user_change", "goodboy_fix", "concern", or "note"; use "concern" for unresolved report issues.
 - Match the schema exactly. Validation is strict; any mismatch causes the dashboard to show the page as unavailable.
 - Prefer 3-8 total annotations for normal PRs. Use more only for genuinely large/risky PRs.
 - If a subagent report is verbose, summarize its point in your own short UI copy.
@@ -200,7 +238,7 @@ export function prDisplayInitialPrompt(artifactsDir: string, availableImpactVari
   const impactInstruction = impactFiles.length > 0
     ? `Also read successful impact variant files: ${impactFiles.join(", ")}.`
     : "No impact variant files succeeded; continue from summary, reports, context, and diffs.";
-  return `Begin. Read ${paths.updatedContext}, ${paths.updatedDiff}, ${paths.summary}, and the JSON files under ${paths.reportsDir}. ${impactInstruction} Read ${paths.context} and ${paths.diff} only if needed for goodboy_fix annotations. Avoid worktree reads unless selected annotation evidence is unclear. Select the final 3-8 high-impact annotations first, verify only those lines, then use the write tool to write exactly one dashboard artifact JSON object to ${paths.review}. Required top-level keys: prTitle, headSha, summary, chapters, orderedChapterIds. Keep summary <=600 chars, chapter title 1-2 words MAX (hard rule), chapter rationale <=140 chars, annotation titles <=70 chars, annotation bodies <=220 chars. Do not append status text to review.json. Final response only: {"status": "complete"}.`;
+  return `Begin. Read ${paths.updatedContext}, ${paths.updatedDiff}, ${paths.summary}, and the JSON files under ${paths.reportsDir}. ${impactInstruction} Read ${paths.context} and ${paths.diff} only if needed for goodboy_fix annotations. Avoid worktree reads unless selected annotation evidence is unclear. Select the final 3-8 high-impact annotations first, verify only those lines, then use the write tool to write exactly one dashboard artifact JSON object to ${paths.review}. Required top-level keys: prTitle, headSha, summary, chapters, orderedChapterIds. Required chapter keys: id, title, files, rationale, annotations. Required annotation keys: filePath, side, line, kind, title, body. Convert report file→filePath and line_start→line. Use side exactly "new" or "old"; use "new" for normal report issues. Use kind exactly "concern" for unresolved report issues; goodboy fixes use "goodboy_fix". Report categories like correctness/tests/security/style are ranking inputs only, not kind values. Keep summary <=600 chars, chapter title 1-2 words MAX (hard rule), chapter rationale <=140 chars, annotation titles <=70 chars, annotation bodies <=220 chars. Do not append status text to review.json. Final response only: {"status": "complete"}.`;
 }
 
 function impactInputBlock(impactFiles: readonly string[]): string {
