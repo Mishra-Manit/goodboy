@@ -133,11 +133,9 @@ export function PullRequests() {
   }
 
   function openRow(row: PrInboxRow) {
-    // Prefer Goodboy context when it exists; fall back to GitHub for untouched PRs.
-    if (row.reviewSessionId) return navigate(`/prs/${row.reviewSessionId}`);
-    if (row.ownSessionId) return navigate(`/prs/${row.ownSessionId}`);
-    if (row.reviewTaskId) return navigate(`/tasks/${row.reviewTaskId}`);
-    window.open(row.url, "_blank", "noopener,noreferrer");
+    if (row.openTarget.type === "task") return navigate(`/tasks/${row.openTarget.taskId}`);
+    if (row.openTarget.type === "pr_session") return navigate(`/prs/${row.openTarget.sessionId}`);
+    window.open(row.openTarget.url, "_blank", "noopener,noreferrer");
   }
 
   return (
