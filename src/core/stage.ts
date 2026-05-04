@@ -87,6 +87,17 @@ export function clearActiveSession(taskId: string, stage?: StageName, variant?: 
  * (typically by a retry), so any stage spawned after this point short-
  * circuits via `runStage`'s entry check.
  */
+/**
+ * Cancel a task, update its DB status to "cancelled", and emit the SSE event.
+ * Never throws. Callers should use this instead of `cancelTask` + `updateTask`
+ * to avoid the duplicate two-step dance.
+ */
+export async function cancelAndUpdateTask(taskId: string): Promise<void> {
+  await cancelTask(taskId);
+  await queries.updateTask(taskId, { status: "cancelled" });
+  emit({ type: "task_update", taskId, status: "cancelled" });
+}
+
 export async function cancelTask(taskId: string): Promise<boolean> {
   cancelledTasks.add(taskId);
 

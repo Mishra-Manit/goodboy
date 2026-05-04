@@ -10,7 +10,7 @@ import { emit } from "../../shared/runtime/events.js";
 import { createLogger } from "../../shared/runtime/logger.js";
 import { TASK_KINDS, TASK_STATUSES } from "../../shared/domain/types.js";
 import { readSessionFile, taskSessionPath } from "../../core/pi/session-file.js";
-import { cancelTask as cancelRunningTask, type SendTelegram } from "../../core/stage.js";
+import { cancelAndUpdateTask, type SendTelegram } from "../../core/stage.js";
 import { dismissTask } from "../../core/cleanup.js";
 import { PIPELINES } from "../../pipelines/index.js";
 import {
@@ -87,8 +87,7 @@ export function registerTaskRoutes(app: Hono): void {
   app.post("/api/tasks/:id/cancel", async (c) => {
     const task = await queries.getTask(c.req.param("id"));
     if (!task) return notFound(c);
-    await cancelRunningTask(task.id);
-    await queries.updateTask(task.id, { status: "cancelled" });
+    await cancelAndUpdateTask(task.id);
     return c.json({ ok: true });
   });
 
