@@ -11,9 +11,11 @@ const state = vi.hoisted(() => ({
   selectRows: [] as unknown[][],
   insertRows: [] as unknown[][],
   updateRows: [] as unknown[][],
+  deleteRows: [] as unknown[][],
   selects: [] as DbCall[],
   inserts: [] as DbCall[],
   updates: [] as DbCall[],
+  deletes: [] as DbCall[],
 }));
 
 function nextRows(queue: unknown[][]): unknown[] {
@@ -62,6 +64,13 @@ function makeDb() {
         },
       }),
     }),
+    delete: (table: unknown) => ({
+      where: (where: unknown) => {
+        const call: DbCall = { table, where };
+        state.deletes.push(call);
+        return terminal(nextRows(state.deleteRows));
+      },
+    }),
     transaction: async (callback: (tx: ReturnType<typeof makeDb>) => Promise<unknown>) => callback(makeDb()),
   };
 }
@@ -99,9 +108,11 @@ beforeEach(() => {
   state.selectRows = [];
   state.insertRows = [];
   state.updateRows = [];
+  state.deleteRows = [];
   state.selects = [];
   state.inserts = [];
   state.updates = [];
+  state.deletes = [];
 });
 
 describe("repository instance scoping", () => {
