@@ -14,6 +14,7 @@ import { createLogger } from "../../shared/runtime/logger.js";
 import { resolveModel } from "../../shared/runtime/config.js";
 import { emit } from "../../shared/runtime/events.js";
 import { spawnPiSession } from "../../core/pi/spawn.js";
+import { createPrSessionWorktree, worktreeExists } from "../../core/git/worktree.js";
 import {
   ensureSessionDir,
   prSessionPath,
@@ -46,6 +47,7 @@ import { withPipelineSpan, bridgeSessionToOtel } from "../../observability/index
 import { trace } from "@opentelemetry/api";
 import { Goodboy } from "../../observability/attributes.js";
 import { toErrorMessage } from "../../shared/runtime/errors.js";
+import { getRepo } from "../../shared/domain/repos.js";
 
 const exec = promisify(execFile);
 const log = createLogger("pr-session");
@@ -120,16 +122,18 @@ export async function resumePrSession(options: {
   prSessionId: string;
   comments: PrComment[];
   sendTelegram: SendTelegram;
-}): Promise<void> {
+}): Promise<boolean> {
   const { prSessionId, comments, sendTelegram } = options;
 
   const prSession = await queries.getPrSession(prSessionId);
-  if (!prSession?.worktreePath) {
-    log.error(`Cannot resume PR session ${prSessionId}: missing record or worktree`);
-    return;
+  if (!prSession) {
+    log.error(`Cannot resume PR session ${prSessionId}: missing record`);
+    return false;
   }
 
-  const { worktreePath, repo, branch, prNumber, mode, telegramChatId: chatId } = prSession;
+  const { repo, branch, prNumber, mode, telegramChatId: chatId } = prSession;
+  const worktreePath = await ensureResumeWorktree(prSession, sendTelegram);
+  if (!worktreePath) return false;
   await pullLatest(worktreePath, prSessionId, branch);
 
   const run = await queries.createPrSessionRun({ prSessionId, trigger: "comments", comments });
@@ -185,10 +189,12 @@ export async function resumePrSession(options: {
 
     await notifyTelegram(sendTelegram, chatId,
       `Addressed ${comments.length} comment${pluralS} on PR #${prNumber}. Pushed changes.`);
+    return true;
   } catch (err) {
     log.error(`PR session resume failed for ${prSessionId}`, err);
     await notifyTelegram(sendTelegram, chatId,
       `Failed to address comments on PR #${prNumber}: ${toErrorMessage(err)}`);
+    return false;
   }
 }
 
@@ -340,6 +346,52 @@ async function assertWorktreeExists(worktreePath: string): Promise<void> {
   }
 }
 
+/** Ensure comment-driven resumes never spawn pi inside a stale cwd. */
+async function ensureResumeWorktree(
+  session: queries.PrSession,
+  sendTelegram: SendTelegram,
+): Promise<string | null> {
+  const { id, repo, branch, worktreePath, telegramChatId: chatId, prNumber } = session;
+  if (worktreePath && await worktreeExists(worktreePath)) return worktreePath;
+
+  if (!branch) {
+    await muteBrokenSession(id, sendTelegram, chatId, `PR session ${id} has no branch to recreate.`);
+    return null;
+  }
+
+  const registeredRepo = getRepo(repo);
+  if (!registeredRepo) {
+    await muteBrokenSession(id, sendTelegram, chatId, `Repo '${repo}' is no longer registered.`);
+    return null;
+  }
+
+  try {
+    log.warn(`Recreating missing PR session worktree for ${id}: ${worktreePath ?? "<none>"}`);
+    const nextPath = await createPrSessionWorktree(registeredRepo.localPath, branch, id);
+    await queries.updatePrSession(id, { worktreePath: nextPath });
+    return nextPath;
+  } catch (err) {
+    await muteBrokenSession(
+      id,
+      sendTelegram,
+      chatId,
+      `Could not recreate worktree for PR #${prNumber ?? "?"}: ${toErrorMessage(err)}`,
+    );
+    return null;
+  }
+}
+
+async function muteBrokenSession(
+  prSessionId: string,
+  sendTelegram: SendTelegram,
+  chatId: string | null,
+  reason: string,
+): Promise<void> {
+  log.error(reason);
+  await queries.updatePrSession(prSessionId, { watchStatus: "muted" });
+  await notifyTelegram(sendTelegram, chatId, `${reason}\nMuted this PR session so it will not crash or retry-loop.`);
+}
+
 async function resolveReviewChatArtifacts(sourceTaskId: string): Promise<ReviewChatArtifacts> {
   const paths = prReviewArtifactPaths(taskArtifactsDir(sourceTaskId));
   for (const required of [paths.review, paths.summary, paths.diff]) {
@@ -464,9 +516,9 @@ async function runSessionTurnInner(turn: SessionTurn): Promise<void> {
     extensions,
     envOverrides,
   });
-  session.sendPrompt(prompt);
 
   try {
+    session.sendPrompt(prompt);
     await withTimeout(session.waitForCompletion(), SESSION_TIMEOUT_MS, timeoutLabel);
     await queries.completePrSessionRun(run.id);
   } catch (err) {
