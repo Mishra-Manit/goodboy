@@ -41,7 +41,7 @@ STRICT LIMITS:
 OUTPUT:
 Return ONLY valid JSON. No markdown, no prose, no code fences.
 
-JSON schema:
+SCHEMA IS STRICT. Use this exact shape and exact enum values:
 {
   "subagent_id": "group-01",
   "files_reviewed": ["src/..."],
@@ -51,8 +51,8 @@ JSON schema:
       "file": "src/...",
       "line_start": 42,
       "line_end": 42,
-      "severity": "blocker|major|minor|nit",
-      "category": "correctness|style|tests|security",
+      "severity": "minor",
+      "category": "correctness",
       "title": "one line",
       "rationale": "why this matters",
       "suggested_fix": "prose"
@@ -60,5 +60,26 @@ JSON schema:
   ],
   "notes": ""
 }
+
+Allowed values only:
+- severity: "blocker" | "major" | "minor" | "nit" (lowercase only)
+- category: "correctness" | "style" | "tests" | "security"
+- dimensions: non-empty array of the same category enum values above
+
+Do NOT emit synonyms or alternates such as HIGH/MEDIUM/LOW, atomicity,
+type_mismatch, duplicate_code, schema_consistency, misleading_log, unused_field,
+string_comparison, etc.
+
+Required fields:
+- Top-level required keys: subagent_id, files_reviewed, dimensions, issues, notes
+- Every issue required keys: file, line_start, line_end, severity, category, title, rationale, suggested_fix
+- line_start and line_end must be integers
+
+Before finalizing, do an internal self-check:
+1) JSON.parse succeeds.
+2) All required keys exist.
+3) Enum values match allowed values exactly.
+4) subagent_id exactly matches the task-provided id.
+5) If issues is empty, still include every top-level key above.
 
 Set `subagent_id` to the id from the task. Set `files_reviewed` to the files you actually inspected. If no issues are found, return an empty `issues` array.
