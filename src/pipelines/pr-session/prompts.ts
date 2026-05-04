@@ -3,6 +3,8 @@
  * the PR; address feedback on it) and `review` (external PR we are reviewing).
  */
 
+import { prCreationFinalResponseContract } from "../../shared/agent-output/contracts.js";
+import { finalResponsePromptBlock } from "../../shared/agent-output/prompts.js";
 import { SHARED_RULES } from "../../shared/prompts/agent-prompts.js";
 import type { PrComment } from "../../shared/domain/types.js";
 
@@ -10,17 +12,20 @@ export function prSessionPrompt(options: {
   mode: "own" | "review";
   repo: string;
   branch: string;
+  githubRepo?: string;
   prNumber?: number;
   planPath?: string;
   summaryPath?: string;
   reviewPath?: string;
   feedbackToolPolicy?: string;
 }): string {
-  const { mode, repo, branch, prNumber, planPath, summaryPath, reviewPath, feedbackToolPolicy } = options;
+  const { mode, repo, branch, githubRepo, prNumber, planPath, summaryPath, reviewPath, feedbackToolPolicy } = options;
+  const ghRepo = githubRepo ?? repo;
 
   const shared = `You are a PR session agent managing a pull request on GitHub.
 ${SHARED_RULES}
 REPO: ${repo}
+GITHUB_REPO: ${ghRepo}
 BRANCH: ${branch}
 ${prNumber ? `PR: #${prNumber}` : ""}
 
@@ -46,14 +51,14 @@ MODE: You wrote the code for this PR.
 ${prNumber ? "" : `NO PR EXISTS YET. Your first job is to:
 1. Push the branch: git push -u origin ${branch}
 2. Read the artifact files for context on the PR description.
-3. Create the PR: gh pr create --title "..." --body "..." --base main --repo ${repo}
+3. Create the PR: gh pr create --title "..." --body-file /path/to/body.md --base main --repo ${ghRepo}
+4. Copy the exact PR URL printed by gh into your final response as prUrl.
 
-CRITICAL: When writing the PR body, avoid using backticks for code formatting in the --body string passed to bash. Bash interprets backticks as command substitution, which will cause errors. Use single quotes for the outer string and plain text for code references, or write the body to a file and use --body-file instead.
+CRITICAL: When writing the PR body, avoid using backticks for code formatting in the --body string passed to bash. Bash interprets backticks as command substitution, which will cause errors. Prefer writing the body to a file and using --body-file.
 `}
 ${artifactLines ? `ARTIFACT FILES (read these for context):\n${artifactLines}` : ""}
 
-When you are done, end your output with:
-  {"status": "complete"}`;
+${finalResponsePromptBlock(prNumber ? undefined : prCreationFinalResponseContract)}`;
   }
 
   // mode === "review"
@@ -61,20 +66,19 @@ When you are done, end your output with:
 MODE: You are reviewing PR #${prNumber} on ${repo}.
 
 YOUR JOB:
-1. Read the diff: gh pr diff ${prNumber} --repo ${repo}
+1. Read the diff: gh pr diff ${prNumber} --repo ${ghRepo}
 2. Understand the changes thoroughly.
 3. If you spot issues, fix them yourself -- edit the code, commit, and push.
-4. Post your review via: gh pr review ${prNumber} --repo ${repo} --approve --body "..."
-   Or if changes are needed that you cannot fix: gh pr review ${prNumber} --repo ${repo} --request-changes --body "..."
+4. Post your review via: gh pr review ${prNumber} --repo ${ghRepo} --approve --body "..."
+   Or if changes are needed that you cannot fix: gh pr review ${prNumber} --repo ${ghRepo} --request-changes --body "..."
 
-When you are done, end your output with:
-  {"status": "complete"}`;
+${finalResponsePromptBlock()}`;
 }
 
 /** Render the new-comments prompt. Each comment carries its own kind tag. */
 export function formatCommentsPrompt(comments: PrComment[]): string {
   const formatted = comments.map(formatComment).join("\n\n---\n\n");
-  return `New comments on your PR:\n\n${formatted}\n\nAddress the feedback, commit, and push. If a comment contains durable future-facing feedback, follow the code reviewer feedback tool policy in your system prompt. If a review is an approval with no actionable request, acknowledge politely and do nothing else. When done, end with: {"status": "complete"}`;
+  return `New comments on your PR:\n\n${formatted}\n\nAddress the feedback, commit, and push. If a comment contains durable future-facing feedback, follow the code reviewer feedback tool policy in your system prompt. If a review is an approval with no actionable request, acknowledge politely and do nothing else.\n\n${finalResponsePromptBlock()}`;
 }
 
 function formatComment(c: PrComment): string {

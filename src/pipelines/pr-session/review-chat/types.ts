@@ -1,5 +1,6 @@
 /** Shared types for the review-chat module. Pure data, no IO, no behavior. */
 
+import type { ReviewChatFinalResponse } from "../../../shared/agent-output/contracts.js";
 import type { PrReviewAnnotation } from "../../../shared/contracts/pr-review.js";
 
 export interface ReviewChatContext {
@@ -18,7 +19,4 @@ export interface ReviewChatArtifacts {
   reportsDir: string;
 }
 
-export interface ReviewChatResult {
-  status: "complete" | "failed";
-  changed: boolean;
-}
+export type ReviewChatResult = ReviewChatFinalResponse;

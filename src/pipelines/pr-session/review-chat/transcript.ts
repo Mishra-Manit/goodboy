@@ -1,10 +1,7 @@
 /**
  * Recover review-chat user/assistant pairs from the PR-session JSONL. Pure.
- *
- * A user prompt is a `formatReviewChatPrompt` output, identifiable by the
- * `USER MESSAGE:` block. Other turns (poller comments, PR creation) are
- * skipped. Each user is paired with the next assistant message whose tail
- * parses as a valid `ReviewChatResult`.
+ * User prompts are identified by the `USER MESSAGE:` block; assistant replies
+ * must end with a valid final-line review-chat JSON marker.
  */
 
 import {
@@ -13,24 +10,10 @@ import {
   type ReviewChatMessage,
   type ReviewChatPart,
 } from "../../../shared/contracts/pr-review.js";
-import type { AssistantMessage, FileEntry, TextContent } from "../../../shared/contracts/session.js";
+import type { FileEntry } from "../../../shared/contracts/session.js";
+import { stripFinalLineJsonMarker } from "../../../shared/agent-output/final-response.js";
 import { ANNOTATION_HEADER, USER_MESSAGE_HEADER } from "./prompts.js";
 import { parseReviewChatResult } from "./parse-result.js";
-
-/** Concatenated text of the most recent assistant message, or null. */
-export function latestAssistantText(entries: FileEntry[]): string | null {
-  for (let i = entries.length - 1; i >= 0; i -= 1) {
-    const entry = entries[i];
-    if (entry.type !== "message") continue;
-    const message = entry.message;
-    if (message.role !== "assistant") continue;
-    const texts = (message as AssistantMessage).content
-      .filter((block): block is TextContent => block.type === "text")
-      .map((block) => block.text);
-    return texts.length > 0 ? texts.join("\n") : null;
-  }
-  return null;
-}
 
 export function extractReviewChatMessages(entries: FileEntry[]): ReviewChatMessage[] {
   const messages: ReviewChatMessage[] = [];
@@ -67,42 +50,9 @@ export function extractReviewChatMessages(entries: FileEntry[]): ReviewChatMessa
   return messages;
 }
 
-/**
- * Remove the trailing JSON result marker from assistant text. The marker is
- * metadata for the dashboard, not user-visible content. We strip the last
- * balanced `{...}` block if it parses as a valid result.
- */
+/** Remove the final-line result marker from assistant text. */
 export function stripResultMarker(text: string): string {
-  const trimmed = text.trimEnd();
-  // Walk backwards to find the last balanced top-level `{...}` block.
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  let endIdx = -1;
-  for (let i = trimmed.length - 1; i >= 0; i -= 1) {
-    const ch = trimmed[i];
-    if (inString) {
-      if (escape) { escape = false; continue; }
-      if (ch === "\\") { escape = true; continue; }
-      if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') { inString = true; continue; }
-    if (ch === "}") {
-      if (depth === 0) endIdx = i;
-      depth += 1;
-    } else if (ch === "{" && depth > 0) {
-      depth -= 1;
-      if (depth === 0 && endIdx >= 0) {
-        const candidate = trimmed.slice(i, endIdx + 1);
-        if (parseReviewChatResult(candidate)) {
-          return trimmed.slice(0, i).trimEnd();
-        }
-        return trimmed;
-      }
-    }
-  }
-  return trimmed;
+  return stripFinalLineJsonMarker(text);
 }
 
 // --- Helpers ---
@@ -117,7 +67,6 @@ function parseUserMessage(text: string | null): ParsedUserMessage | null {
   const idx = text.indexOf(USER_MESSAGE_HEADER);
   if (idx === -1) return null;
   const after = text.slice(idx + USER_MESSAGE_HEADER.length).trim();
-  // Drop the trailing instruction tail produced by formatReviewChatPrompt.
   const cleaned = after.replace(/\n+Respond, and end with the JSON marker\.?\s*$/i, "").trim();
   return { text: cleaned, annotation: parseAnnotationFromUserPrompt(text) };
 }

@@ -18,6 +18,7 @@ import { createPrSessionWorktree, worktreeExists } from "../../core/git/worktree
 import {
   ensureSessionDir,
   prSessionPath,
+  readLatestAssistantText,
   readSessionFile,
 } from "../../core/pi/session-file.js";
 import { broadcastSessionFile } from "../../core/pi/session-broadcast.js";
@@ -30,7 +31,14 @@ import { codeReviewerFeedbackToolPolicy } from "../../shared/prompts/code-review
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import { parsePrNumberFromUrl, revParseHead } from "../../core/git/github.js";
 import { taskArtifactsDir } from "../../shared/artifacts/index.js";
-import { prReviewArtifactPaths } from "../pr-review/artifacts/index.js";
+import { parseBareFinalJson, parseFinalLineJson } from "../../shared/agent-output/final-response.js";
+import {
+  prCreationFinalResponseContract,
+  reviewChatFinalResponseContract,
+  stageCompleteFinalResponseContract,
+  type FinalResponseContract,
+} from "../../shared/agent-output/contracts.js";
+import { prReviewOutputs, prReviewReportsDir } from "../pr-review/output-contracts.js";
 import type { PrComment } from "../../shared/domain/types.js";
 import type { PrReviewAnnotation } from "../../shared/contracts/pr-review.js";
 import {
@@ -47,7 +55,7 @@ import { withPipelineSpan, bridgeSessionToOtel } from "../../observability/index
 import { trace } from "@opentelemetry/api";
 import { Goodboy } from "../../observability/attributes.js";
 import { toErrorMessage } from "../../shared/runtime/errors.js";
-import { getRepo } from "../../shared/domain/repos.js";
+import { getRepo, getRepoNwo } from "../../shared/domain/repos.js";
 
 const exec = promisify(execFile);
 const log = createLogger("pr-session");
@@ -81,13 +89,20 @@ export async function startPrSession(options: {
   log.info(`Starting PR session ${prSession.id} for task ${sourceTaskId}`);
 
   try {
-    await runSessionTurn({
+    const githubRepo = getRepoNwo(repo);
+    if (!githubRepo) {
+      const message = `Repo '${repo}' is missing a GitHub owner/repo URL.`;
+      await queries.failPrSessionRun(run.id, message);
+      throw new Error(message);
+    }
+
+    const finalResponse = await runSessionTurn({
       prSessionId: prSession.id,
       trigger: "pr_creation",
       labelSuffix: "create",
       cwd: worktreePath,
       systemPrompt: prSessionPrompt({
-        mode: "own", repo, branch,
+        mode: "own", repo, githubRepo, branch,
         planPath: path.join(artifactsDir, "plan.md"),
         summaryPath: path.join(artifactsDir, "implementation-summary.md"),
         reviewPath: path.join(artifactsDir, "review.md"),
@@ -96,21 +111,18 @@ export async function startPrSession(options: {
       prompt: prCreationPrompt,
       run,
       timeoutLabel: "PR session (create)",
+      finalResponseContract: prCreationFinalResponseContract,
     });
 
-    const prUrl = await extractPrUrlFromSession(prSession.id);
-    const prNumber = prUrl ? parsePrNumberFromUrl(prUrl) : null;
-    await queries.updatePrSession(prSession.id, {
-      ...(prNumber ? { prNumber } : {}),
-      lastPolledAt: new Date(),
-    });
-
-    if (prNumber && prUrl) {
-      await queries.updateTask(sourceTaskId, { prUrl, prNumber });
-      await notifyTelegram(sendTelegram, chatId, `PR is up: ${prUrl}\nI will watch for comments.`);
-    } else {
-      await notifyTelegram(sendTelegram, chatId, "PR session finished, but I could not detect the PR URL from output. Check GitHub.");
+    const prUrl = finalResponse.prUrl;
+    const prNumber = parsePrNumberFromUrl(prUrl);
+    if (!prNumber) {
+      throw new Error(`PR creation final response contained an invalid GitHub PR URL: ${prUrl}`);
     }
+
+    await queries.updatePrSession(prSession.id, { prNumber, lastPolledAt: new Date() });
+    await queries.updateTask(sourceTaskId, { prUrl, prNumber });
+    await notifyTelegram(sendTelegram, chatId, `PR is up: ${prUrl}\nI will watch for comments.`);
   } catch (err) {
     log.error(`PR session create failed for task ${sourceTaskId}`, err);
     await notifyTelegram(sendTelegram, chatId, `PR session failed: ${toErrorMessage(err)}`);
@@ -285,6 +297,8 @@ export async function runReviewChatTurn(options: {
       timeoutLabel: "PR session (review-chat)",
       extensions: feedbackCap.extensions,
       envOverrides: feedbackCap.envOverrides,
+      finalResponseMode: "finalLineJson",
+      finalResponseContract: reviewChatFinalResponseContract,
     });
 
     const entries = await readSessionFile(prSessionPath(prSessionId));
@@ -393,7 +407,16 @@ async function muteBrokenSession(
 }
 
 async function resolveReviewChatArtifacts(sourceTaskId: string): Promise<ReviewChatArtifacts> {
-  const paths = prReviewArtifactPaths(taskArtifactsDir(sourceTaskId));
+  const artifactsDir = taskArtifactsDir(sourceTaskId);
+  const paths = {
+    review: prReviewOutputs.review.resolve(artifactsDir, undefined).path,
+    summary: prReviewOutputs.summary.resolve(artifactsDir, undefined).path,
+    diff: prReviewOutputs.diff.resolve(artifactsDir, undefined).path,
+    updatedDiff: prReviewOutputs.updatedDiff.resolve(artifactsDir, undefined).path,
+    context: prReviewOutputs.context.resolve(artifactsDir, undefined).path,
+    updatedContext: prReviewOutputs.updatedContext.resolve(artifactsDir, undefined).path,
+    reportsDir: prReviewReportsDir(artifactsDir),
+  };
   for (const required of [paths.review, paths.summary, paths.diff]) {
     try {
       await stat(required);
@@ -443,7 +466,7 @@ export async function handoffExternalReview(options: {
 
 // --- Shared session shell ---
 
-interface SessionTurn {
+interface SessionTurn<TFinalResponse = unknown> {
   trigger: "pr_creation" | "comments" | "review_chat";
   prSessionId: string;
   labelSuffix: string;
@@ -455,6 +478,8 @@ interface SessionTurn {
   timeoutLabel: string;
   extensions?: string[];
   envOverrides?: Record<string, string>;
+  finalResponseMode?: "bareJson" | "finalLineJson";
+  finalResponseContract?: FinalResponseContract<TFinalResponse>;
 }
 
 /**
@@ -462,7 +487,9 @@ interface SessionTurn {
  * status, and emit running on/off. Failure marks the run failed and rethrows
  * so the caller can do case-specific notification.
  */
-async function runSessionTurn(turn: SessionTurn): Promise<void> {
+async function runSessionTurn<TFinalResponse = unknown>(
+  turn: SessionTurn<TFinalResponse>,
+): Promise<TFinalResponse> {
   // Each turn (create / resume / review) is its own root trace, linked to the
   // long-lived PR session via `goodboy.pr_session.id`.
   return withPipelineSpan(
@@ -471,12 +498,14 @@ async function runSessionTurn(turn: SessionTurn): Promise<void> {
       pipelineSpan.setAttribute(Goodboy.PrSessionId, turn.prSessionId);
       pipelineSpan.setAttribute(Goodboy.PrSessionRunId, turn.run.id);
       pipelineSpan.setAttribute(Goodboy.PrSessionTrigger, turn.trigger);
-      await runSessionTurnInner(turn);
+      return runSessionTurnInner(turn);
     },
   );
 }
 
-async function runSessionTurnInner(turn: SessionTurn): Promise<void> {
+async function runSessionTurnInner<TFinalResponse = unknown>(
+  turn: SessionTurn<TFinalResponse>,
+): Promise<TFinalResponse> {
   const {
     prSessionId,
     labelSuffix,
@@ -520,7 +549,16 @@ async function runSessionTurnInner(turn: SessionTurn): Promise<void> {
   try {
     session.sendPrompt(prompt);
     await withTimeout(session.waitForCompletion(), SESSION_TIMEOUT_MS, timeoutLabel);
+    const contract = (
+      turn.finalResponseContract ?? stageCompleteFinalResponseContract
+    ) as FinalResponseContract<TFinalResponse>;
+    const finalResponse = await validateSessionFinalResponse(
+      filePath,
+      turn.finalResponseMode ?? "bareJson",
+      contract,
+    );
     await queries.completePrSessionRun(run.id);
+    return finalResponse;
   } catch (err) {
     await queries.failPrSessionRun(run.id, toErrorMessage(err));
     throw err;
@@ -531,6 +569,24 @@ async function runSessionTurnInner(turn: SessionTurn): Promise<void> {
     stopBroadcast();
     emit({ type: "pr_session_update", prSessionId, running: false });
   }
+}
+
+
+async function validateSessionFinalResponse<TFinalResponse>(
+  filePath: string,
+  mode: "bareJson" | "finalLineJson",
+  contract: FinalResponseContract<TFinalResponse>,
+): Promise<TFinalResponse> {
+  const text = await readLatestAssistantText(filePath);
+  if (!text) throw new Error("PR session final response is missing");
+  const parsed = mode === "bareJson"
+    ? parseBareFinalJson(text, contract.schema)
+    : parseFinalLineJson(text, contract.schema);
+  if (!parsed) {
+    const expected = mode === "bareJson" ? contract.example : `final-line marker ${contract.example}`;
+    throw new Error(`PR session final response must satisfy ${expected}`);
+  }
+  return parsed;
 }
 
 // --- Helpers ---
@@ -548,24 +604,4 @@ async function pullLatest(worktreePath: string, prSessionId: string, branch: str
   } catch (err) {
     log.warn(`Git pull failed in worktree for PR session ${prSessionId}`, err);
   }
-}
-
-/**
- * Scan the PR session's own pi session file for a GitHub PR URL and return
- * the last one found. The agent may cite other PRs for context, so the last
- * match is treated as the one just created.
- */
-async function extractPrUrlFromSession(prSessionId: string): Promise<string | null> {
-  const entries = await readSessionFile(prSessionPath(prSessionId));
-  const urls: string[] = [];
-  const pattern = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
-  for (const entry of entries) {
-    if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-    for (const block of entry.message.content) {
-      if (block.type !== "text") continue;
-      const matches = block.text.match(pattern);
-      if (matches) urls.push(...matches);
-    }
-  }
-  return urls[urls.length - 1] ?? null;
 }

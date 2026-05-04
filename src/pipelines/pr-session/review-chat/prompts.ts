@@ -4,6 +4,8 @@
  * system prompt and parsed by `parse-result.ts`.
  */
 
+import { reviewChatFinalResponseContract } from "../../../shared/agent-output/contracts.js";
+import { finalLineResponsePromptBlock } from "../../../shared/agent-output/prompts.js";
 import type { PrReviewAnnotation } from "../../../shared/contracts/pr-review.js";
 import type { ReviewChatArtifacts, ReviewChatContext } from "./types.js";
 
@@ -46,11 +48,9 @@ WHEN TO UPDATE CODE REVIEWER FEEDBACK MEMORY
 ${feedbackToolPolicy ? `\n${feedbackToolPolicy}` : ""}
 
 END-OF-TURN MARKER
-- After your reply, append exactly one JSON object on its own line. This is metadata for the dashboard, not part of your reply:
-  {"status":"complete","changed":true}
+${finalLineResponsePromptBlock(reviewChatFinalResponseContract)}
 - "status" is "complete" if you finished, "failed" if you genuinely couldn't (e.g. push blocked, prerequisite missing).
 - "changed" is true only if you committed and pushed code in this turn; false otherwise.
-- The marker must be valid JSON on its own final line. Nothing after it.
 `;
 }
 

@@ -6,5 +6,6 @@ export type {
   ReviewChatResult,
 } from "./types.js";
 export { reviewChatSystemPrompt, formatReviewChatPrompt } from "./prompts.js";
+export { latestAssistantText } from "../../../shared/agent-output/final-response.js";
 export { parseReviewChatResult } from "./parse-result.js";
-export { extractReviewChatMessages, latestAssistantText, stripResultMarker } from "./transcript.js";
+export { extractReviewChatMessages, stripResultMarker } from "./transcript.js";
