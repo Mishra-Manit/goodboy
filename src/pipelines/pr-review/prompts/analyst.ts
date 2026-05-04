@@ -8,7 +8,8 @@
  * either way, the analyst sees variant reports or memory, never both.
  */
 
-import { prImpactVariantPaths, prReviewArtifactPaths } from "../artifacts/index.js";
+import { finalResponsePromptBlock, outputContractPromptBlock } from "../../../shared/agent-output/prompts.js";
+import { prImpactVariantPaths, prReviewOutputs, prReviewReportsDir } from "../output-contracts.js";
 
 export interface PrAnalystPromptOptions {
   repo: string;
@@ -24,7 +25,11 @@ export interface PrAnalystPromptOptions {
 
 export function prAnalystSystemPrompt(opts: PrAnalystPromptOptions): string {
   const { repo, nwo, headRef, prNumber, artifactsDir, worktreePath, availableImpactVariants } = opts;
-  const paths = prReviewArtifactPaths(artifactsDir);
+  const paths = prAnalystPaths(artifactsDir);
+  const requiredOutputs = [
+    prReviewOutputs.reviewPlan.resolve(artifactsDir, undefined),
+    prReviewOutputs.summary.resolve(artifactsDir, undefined),
+  ];
   const impactFiles = availableImpactVariants.map((variant) => prImpactVariantPaths(artifactsDir, variant).impact);
   return `You are the PR Analyst for "${repo}", PR #${prNumber}.
 
@@ -38,14 +43,18 @@ ROBUST EXECUTION CONTRACT:
 - Write artifacts only to the exact absolute paths shown in this prompt, never under relative artifacts directories.
 - Final status belongs only in your final assistant response. Do not append {"status":"complete"} to any artifact file.
 
+${outputContractPromptBlock(requiredOutputs)}
+
+${finalResponsePromptBlock()}
+
 KIMI TOOL-CALLING RULES:
 - Keep the subagent call tiny and regular. Do not generate long prose before it.
 - Use exactly one main PARALLEL subagent call immediately after writing the plan.
 - Every task uses the same agent and a one-line task string. The detailed review
   schema lives in the pr-slice-reviewer agent definition, not in task prompts.
-- Treat the subagent tool result as the source of truth for produced outputs.
-  Use returned artifact paths first; do not assume requested output paths were honored.
-- If any report is missing or invalid, retry only missing report ids in one small
+- Treat the subagent tool result finalOutput as the source of truth.
+- Subagents are read-only advisors. They must not write files; you write every canonical report JSON yourself.
+- If any report finalOutput is missing or invalid, retry only missing report ids in one small
   parallel call (never rerun the full batch).
 
 SUBAGENT CALL CONTRACT — READ CAREFULLY:
@@ -58,9 +67,9 @@ SUBAGENT CALL CONTRACT — READ CAREFULLY:
 - Set cwd: "${worktreePath}".
 - Set clarify: false.
 - Set concurrency to the total task count.
-- Each task object has EXACTLY THREE FIELDS: agent, task, output.
-  NOTHING ELSE. No model, no skill, no cwd, no reads, no progress, no extensions,
-  no tools, no agentScope inside a task object.
+- Each task object has EXACTLY TWO FIELDS: agent, task.
+  NOTHING ELSE. No output, model, skill, cwd, reads, progress, extensions,
+  tools, or agentScope inside a task object.
   The pr-slice-reviewer agent already declares its model and tools; any override
   burns money on the wrong provider and will be rejected by the pipeline.
 - Each task string must be one sentence and must not restate the report schema.
@@ -70,8 +79,8 @@ SUBAGENT CALL CONTRACT — READ CAREFULLY:
 CORRECT shape (copy-paste this and only change the tasks array):
 {
   "tasks": [
-    { "agent": "pr-slice-reviewer", "task": "subagent_id=group-01; artifacts=${artifactsDir}; review this group from review-plan.json.", "output": "${paths.reportsDir}/group-01.json" },
-    { "agent": "pr-slice-reviewer", "task": "subagent_id=holistic; artifacts=${artifactsDir}; review cross-cutting PR risks.", "output": "${paths.reportsDir}/holistic.json" }
+    { "agent": "pr-slice-reviewer", "task": "subagent_id=group-01; artifacts=${artifactsDir}; review this group from review-plan.json." },
+    { "agent": "pr-slice-reviewer", "task": "subagent_id=holistic; artifacts=${artifactsDir}; review cross-cutting PR risks." }
   ],
   "concurrency": <tasks.length>,
   "agentScope": "project",
@@ -161,13 +170,12 @@ WORKFLOW:
    You hold that context and distill it into review-plan focus strings.
 
 6. WAIT FOR ALL SUBAGENTS.
-   First inspect the subagent tool result and collect artifact output paths.
-   For each expected report id, validate the JSON from those outputs and write it
-   to ${paths.reportsDir}/<id>.json. Then read every report from ${paths.reportsDir}/.
+   First inspect the subagent tool result finalOutput values.
+   For each expected report id, validate the strict JSON finalOutput and write it
+   yourself to ${paths.reportsDir}/<id>.json. Then read every report from ${paths.reportsDir}/.
    Verify every planned group report plus ${paths.reportsDir}/holistic.json exists
    and parses as valid JSON. Each report's subagent_id must equal its filename stem.
-   If a report is missing or invalid, rerun only that report id (once) with the same
-   output option. Never continue with a missing report, and never rerun all ids.
+   If a report is missing or invalid, rerun only that report id once with no output option. Never continue with a missing report, and never rerun all ids.
 
 7. AGGREGATE.
    - DIFF-ANCHORING FILTER first: discard any issue that cannot be anchored to
@@ -227,19 +235,19 @@ WORKFLOW:
    - ${paths.reportsDir}/holistic.json
    - one report JSON for every group listed in ${paths.reviewPlan}
 
-   Then final-answer with exactly: {"status": "complete"}
+   Then final-answer with exactly: {"status":"complete"}
 
 You MUST spawn subagents, wait for reports, commit fixes before commenting, and
 post the comment. A review that only reads and reports is incomplete.`;
 }
 
 export function prAnalystInitialPrompt(artifactsDir: string, availableImpactVariants: readonly number[]): string {
-  const paths = prReviewArtifactPaths(artifactsDir);
+  const paths = prAnalystPaths(artifactsDir);
   const impactFiles = availableImpactVariants.map((variant) => prImpactVariantPaths(artifactsDir, variant).impact);
   const impactInstruction = impactFiles.length > 0
     ? `Read successful impact reports first: ${impactFiles.join(", ")} (your primary lens). Dedupe and verify concerns across variants before planning.`
     : "No impact variant reports are available; use the prepended full memory fallback as your primary context.";
-  return `Begin the PR review. Read ${paths.reviewerFeedback} first; active feedback rules are hard requirements. ${impactInstruction} Then read ${paths.context} and ${paths.diff}. Use real tool calls only, never pseudo-tool markup. Write ${paths.reviewPlan}, call pr-slice-reviewer subagents with output files under ${paths.reportsDir}, wait for every report including holistic, aggregate, fix everything auto-fixable, commit and push, then write and post ${paths.summary}. Final response only: {"status": "complete"}.`;
+  return `Begin the PR review. Read ${paths.reviewerFeedback} first; active feedback rules are hard requirements. ${impactInstruction} Then read ${paths.context} and ${paths.diff}. Use real tool calls only, never pseudo-tool markup. Write ${paths.reviewPlan}, call read-only pr-slice-reviewer subagents without output paths, copy valid strict JSON finalOutput values into reports under ${paths.reportsDir}, wait for every report including holistic, aggregate, fix everything auto-fixable, commit and push, then write and post ${paths.summary}. Final response only: {"status":"complete"}.`;
 }
 
 function impactContextBlock(impactFiles: readonly string[]): string {
@@ -256,4 +264,15 @@ function impactWorkflowStep(impactFiles: readonly string[]): string {
   }
 
   return `Read every successful impact report: ${impactFiles.join(", ")}. Dedupe overlapping risks and memory gaps before subagent fanout. Treat repeated concerns as higher-confidence, but verify one-off concerns rather than discarding them. Never launch duplicate subagents for the same concern just because it appears in multiple variants.`;
+}
+
+function prAnalystPaths(artifactsDir: string) {
+  return {
+    context: prReviewOutputs.context.resolve(artifactsDir, undefined).path,
+    diff: prReviewOutputs.diff.resolve(artifactsDir, undefined).path,
+    reviewPlan: prReviewOutputs.reviewPlan.resolve(artifactsDir, undefined).path,
+    reviewerFeedback: prReviewOutputs.reviewerFeedback.resolve(artifactsDir, undefined).path,
+    summary: prReviewOutputs.summary.resolve(artifactsDir, undefined).path,
+    reportsDir: prReviewReportsDir(artifactsDir),
+  };
 }

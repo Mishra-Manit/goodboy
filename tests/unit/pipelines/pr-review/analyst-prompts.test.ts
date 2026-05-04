@@ -80,8 +80,9 @@ describe("prAnalystSystemPrompt", () => {
     expect(prompt).toContain("Never continue with a missing report, and never rerun all ids");
   });
 
-  it("requires the {\"status\": \"complete\"} end sentinel", () => {
-    expect(prompt).toContain(`{"status": "complete"}`);
+  it("requires the strict final response contract", () => {
+    expect(prompt).toContain("FINAL RESPONSE CONTRACT -- HARD REQUIREMENT");
+    expect(prompt).toContain(`{"status":"complete"}`);
   });
 
   it("references the artifacts + worktree paths", () => {
@@ -100,7 +101,7 @@ describe("prAnalystInitialPrompt", () => {
     expect(p).toContain(`${OPTS.artifactsDir}/pr-impact.v3.md`);
     expect(p).toContain(`${OPTS.artifactsDir}/pr-context.json`);
     expect(p).toContain(`${OPTS.artifactsDir}/pr.diff`);
-    expect(p).toContain(`{"status": "complete"}`);
+    expect(p).toContain(`{"status":"complete"}`);
   });
 
   it("omits missing variant filenames when falling back to memory", () => {
