@@ -20,7 +20,8 @@
     "test:memory:warm": "tsx scripts/dev/run-memory-warm.ts",
     "test:memory:clean": "tsx scripts/dev/clean-memory-tests.ts",
     "test:intent-latency": "tsx scripts/dev/run-telegram-intent-latency.ts",
-    "dev:release-pr-session": "tsx scripts/dev-release-pr-session.ts"
+    "dev:release-pr-session": "tsx scripts/dev-release-pr-session.ts",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
@@ -33,7 +34,7 @@
     "drizzle-orm": "^0.38.4",
     "grammy": "^1.35.0",
     "hono": "^4.7.4",
-    "pi-subagents": "^0.15.0",
+    "pi-subagents": "0.15.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "unicode-animations": "^1.0.3",
@@ -50,6 +51,7 @@
     "drizzle-kit": "^0.30.4",
     "lucide-react": "^1.7.0",
     "msw": "^2.13.4",
+    "patch-package": "^8.0.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-router-dom": "^7.14.0",
