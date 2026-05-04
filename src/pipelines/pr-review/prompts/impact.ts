@@ -1,12 +1,10 @@
 /**
  * Prompts for the pr_impact stage. The curator sits between the full codebase
- * memory and the analyst: it receives the entire memory block plus full
- * read access to the PR worktree, explores and cross-references both, and
- * distills `pr-impact.vN.md` -- one concise context report the analyst can compare
- * with sibling variants downstream.
+ * memory and the analyst, producing one concise context report per diff variant.
  */
 
-import { prImpactVariantFiles, prImpactVariantPaths, prReviewArtifactPaths } from "../artifacts/index.js";
+import { finalResponsePromptBlock, outputContractPromptBlock } from "../../../shared/agent-output/prompts.js";
+import { prImpactVariantFiles, prImpactVariantPaths, prReviewOutputs } from "../output-contracts.js";
 
 export function impactAnalyzerSystemPrompt(
   repo: string,
@@ -16,9 +14,10 @@ export function impactAnalyzerSystemPrompt(
   reviewerFeedback: string,
   variant: number,
 ): string {
-  const paths = prReviewArtifactPaths(artifactsDir);
+  const contextPath = prReviewOutputs.context.resolve(artifactsDir, undefined).path;
   const variantPaths = prImpactVariantPaths(artifactsDir, variant);
   const variantFiles = prImpactVariantFiles(variant);
+  const output = prReviewOutputs.impact.resolve(artifactsDir, { variant });
   const memorySection = memoryBody.trim() || `NO MEMORY AVAILABLE for ${repo}. Work from the diff and live codebase only.
 The "Memory Gaps & Blind Spots" section should flag every touched area since nothing is documented.`;
   const feedbackSection = reviewerFeedback.trim()
@@ -42,26 +41,28 @@ WHAT YOU HAVE:
   You MAY grep, read any file, check imports, trace usages of changed symbols.
   Validate memory claims against live code. Explore freely.
 - PR diff variant v${variant} at ${variantPaths.diff}
-- PR metadata at ${paths.context}
+- PR metadata at ${contextPath}
 
 You are read-only on the worktree at ${worktreePath}: do not edit, create, or delete files there.
-Your single write target is the exact absolute path ${variantPaths.impact} in the artifacts directory.
-You MUST use the write tool to create ${variantPaths.impact}. The stage is successful only if that exact file exists and contains the sentinel.
 Never write this report under ${worktreePath}/artifacts or any relative artifacts directory.
-Do NOT paste the report in your final assistant response. After writing and verifying the file, final-answer with only a brief confirmation.
+Do NOT paste the report in your final assistant response.
 
 ROBUST EXECUTION CONTRACT:
-- Follow the artifact contract literally. A convincing final answer without the exact file is failure.
+- Follow the output and final-response contracts literally. A convincing final answer without the exact file is failure.
 - Use real tool calls only. Never emit XML, markdown, or pseudo-tool syntax such as <file_write>.
-- Keep instructions in priority order: exact path > valid sentinel > concise content > final response.
-- Before final-answer, run one tiny verification command that checks ${variantPaths.impact} exists and contains IMPACT_ANALYSIS_DONE.
+- Keep instructions in priority order: exact path > non-empty concise content > final response.
+- Before final-answer, run one tiny verification command that checks ${variantPaths.impact} exists and is non-empty.
+
+${outputContractPromptBlock([output])}
+
+${finalResponsePromptBlock()}
 
 ${memorySection}
 
 ${feedbackSection}
 
 YOUR TASK:
-1. Read ${paths.context} and ${variantPaths.diff}.
+1. Read ${contextPath} and ${variantPaths.diff}.
 2. For each changed file or symbol, grep the worktree to understand callers,
    usages, and relationships. Cross-reference memory claims against live code
    and note any drift.
@@ -104,17 +105,15 @@ CONCISION RULES:
 - Do not restate the diff.
 - Quotes from memory: max one line each with citation.
 
-End ${variantFiles.impact} with "IMPACT_ANALYSIS_DONE".
-
 Tool contract:
 - You must call the write tool with path ${variantPaths.impact}.
 - The report content must be in that file, not in your final assistant response.
 - If you only final-answer the report, the stage fails.
-- Your final response must not contain the report; it should only confirm the exact file was written and verified.`;
+- Your final response must be exactly the bare JSON object required above.`;
 }
 
 export function impactAnalyzerInitialPrompt(artifactsDir: string, variant: number): string {
-  const paths = prReviewArtifactPaths(artifactsDir);
+  const contextPath = prReviewOutputs.context.resolve(artifactsDir, undefined).path;
   const variantPaths = prImpactVariantPaths(artifactsDir, variant);
-  return `Begin impact curation variant v${variant}. Read ${paths.context} and ${variantPaths.diff}. The file ordering is intentionally variant-specific; do not compare against other variants. Then explore the worktree -- grep for changed symbols, trace usages, check tests, validate memory claims against live code. Use the write tool to create the complete ${variantPaths.impact} covering all five sections in 120 lines or fewer. Be thorough in exploration, ruthless in curation. End the file with "IMPACT_ANALYSIS_DONE". Never use pseudo-tool markup; use actual tool calls. Before final-answer, verify this exact absolute file exists and contains the sentinel. Do not paste the report in your final response; final-answer only after the file has been written and verified.`;
+  return `Begin impact curation variant v${variant}. Read ${contextPath} and ${variantPaths.diff}. The file ordering is intentionally variant-specific; do not compare against other variants. Then explore the worktree -- grep for changed symbols, trace usages, check tests, validate memory claims against live code. Use the write tool to create the complete ${variantPaths.impact} covering all five sections in 120 lines or fewer. Be thorough in exploration, ruthless in curation. Never use pseudo-tool markup; use actual tool calls. Before final-answer, verify this exact absolute file exists and is non-empty. Do not paste the report in your final response; final response must be exactly {"status":"complete"}.`;
 }

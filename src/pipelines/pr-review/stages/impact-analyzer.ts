@@ -4,14 +4,12 @@
  * or falls back to full memory if every variant fails.
  */
 
-import { readFile } from "node:fs/promises";
 import { createLogger } from "../../../shared/runtime/logger.js";
 import { resolveModel } from "../../../shared/runtime/config.js";
-import { TaskCancelledError, isTaskCancelled, runStage, type SendTelegram, type StageValidation } from "../../../core/stage.js";
+import { TaskCancelledError, isTaskCancelled, runStage, type SendTelegram } from "../../../core/stage.js";
 import { impactAnalyzerSystemPrompt, impactAnalyzerInitialPrompt } from "../prompts/impact.js";
 import { toErrorMessage } from "../../../shared/runtime/errors.js";
-import { artifactPath, hasNonEmptyArtifact } from "../../../shared/artifacts/index.js";
-import { PR_IMPACT_VARIANT_COUNT, prImpactVariantFiles } from "../artifacts/index.js";
+import { PR_IMPACT_VARIANT_COUNT, prReviewOutputs } from "../output-contracts.js";
 
 const log = createLogger("pr-impact");
 
@@ -53,7 +51,7 @@ export async function runImpactAnalyzers(opts: ImpactAnalyzerOptions): Promise<I
 
 async function runImpactVariant(opts: ImpactAnalyzerOptions, variant: number): Promise<number | null> {
   const { taskId, repo, artifactsDir, worktreePath, sendTelegram, memoryBody, reviewerFeedback } = opts;
-  const files = prImpactVariantFiles(variant);
+  const output = prReviewOutputs.impact.resolve(artifactsDir, { variant });
 
   try {
     const result = await runStage({
@@ -68,7 +66,7 @@ async function runImpactVariant(opts: ImpactAnalyzerOptions, variant: number): P
       chatId: null,
       stageLabel: `PR Impact Curation v${variant}`,
       timeoutMs: IMPACT_TIMEOUT_MS,
-      postValidate: async () => validateImpactArtifact(artifactsDir, files.impact),
+      outputs: [output],
     });
 
     return result.ok ? variant : null;
@@ -77,17 +75,4 @@ async function runImpactVariant(opts: ImpactAnalyzerOptions, variant: number): P
     log.warn(`pr_impact v${variant} failed for ${taskId}: ${toErrorMessage(err)}`);
     return null;
   }
-}
-
-async function validateImpactArtifact(
-  artifactsDir: string,
-  filename: string,
-): Promise<StageValidation> {
-  const exists = await hasNonEmptyArtifact(artifactsDir, filename);
-  if (!exists) return { valid: false, reason: `Impact analyzer failed to write ${filename}` };
-
-  const content = await readFile(artifactPath(artifactsDir, filename), "utf8").catch(() => "");
-  return content.includes("IMPACT_ANALYSIS_DONE")
-    ? { valid: true }
-    : { valid: false, reason: `${filename} did not include IMPACT_ANALYSIS_DONE` };
 }

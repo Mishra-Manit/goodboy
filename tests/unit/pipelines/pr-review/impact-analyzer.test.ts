@@ -46,7 +46,7 @@ describe("runImpactAnalyzers", () => {
   it("returns all available variants when all stages succeed", async () => {
     const dir = await artifactsDir();
     mocks.runStage.mockImplementation(async (opts: { variant: number }) => {
-      await writeFile(join(dir, `pr-impact.v${opts.variant}.md`), "impact\nIMPACT_ANALYSIS_DONE");
+      await writeFile(join(dir, `pr-impact.v${opts.variant}.md`), "impact\n");
       return { ok: true };
     });
 
@@ -57,7 +57,7 @@ describe("runImpactAnalyzers", () => {
     const dir = await artifactsDir();
     mocks.runStage.mockImplementation(async (opts: { variant: number }) => {
       if (opts.variant === 2) throw new Error("boom");
-      await writeFile(join(dir, `pr-impact.v${opts.variant}.md`), "impact\nIMPACT_ANALYSIS_DONE");
+      await writeFile(join(dir, `pr-impact.v${opts.variant}.md`), "impact\n");
       return { ok: true };
     });
 
@@ -79,17 +79,14 @@ describe("runImpactAnalyzers", () => {
     await expect(runImpactAnalyzers(options(dir))).rejects.toThrow("task-1");
   });
 
-  it("rejects variants whose impact files lack the sentinel", async () => {
+  it("passes declared output contracts to each variant stage", async () => {
     const dir = await artifactsDir();
-    mocks.runStage.mockImplementation(async (opts: {
-      variant: number;
-      postValidate?: () => Promise<{ valid: boolean; reason?: string }>;
-    }) => {
-      await writeFile(join(dir, `pr-impact.v${opts.variant}.md`), "partial impact");
-      const result = await opts.postValidate?.();
-      return result?.valid ? { ok: true } : { ok: false, reason: result?.reason ?? "invalid" };
-    });
+    mocks.runStage.mockResolvedValue({ ok: true });
 
-    await expect(runImpactAnalyzers(options(dir))).resolves.toEqual({ available: [], ok: false });
+    await expect(runImpactAnalyzers(options(dir))).resolves.toEqual({ available: [1, 2, 3], ok: true });
+    expect(mocks.runStage).toHaveBeenCalledWith(expect.objectContaining({
+      variant: 1,
+      outputs: [expect.objectContaining({ id: "prReview.impact", path: join(dir, "pr-impact.v1.md") })],
+    }));
   });
 });

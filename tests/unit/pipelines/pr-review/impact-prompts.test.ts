@@ -28,13 +28,16 @@ describe("impactAnalyzerSystemPrompt", () => {
     expect(prompt).toContain(MEMORY);
   });
 
-  it("ends with the IMPACT_ANALYSIS_DONE sentinel", () => {
-    expect(prompt).toContain("IMPACT_ANALYSIS_DONE");
+  it("renders the generated output and final-response contracts", () => {
+    expect(prompt).toContain("OUTPUT CONTRACTS -- HARD REQUIREMENTS");
+    expect(prompt).toContain("FINAL RESPONSE CONTRACT -- HARD REQUIREMENT");
+    expect(prompt).toContain('{"status":"complete"}');
+    expect(prompt).not.toContain("IMPACT_ANALYSIS_DONE");
   });
 
   it("scopes read-only behaviour to the worktree", () => {
     expect(prompt).toContain(`read-only on the worktree at ${WORKTREE}`);
-    expect(prompt).toContain("Your single write target");
+    expect(prompt).toContain("write tool with path");
   });
 
   it("references the artifacts dir for inputs and output", () => {
@@ -62,6 +65,6 @@ describe("impactAnalyzerInitialPrompt", () => {
     expect(p).toContain(`${ARTIFACTS}/pr-context.json`);
     expect(p).toContain(`${ARTIFACTS}/pr.diff.v3`);
     expect(p).toContain(`${ARTIFACTS}/pr-impact.v3.md`);
-    expect(p).toContain("IMPACT_ANALYSIS_DONE");
+    expect(p).toContain('{"status":"complete"}');
   });
 });
