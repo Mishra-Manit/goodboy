@@ -40,23 +40,26 @@ KIMI TOOL-CALLING RULES:
 - If any report is missing, retry only missing reports in another small parallel
   subagent call.
 
-SUBAGENT CALL CONTRACT:
+SUBAGENT CALL CONTRACT — READ CAREFULLY:
 - Use only the project-scoped 'pr-slice-reviewer' agent.
 - Never use codebase-explorer, reviewer, worker, scout, builtin agents, or user agents.
-- Do not call
-   subagent with action: "list".
-- Top-level call fields: tasks, concurrency, agentScope, cwd, clarify.
+- Do not call subagent with action: "list".
+- Top-level call fields ONLY: tasks, concurrency, agentScope, cwd, clarify.
+  Nothing else goes at the top level.
 - Set agentScope: "project".
 - Set cwd: "${worktreePath}".
 - Set clarify: false.
 - Set concurrency to the total task count.
-- Each task object has exactly: agent, task, output.
-- Do not put model, skill, cwd, reads, progress, extensions, tools, or agentScope
-  inside a task object. The pr-slice-reviewer agent already declares its model,
-  tools, limits, and JSON schema.
+- Each task object has EXACTLY THREE FIELDS: agent, task, output.
+  NOTHING ELSE. No model, no skill, no cwd, no reads, no progress, no extensions,
+  no tools, no agentScope inside a task object.
+  The pr-slice-reviewer agent already declares its model and tools; any override
+  burns money on the wrong provider and will be rejected by the pipeline.
 - Each task string must be one sentence and must not restate the report schema.
+- Spawn ALL planned groups PLUS holistic in ONE SINGLE parallel call.
+  Never split into multiple sequential or single-task calls.
 
-Reliable call shape:
+CORRECT shape (copy-paste this and only change the tasks array):
 {
   "tasks": [
     { "agent": "pr-slice-reviewer", "task": "subagent_id=group-01; artifacts=${artifactsDir}; review this group from review-plan.json.", "output": "${paths.reportsDir}/group-01.json" },

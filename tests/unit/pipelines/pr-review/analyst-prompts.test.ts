@@ -41,7 +41,7 @@ describe("prAnalystSystemPrompt", () => {
     expect(prompt).toContain(`"agent": "pr-slice-reviewer"`);
     expect(prompt).toContain(`agentScope: "project"`);
     expect(prompt).toContain("Never use codebase-explorer, reviewer, worker, scout, builtin agents, or user agents");
-    expect(prompt).toContain("Do not call\n   subagent with action: \"list\"");
+    expect(prompt).toContain("Do not call subagent with action: \"list\"");
     expect(prompt).toContain("Set concurrency to the total task count");
     expect(prompt).toContain("Each task string must be one sentence");
   });
