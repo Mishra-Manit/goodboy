@@ -10,6 +10,7 @@ import { taskArtifactsDir } from "../../shared/artifacts/index.js";
 import { toErrorMessage } from "../../shared/runtime/errors.js";
 import { createLogger } from "../../shared/runtime/logger.js";
 import { readSessionFile, prSessionPath } from "../../core/pi/session-file.js";
+import { reconcilePrSessions } from "../../core/pr-session/reconcile.js";
 import { prReviewArtifactPaths } from "../../pipelines/pr-review/artifacts/index.js";
 import { readReviewArtifact } from "../../pipelines/pr-review/artifacts/read-review.js";
 import { refreshReviewArtifacts } from "../../pipelines/pr-session/refresh-review.js";
@@ -51,6 +52,11 @@ export function registerPrSessionRoutes(app: Hono): void {
     })));
   });
 
+  app.post("/api/pr-sessions/reconcile", async (c) => {
+    const apply = c.req.query("apply") === "1";
+    return c.json(await reconcilePrSessions(apply));
+  });
+
   app.get("/api/pr-sessions/:id", async (c) => {
     const id = c.req.param("id");
     const session = await queries.getPrSession(id);
@@ -75,17 +81,18 @@ export function registerPrSessionRoutes(app: Hono): void {
       mode: session.mode,
     };
 
-    if (!session.sourceTaskId) {
+    const reviewTaskId = await resolveReviewTaskId(session);
+    if (!reviewTaskId) {
       return c.json({ session: sessionDto, run: null } satisfies PrReviewPageDto);
     }
 
-    const paths = prReviewArtifactPaths(taskArtifactsDir(session.sourceTaskId));
+    const paths = prReviewArtifactPaths(taskArtifactsDir(reviewTaskId));
     const reviewResult = await readReviewArtifact(paths.review);
     if (!reviewResult) {
       return c.json({ session: sessionDto, run: null } satisfies PrReviewPageDto);
     }
 
-    await maybeRefreshDiffFromWorktree(session, reviewResult.artifact.headSha);
+    await maybeRefreshDiffFromWorktree(session, reviewTaskId, reviewResult.artifact.headSha);
 
     const diffPatch = await readFile(paths.updatedDiff, "utf8")
       .catch(() => readFile(paths.diff, "utf8"))
@@ -176,6 +183,14 @@ function reviewChatUnavailableReason(session: queries.PrSession): string | null 
   return null;
 }
 
+async function resolveReviewTaskId(session: queries.PrSession): Promise<string | null> {
+  if (session.mode === "review") return session.sourceTaskId;
+  if (!session.prNumber) return null;
+
+  const tasks = await queries.listTasksForRepoAndPr(session.repo, session.prNumber);
+  return tasks.find((task) => task.kind === "pr_review")?.id ?? null;
+}
+
 async function loadReviewChatMessages(prSessionId: string): Promise<ReviewChatMessage[]> {
   const entries = await readSessionFile(prSessionPath(prSessionId));
   return extractReviewChatMessages(entries);
@@ -187,9 +202,10 @@ async function loadReviewChatMessages(prSessionId: string): Promise<ReviewChatMe
  */
 async function maybeRefreshDiffFromWorktree(
   session: queries.PrSession,
+  reviewTaskId: string,
   cachedHeadSha: string | undefined,
 ): Promise<void> {
-  if (!session.sourceTaskId || !session.worktreePath || !session.prNumber) return;
+  if (!session.worktreePath || !session.prNumber) return;
 
   const existing = refreshInFlight.get(session.id);
   if (existing) return existing;
@@ -208,7 +224,7 @@ async function maybeRefreshDiffFromWorktree(
     log.info(`Refreshing diff for PR session ${session.id}: cached=${cachedHeadSha ?? "<none>"} → worktree=${workHead}`);
     await refreshReviewArtifacts({
       prSessionId: session.id,
-      sourceTaskId: session.sourceTaskId!,
+      sourceTaskId: reviewTaskId,
       repo: session.repo,
       prNumber: session.prNumber!,
       worktreePath: session.worktreePath!,
