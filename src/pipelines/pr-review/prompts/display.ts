@@ -44,10 +44,38 @@ review.json schema:
   "orderedChapterIds": [string]        // exact unique permutation of chapters[].id; write last
 }
 
+Minimal valid shape to copy before filling details:
+{
+  "prTitle": "PR title from pr-context.updated.json",
+  "headSha": "full headSha from pr-context.updated.json",
+  "summary": "One tight paragraph for the dashboard.",
+  "chapters": [
+    {
+      "id": "post-mortem",
+      "title": "Post-Mortem",
+      "files": ["backend/coliseum/agents/post_mortem/main.py"],
+      "rationale": "Why this file matters to the review.",
+      "annotations": [
+        {
+          "filePath": "backend/coliseum/agents/post_mortem/main.py",
+          "side": "new",
+          "line": 137,
+          "kind": "concern",
+          "title": "Short concrete issue",
+          "body": "One short sentence explaining impact and next action."
+        }
+      ]
+    }
+  ],
+  "orderedChapterIds": ["post-mortem"]
+}
+
 Safe generation order:
-1. Define chapters[] first: id, title, files, rationale.
-2. Add annotations, verifying each annotation.filePath appears in that chapter's files[].
-3. Write orderedChapterIds last by copying every chapter id in display order.
+1. Start from the minimal valid shape above.
+2. Fill prTitle and headSha from pr-context.updated.json.
+3. Define chapters[]: id, title, files, rationale.
+4. Add annotations, verifying each annotation.filePath appears in that chapter's files[].
+5. Write orderedChapterIds last by copying every chapter id in display order.
 
 Annotation kinds:
 - user_change: neutral commentary on something the PR author wrote.
@@ -70,6 +98,12 @@ Repo: ${opts.repo} (${opts.nwo})
 PR: #${opts.prNumber}
 Worktree: ${opts.worktreePath} (READ-ONLY -- do not write any files in the worktree)
 Artifacts dir: ${opts.artifactsDir} (writable -- write review.json here)
+
+ROBUST EXECUTION CONTRACT:
+- Use real tool calls only. Never emit XML, markdown, or pseudo-tool syntax such as <file_write>.
+- Write exactly one JSON object to ${paths.review}; no markdown fences, no trailing prose, no second JSON object.
+- Final status belongs only in your final assistant response. Never append {"status":"complete"} to review.json.
+- If required inputs are missing, do not fabricate a dashboard model.
 
 Inputs you must read first:
 - ${paths.updatedContext}: PR metadata after goodboy's commits
@@ -142,7 +176,8 @@ Use a tight noun or noun pair (e.g. "Auth", "Auth Middleware", "DB Schema"). No 
 ${SCHEMA_DOC}
 
 Output rules:
-- Write valid JSON to ${paths.review} (outside the worktree; this is the only file you may write). No markdown code fences in the file.
+- Write valid JSON to ${paths.review} (outside the worktree; this is the only file you may write). No markdown code fences, comments, status markers, or text outside the JSON object in the file.
+- The top-level keys must be exactly the dashboard artifact keys from the schema: prTitle, headSha, summary, chapters, orderedChapterIds.
 - Match the schema exactly. Validation is strict; any mismatch causes the dashboard to show the page as unavailable.
 - Prefer 3-8 total annotations for normal PRs. Use more only for genuinely large/risky PRs.
 - If a subagent report is verbose, summarize its point in your own short UI copy.
@@ -155,7 +190,7 @@ Before returning, review your work:
 4. Ensure JSON is valid and all string lengths match the schema constraints.
 If you find any issues, fix them before writing the file.
 
-- End your turn with {"status": "complete"} after writing the file.`;
+- End your turn with {"status": "complete"} after writing and checking the file. This status is the final assistant response only, not part of review.json.`;
 }
 
 /** Initial instruction sent after the pi session starts. */
@@ -165,7 +200,7 @@ export function prDisplayInitialPrompt(artifactsDir: string, availableImpactVari
   const impactInstruction = impactFiles.length > 0
     ? `Also read successful impact variant files: ${impactFiles.join(", ")}.`
     : "No impact variant files succeeded; continue from summary, reports, context, and diffs.";
-  return `Begin. Read ${paths.updatedContext}, ${paths.updatedDiff}, ${paths.summary}, and the JSON files under ${paths.reportsDir}. ${impactInstruction} Read ${paths.context} and ${paths.diff} only if needed for goodboy_fix annotations. Avoid worktree reads unless selected annotation evidence is unclear. Select the final 3-8 high-impact annotations first, verify only those lines, then write concise dashboard copy to ${paths.review}: summary <=600 chars, chapter title 1-2 words MAX (hard rule), chapter rationale <=140 chars, annotation titles <=70 chars, annotation bodies <=220 chars. End with {"status": "complete"}.`;
+  return `Begin. Read ${paths.updatedContext}, ${paths.updatedDiff}, ${paths.summary}, and the JSON files under ${paths.reportsDir}. ${impactInstruction} Read ${paths.context} and ${paths.diff} only if needed for goodboy_fix annotations. Avoid worktree reads unless selected annotation evidence is unclear. Select the final 3-8 high-impact annotations first, verify only those lines, then use the write tool to write exactly one dashboard artifact JSON object to ${paths.review}. Required top-level keys: prTitle, headSha, summary, chapters, orderedChapterIds. Keep summary <=600 chars, chapter title 1-2 words MAX (hard rule), chapter rationale <=140 chars, annotation titles <=70 chars, annotation bodies <=220 chars. Do not append status text to review.json. Final response only: {"status": "complete"}.`;
 }
 
 function impactInputBlock(impactFiles: readonly string[]): string {

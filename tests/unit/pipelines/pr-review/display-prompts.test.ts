@@ -32,6 +32,9 @@ describe("prDisplaySystemPrompt", () => {
     expect(prompt).toContain("never 0");
     expect(prompt).toContain("orderedChapterIds last");
     expect(prompt).toContain("filePath appears in that chapter's files[]");
+    expect(prompt).toContain("Minimal valid shape to copy before filling details");
+    expect(prompt).toContain('"prTitle": "PR title from pr-context.updated.json"');
+    expect(prompt).toContain('"chapters": [');
   });
 
   it("keeps annotations diff-scoped and handles optional impact context", () => {
@@ -54,6 +57,13 @@ describe("prDisplaySystemPrompt", () => {
     expect(prompt).toContain("Prefer 3-8 total annotations");
     expect(prompt).toContain("summarize its point in your own short UI copy");
   });
+
+  it("makes the required dashboard top-level keys explicit", () => {
+    const prompt = prDisplaySystemPrompt(opts);
+
+    expect(prompt).toContain("top-level keys must be exactly");
+    expect(prompt).toContain("prTitle, headSha, summary, chapters, orderedChapterIds");
+  });
 });
 
 describe("prDisplayInitialPrompt", () => {
@@ -63,6 +73,7 @@ describe("prDisplayInitialPrompt", () => {
     expect(prompt).toContain("Also read successful impact variant files");
     expect(prompt).toContain("/tmp/artifacts/task-1/pr-impact.v3.md");
     expect(prompt).toContain("annotation bodies <=220 chars");
+    expect(prompt).toContain("Required top-level keys: prTitle, headSha, summary, chapters, orderedChapterIds");
     expect(prompt).not.toContain("/tmp/artifacts/task-1/pr-impact.v2.md");
   });
 });

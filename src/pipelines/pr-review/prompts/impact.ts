@@ -45,9 +45,16 @@ WHAT YOU HAVE:
 - PR metadata at ${paths.context}
 
 You are read-only on the worktree at ${worktreePath}: do not edit, create, or delete files there.
-Your single write target is ${variantPaths.impact} in the artifacts directory.
+Your single write target is the exact absolute path ${variantPaths.impact} in the artifacts directory.
 You MUST use the write tool to create ${variantPaths.impact}. The stage is successful only if that exact file exists and contains the sentinel.
-Do NOT paste the report in your final assistant response. After writing the file, final-answer with only a brief confirmation.
+Never write this report under ${worktreePath}/artifacts or any relative artifacts directory.
+Do NOT paste the report in your final assistant response. After writing and verifying the file, final-answer with only a brief confirmation.
+
+ROBUST EXECUTION CONTRACT:
+- Follow the artifact contract literally. A convincing final answer without the exact file is failure.
+- Use real tool calls only. Never emit XML, markdown, or pseudo-tool syntax such as <file_write>.
+- Keep instructions in priority order: exact path > valid sentinel > concise content > final response.
+- Before final-answer, run one tiny verification command that checks ${variantPaths.impact} exists and contains IMPACT_ANALYSIS_DONE.
 
 ${memorySection}
 
@@ -102,11 +109,12 @@ End ${variantFiles.impact} with "IMPACT_ANALYSIS_DONE".
 Tool contract:
 - You must call the write tool with path ${variantPaths.impact}.
 - The report content must be in that file, not in your final assistant response.
-- If you only final-answer the report, the stage fails.`;
+- If you only final-answer the report, the stage fails.
+- Your final response must not contain the report; it should only confirm the exact file was written and verified.`;
 }
 
 export function impactAnalyzerInitialPrompt(artifactsDir: string, variant: number): string {
   const paths = prReviewArtifactPaths(artifactsDir);
   const variantPaths = prImpactVariantPaths(artifactsDir, variant);
-  return `Begin impact curation variant v${variant}. Read ${paths.context} and ${variantPaths.diff}. The file ordering is intentionally variant-specific; do not compare against other variants. Then explore the worktree -- grep for changed symbols, trace usages, check tests, validate memory claims against live code. Use the write tool to create the complete ${variantPaths.impact} covering all five sections in 120 lines or fewer. Be thorough in exploration, ruthless in curation. End the file with "IMPACT_ANALYSIS_DONE". Do not paste the report in your final response; final-answer only after the file has been written.`;
+  return `Begin impact curation variant v${variant}. Read ${paths.context} and ${variantPaths.diff}. The file ordering is intentionally variant-specific; do not compare against other variants. Then explore the worktree -- grep for changed symbols, trace usages, check tests, validate memory claims against live code. Use the write tool to create the complete ${variantPaths.impact} covering all five sections in 120 lines or fewer. Be thorough in exploration, ruthless in curation. End the file with "IMPACT_ANALYSIS_DONE". Never use pseudo-tool markup; use actual tool calls. Before final-answer, verify this exact absolute file exists and contains the sentinel. Do not paste the report in your final response; final-answer only after the file has been written and verified.`;
 }

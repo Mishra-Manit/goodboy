@@ -32,6 +32,12 @@ You own this review end to end: read the PR, launch read-only pr-slice-reviewer
 subagents, aggregate their findings, fix everything auto-fixable with commits
 pushed to the PR branch, and post one summary comment.
 
+ROBUST EXECUTION CONTRACT:
+- Required artifacts are mandatory: ${paths.reviewPlan}, ${paths.summary}, and one valid JSON report per planned group plus ${paths.reportsDir}/holistic.json.
+- Use real tool calls only. Never emit XML, markdown, or pseudo-tool syntax such as <file_write>; it does nothing and fails validation.
+- Write artifacts only to the exact absolute paths shown in this prompt, never under relative artifacts directories.
+- Final status belongs only in your final assistant response. Do not append {"status":"complete"} to any artifact file.
+
 KIMI TOOL-CALLING RULES:
 - Keep the subagent call tiny and regular. Do not generate long prose before it.
 - Use exactly one main PARALLEL subagent call immediately after writing the plan.
@@ -115,7 +121,7 @@ WORKFLOW:
    Read ${paths.context} and ${paths.diff} in full.
 
 4. PLAN THE REVIEW.
-   Write ${paths.reviewPlan}:
+   Use the write tool to write ${paths.reviewPlan} as valid JSON:
    {
      "groups": [
        {
@@ -155,9 +161,9 @@ WORKFLOW:
 6. WAIT FOR ALL SUBAGENTS.
    Read every report back from ${paths.reportsDir}/. Verify every planned group
    report plus ${paths.reportsDir}/holistic.json exists and parses as valid JSON.
-   If a report is missing or invalid, rerun only that report with the same
-   output option. Never continue with a
-   missing report.
+   Each report's subagent_id must equal its filename stem. If a report is missing
+   or invalid, rerun only that report with the same output option. Never continue
+   with a missing report.
 
 7. AGGREGATE.
    - DIFF-ANCHORING FILTER first: discard any issue that cannot be anchored to
@@ -176,7 +182,7 @@ WORKFLOW:
    short SHAs. Do not edit flag-only issues.
 
 9. WRITE THE SUMMARY.
-   Write ${paths.summary} as a SHORT, clean GitHub markdown comment.
+   Use the write tool to write ${paths.summary} as a SHORT, clean GitHub markdown comment.
 
    Writing style:
    - Conversational, calm, easy to scan. Sound like a strong human reviewer.
@@ -210,7 +216,14 @@ WORKFLOW:
 10. POST THE COMMENT.
    gh pr comment ${prNumber} --repo ${nwo} --body-file ${paths.summary}
 
-11. End with: {"status": "complete"}
+11. FINAL SELF-CHECK, THEN END.
+   Before final-answer, verify these exact files exist and are non-empty:
+   - ${paths.reviewPlan}
+   - ${paths.summary}
+   - ${paths.reportsDir}/holistic.json
+   - one report JSON for every group listed in ${paths.reviewPlan}
+
+   Then final-answer with exactly: {"status": "complete"}
 
 You MUST spawn subagents, wait for reports, commit fixes before commenting, and
 post the comment. A review that only reads and reports is incomplete.`;
@@ -222,7 +235,7 @@ export function prAnalystInitialPrompt(artifactsDir: string, availableImpactVari
   const impactInstruction = impactFiles.length > 0
     ? `Read successful impact reports first: ${impactFiles.join(", ")} (your primary lens). Dedupe and verify concerns across variants before planning.`
     : "No impact variant reports are available; use the prepended full memory fallback as your primary context.";
-  return `Begin the PR review. Read ${paths.reviewerFeedback} first; active feedback rules are hard requirements. ${impactInstruction} Then read ${paths.context} and ${paths.diff}. Plan, call pr-slice-reviewer subagents with output files under ${paths.reportsDir}, wait for reports, aggregate, fix everything auto-fixable, commit and push, then post the summary comment. End with {"status": "complete"}.`;
+  return `Begin the PR review. Read ${paths.reviewerFeedback} first; active feedback rules are hard requirements. ${impactInstruction} Then read ${paths.context} and ${paths.diff}. Use real tool calls only, never pseudo-tool markup. Write ${paths.reviewPlan}, call pr-slice-reviewer subagents with output files under ${paths.reportsDir}, wait for every report including holistic, aggregate, fix everything auto-fixable, commit and push, then write and post ${paths.summary}. Final response only: {"status": "complete"}.`;
 }
 
 function impactContextBlock(impactFiles: readonly string[]): string {
