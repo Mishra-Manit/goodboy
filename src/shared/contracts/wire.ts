@@ -96,6 +96,36 @@ export interface PrSessionWithRuns extends PrSessionWithUrl {
   runs: PrSessionRun[];
 }
 
+export type PrSessionReconcileAction =
+  | "healthy"
+  | "would_recreate"
+  | "recreated"
+  | "would_mute"
+  | "muted";
+
+export interface PrSessionReconcileItem {
+  sessionId: string;
+  repo: string;
+  prNumber: number | null;
+  branch: string | null;
+  oldWorktreePath: string | null;
+  action: PrSessionReconcileAction;
+  newWorktreePath?: string;
+  error?: string;
+}
+
+export interface PrSessionReconcileSummary {
+  applied: boolean;
+  scanned: number;
+  healthy: number;
+  wouldRecreate: number;
+  recreated: number;
+  wouldMute: number;
+  muted: number;
+  errors: number;
+  items: readonly PrSessionReconcileItem[];
+}
+
 // --- Memory ---
 
 export interface MemoryZone {

@@ -73,6 +73,9 @@ export type {
   PrInboxRow,
   PrInboxState,
   PrInboxResponse,
+  PrSessionReconcileAction,
+  PrSessionReconcileItem,
+  PrSessionReconcileSummary,
 } from "@dashboard/shared";
 
 // --- API-specific response wrappers ---
