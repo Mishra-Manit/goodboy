@@ -11,11 +11,21 @@ interface TaskHeaderProps {
   task: TaskWithStages;
   now: number;
   isActive: boolean;
+  retrying?: boolean;
+  cancelling?: boolean;
   onRetry: () => void;
   onCancel: () => void;
 }
 
-export function TaskHeader({ task, now, isActive, onRetry, onCancel }: TaskHeaderProps) {
+export function TaskHeader({
+  task,
+  now,
+  isActive,
+  retrying = false,
+  cancelling = false,
+  onRetry,
+  onCancel,
+}: TaskHeaderProps) {
   const kindConfig = TASK_KIND_CONFIG[task.kind] ?? TASK_KIND_CONFIG.coding_task;
   const prReviewUrl = getPrReviewUrl(task);
   const prReviewTarget = getPrReviewTarget(task);
@@ -61,10 +71,21 @@ export function TaskHeader({ task, now, isActive, onRetry, onCancel }: TaskHeade
           </a>
         )}
         {task.status === "failed" && (
-          <ActionButton icon={<RotateCcw size={10} />} label="retry" onClick={onRetry} />
+          <ActionButton
+            icon={<RotateCcw size={10} />}
+            label={retrying ? "retrying" : "retry"}
+            onClick={onRetry}
+            disabled={retrying}
+          />
         )}
         {isActive && (
-          <ActionButton icon={<XCircle size={10} />} label="cancel" onClick={onCancel} danger />
+          <ActionButton
+            icon={<XCircle size={10} />}
+            label={cancelling ? "cancelling" : "cancel"}
+            onClick={onCancel}
+            disabled={cancelling}
+            danger
+          />
         )}
       </div>
     </header>
@@ -77,13 +98,19 @@ interface ActionButtonProps {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
+  disabled?: boolean;
   danger?: boolean;
 }
 
-function ActionButton({ icon, label, onClick, danger }: ActionButtonProps) {
+function ActionButton({ icon, label, onClick, disabled = false, danger }: ActionButtonProps) {
   const color = danger ? "text-fail/60 hover:text-fail" : "text-text-ghost hover:text-accent";
   return (
-    <button onClick={onClick} className={`flex items-center gap-1.5 font-mono text-[10px] ${color} transition-colors`}>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex items-center gap-1.5 font-mono text-[10px] ${color} transition-colors disabled:cursor-wait disabled:opacity-60`}
+    >
       {icon}
       {label}
     </button>

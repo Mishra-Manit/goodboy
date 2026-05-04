@@ -110,6 +110,8 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
   );
 
   const [activeStage, setActiveStage] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   useEffect(() => {
     if (activeStage && tabs.some((tab) => tab.key === activeStage)) return;
     const running = tabs.find((tab) => tab.stage?.status === "running")?.key;
@@ -125,15 +127,40 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
   };
 
   const handleRetry = async () => {
-    try { await retryTask(task.id); refetch(); } catch { /* status will surface */ }
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      const result = await retryTask(task.id);
+      navigate(`/tasks/${result.task.id}`);
+    } catch {
+      refetch();
+      setRetrying(false);
+    }
   };
   const handleCancel = async () => {
-    try { await cancelTask(task.id); refetch(); } catch { /* status will surface */ }
+    if (cancelling) return;
+    setCancelling(true);
+    try {
+      await cancelTask(task.id);
+      refetch();
+    } catch {
+      refetch();
+    } finally {
+      setCancelling(false);
+    }
   };
 
   return (
     <>
-      <TaskHeader task={task} now={now} isActive={isActive} onRetry={handleRetry} onCancel={handleCancel} />
+      <TaskHeader
+        task={task}
+        now={now}
+        isActive={isActive}
+        retrying={retrying}
+        cancelling={cancelling}
+        onRetry={handleRetry}
+        onCancel={handleCancel}
+      />
 
       {task.error && (
         <div className="mb-6 rounded-md bg-fail-dim px-4 py-3">
