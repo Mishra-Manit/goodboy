@@ -48,6 +48,8 @@ export type {
 export { TASK_KIND_CONFIG } from "@shared/domain/task-kinds.js";
 export type { TaskKindConfig } from "@shared/domain/task-kinds.js";
 
+export { shortId } from "@shared/lib/strings.js";
+
 export { TEST_INSTANCE_PREFIX, isTestInstance } from "@shared/domain/test-instance.js";
 
 export type {

@@ -5,6 +5,7 @@
  */
 
 import { getRepo, listRepoNames } from "../shared/domain/repos.js";
+import { shortId } from "../shared/lib/strings.js";
 import { createLogger } from "../shared/runtime/logger.js";
 import * as queries from "../db/repository.js";
 import { PIPELINES } from "../pipelines/index.js";
@@ -135,10 +136,6 @@ async function handleTaskRetry(intent: Extract<Intent, { type: "task_retry" }>, 
 }
 
 // --- Helpers (pure) ---
-
-function shortId(id: string): string {
-  return id.slice(0, 8);
-}
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 3)}...` : s;
