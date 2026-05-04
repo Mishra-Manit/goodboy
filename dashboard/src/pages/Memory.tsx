@@ -1,4 +1,4 @@
-/** Memory run history page. Repo summary grid, live runs, then a flat chronological history list. */
+/** Memory run history page grouped into repository lanes. */
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -15,10 +15,8 @@ import {
 import { MEMORY_RUN_KINDS } from "@dashboard/shared";
 import { PageState } from "@dashboard/components/PageState";
 import { EmptyState } from "@dashboard/components/EmptyState";
-import { SectionDivider } from "@dashboard/components/SectionDivider";
-import { MemoryRunRow } from "@dashboard/components/rows/MemoryRunRow";
-import { LiveMemoryRunCard } from "@dashboard/components/memory/LiveMemoryRunCard";
-import { RepoSummaryCard, type RepoEntry } from "@dashboard/components/memory/RepoSummaryCard";
+import { RepositoryLane } from "@dashboard/components/memory/RepositoryLane";
+import type { RepoEntry } from "@dashboard/components/memory/RepoSummaryCard";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useSSERefresh } from "@dashboard/hooks/use-sse";
 import { useNow } from "@dashboard/hooks/use-now";
@@ -135,62 +133,48 @@ export function Memory() {
           const history = data.runs.filter((run) => run.status !== "running");
           const runCounts = countRunsByRepo(data.runs);
           const repoEntries = buildRepoEntries(data.repos, data.runs, data.statusByRepo, runCounts);
+          const runsByRepo = groupRunsByRepo(data.runs);
 
           return (
-            <>
-              {repoEntries.length > 0 && (
-                <section className="mb-10">
-                  <SectionDivider label="repos" detail={`${repoEntries.length}`} />
-                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-5">
+              <MemoryCounts
+                repoCount={repoEntries.length}
+                liveCount={live.length}
+                historyCount={history.length}
+              />
+
+              <section>
+                <div className="mb-3 flex items-center gap-3">
+                  <p className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-text-ghost">
+                    repository lanes
+                  </p>
+                  <span className="font-mono text-[10px] text-text-void">
+                    {repoEntries.length}
+                  </span>
+                  <div className="h-px flex-1 bg-text-void" />
+                </div>
+
+                {repoEntries.length === 0 ? (
+                  <p className="py-6 text-center font-mono text-[10px] text-text-void">
+                    No registered or historical repos
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                     {repoEntries.map((entry) => (
-                      <RepoSummaryCard
+                      <RepositoryLane
                         key={entry.repo}
                         entry={entry}
+                        runs={runsByRepo.get(entry.repo) ?? []}
                         now={now}
                         deleting={deletingRepo === entry.repo}
                         onDelete={handleDeleteRepo}
+                        onOpenRun={openRun}
                       />
                     ))}
                   </div>
-                </section>
-              )}
-
-              <section className="mb-10">
-                <SectionDivider
-                  label="live"
-                  detail={live.length > 0 ? `${live.length} run${live.length === 1 ? "" : "s"}` : undefined}
-                />
-                {live.length === 0 ? (
-                  <p className="py-6 text-center font-mono text-[10px] text-text-void">
-                    No active memory runs
-                  </p>
-                ) : (
-                  <div className="mt-4 space-y-3 stagger">
-                    {live.map((run) => (
-                      <LiveMemoryRunCard key={run.id} run={run} now={now} onClick={() => openRun(run)} />
-                    ))}
-                  </div>
                 )}
               </section>
-
-              <section>
-                <SectionDivider
-                  label="history"
-                  detail={`${history.length} run${history.length === 1 ? "" : "s"}`}
-                />
-                {history.length === 0 ? (
-                  <p className="py-6 text-center font-mono text-[10px] text-text-void">
-                    No completed memory runs yet
-                  </p>
-                ) : (
-                  <div className="mt-2 space-y-0.5 stagger">
-                    {history.map((run) => (
-                      <MemoryRunRow key={run.id} run={run} onClick={() => openRun(run)} showRepo />
-                    ))}
-                  </div>
-                )}
-              </section>
-            </>
+            </div>
           );
         }}
       </PageState>
@@ -229,6 +213,14 @@ function countRunsByRepo(runs: MemoryRun[]): Map<string, number> {
     counts.set(run.repo, (counts.get(run.repo) ?? 0) + 1);
   }
   return counts;
+}
+
+function groupRunsByRepo(runs: MemoryRun[]): Map<string, MemoryRun[]> {
+  const grouped = new Map<string, MemoryRun[]>();
+  for (const run of runs) {
+    grouped.set(run.repo, [...(grouped.get(run.repo) ?? []), run]);
+  }
+  return grouped;
 }
 
 function buildRepoEntries(
@@ -279,6 +271,48 @@ function KindFilters({ value, onChange }: KindFiltersProps) {
           {filter}
         </button>
       ))}
+    </div>
+  );
+}
+
+interface MemoryCountsProps {
+  repoCount: number;
+  liveCount: number;
+  historyCount: number;
+}
+
+function MemoryCounts({ repoCount, liveCount, historyCount }: MemoryCountsProps) {
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <MemoryCountCard label="repos" value={`${repoCount}`} />
+      <MemoryCountCard
+        label="live"
+        value={`${liveCount} run${liveCount === 1 ? "" : "s"}`}
+        active={liveCount > 0}
+      />
+      <MemoryCountCard label="history" value={`${historyCount} run${historyCount === 1 ? "" : "s"}`} />
+    </div>
+  );
+}
+
+interface MemoryCountCardProps {
+  label: string;
+  value: string;
+  active?: boolean;
+}
+
+function MemoryCountCard({ label, value, active = false }: MemoryCountCardProps) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border px-3 py-2",
+        active ? "border-accent-dim bg-accent-ghost" : "border-glass-border bg-glass/40",
+      )}
+    >
+      <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-text-ghost">{label}</p>
+      <p className={cn("mt-1 font-mono text-[10px]", active ? "text-accent" : "text-text-dim")}>
+        {value}
+      </p>
     </div>
   );
 }
