@@ -167,7 +167,7 @@ export const prReviewIssueSchema = z.object({
   title: z.string().min(1),
   rationale: z.string().min(1),
   suggested_fix: z.string().min(1),
-});
+}).strict();
 export type PrReviewIssue = z.infer<typeof prReviewIssueSchema>;
 
 /** One subagent's report, written to artifacts/<taskId>/reports/<subagent_id>.json. */
@@ -177,7 +177,7 @@ export const prReviewReportSchema = z.object({
   dimensions: z.array(z.enum(PR_REVIEW_CATEGORIES)).min(1),
   issues: z.array(prReviewIssueSchema),
   notes: z.string().default(""),
-});
+}).strict();
 export type PrReviewReport = z.infer<typeof prReviewReportSchema>;
 
 /** Analyst's fan-out plan, written to artifacts/<taskId>/review-plan.json. */
@@ -187,8 +187,8 @@ export const prReviewPlanSchema = z.object({
     files: z.array(z.string()).min(1),
     dimensions: z.array(z.enum(PR_REVIEW_CATEGORIES)).min(1),
     focus: z.string().default(""),
-  })).min(1),
+  }).strict()).min(1),
   skipped: z.array(z.string()),
   focus_notes: z.string(),
-});
+}).strict();
 export type PrReviewPlan = z.infer<typeof prReviewPlanSchema>;

@@ -28,7 +28,7 @@ export const prReviewAnnotationSchema = z.object({
   kind: z.enum(PR_REVIEW_ANNOTATION_KINDS),
   title: z.string().min(1).max(140),
   body: z.string().min(1).max(1500),
-});
+}).strict();
 
 export const prReviewChapterSchema = z.object({
   id: slugSchema,
@@ -36,7 +36,7 @@ export const prReviewChapterSchema = z.object({
   files: z.array(z.string().min(1)).min(1),
   rationale: z.string().min(1).max(400),
   annotations: z.array(prReviewAnnotationSchema),
-});
+}).strict();
 
 export const prReviewArtifactSchema = z.object({
   prTitle: z.string().min(1).max(200),
@@ -44,7 +44,7 @@ export const prReviewArtifactSchema = z.object({
   summary: z.string().min(1).max(2000),
   chapters: z.array(prReviewChapterSchema).min(1),
   orderedChapterIds: z.array(slugSchema).min(1),
-}).superRefine((value, ctx) => {
+}).strict().superRefine((value, ctx) => {
   const chapterIds = value.chapters.map((chapter) => chapter.id);
   const seenChapterIds = new Set<string>();
   for (const id of chapterIds) {

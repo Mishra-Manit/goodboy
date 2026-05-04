@@ -4,7 +4,7 @@
  */
 
 import path from "node:path";
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { config } from "../runtime/config.js";
 
 // --- Paths ---
@@ -31,29 +31,3 @@ export async function prepareArtifactsDir(taskId: string, subdirs: readonly stri
   return dir;
 }
 
-/** True when an artifact exists and is non-empty. */
-export async function hasNonEmptyArtifact(artifactsDir: string, filename: string): Promise<boolean> {
-  try {
-    const info = await stat(artifactPath(artifactsDir, filename));
-    return info.size > 0;
-  } catch {
-    return false;
-  }
-}
-
-/** Assert that an artifact exists and is non-empty; throws with `errorMsg` otherwise. */
-export async function requireNonEmptyArtifact(
-  artifactsDir: string,
-  filename: string,
-  errorMsg: string,
-): Promise<string> {
-  const filePath = artifactPath(artifactsDir, filename);
-  try {
-    const info = await stat(filePath);
-    if (info.size === 0) throw new Error(`${errorMsg} (file is empty: ${filePath})`);
-    return filePath;
-  } catch (err) {
-    if (err instanceof Error && err.message.startsWith(errorMsg)) throw err;
-    throw new Error(`${errorMsg} (expected at ${filePath})`);
-  }
-}
