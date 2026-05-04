@@ -73,12 +73,22 @@ export function spawnPiSession(options: SpawnOptions): PiSession {
   let resolveCompletion: (() => void) | null = null;
   let rejectCompletion: ((err: Error) => void) | null = null;
   let resolveExit: (() => void) | null = null;
+  let spawnError: Error | null = null;
   const exitPromise = new Promise<void>((resolve) => { resolveExit = resolve; });
 
   function completeOnce(): void {
     resolveCompletion?.();
     resolveCompletion = null;
     rejectCompletion = null;
+  }
+
+  function failOnce(err: Error): void {
+    spawnError = err;
+    rejectCompletion?.(err);
+    resolveCompletion = null;
+    rejectCompletion = null;
+    resolveExit?.();
+    resolveExit = null;
   }
 
   function handleEvent(event: PiEvent): void {
@@ -99,9 +109,19 @@ export function spawnPiSession(options: SpawnOptions): PiSession {
     if (text) log.debug(`[${id} stderr] ${text}`);
   });
 
+  pipes.stdin.on("error", (err: Error) => {
+    log.warn(`Pi session ${id} stdin failed: ${err.message}`);
+    if (!spawnError) failOnce(err);
+  });
+
+  proc.on("error", (err) => {
+    log.error(`Pi session ${id} failed to spawn in ${cwd}: ${err.message}`, err);
+    failOnce(err);
+  });
+
   proc.on("exit", (code) => {
     log.info(`Pi session ${id} exited with code ${code}`);
-    completeOnce(); // If the process dies before agent_end, still release waiters.
+    if (!spawnError) completeOnce(); // If the process dies before agent_end, still release waiters.
     resolveExit?.();
     resolveExit = null;
   });
@@ -111,6 +131,7 @@ export function spawnPiSession(options: SpawnOptions): PiSession {
     process: proc,
 
     sendPrompt(message: string) {
+      if (spawnError) throw spawnError;
       pipes.stdin.write(JSON.stringify({ type: "prompt", message }) + "\n");
       log.debug(`Sent prompt to session ${id}`);
     },
@@ -118,6 +139,7 @@ export function spawnPiSession(options: SpawnOptions): PiSession {
     waitForCompletion() {
       if (resolveCompletion) throw new Error(`[${id}] waitForCompletion called while already waiting`);
       return new Promise((resolve, reject) => {
+        if (spawnError) { reject(spawnError); return; }
         if (proc.exitCode !== null) { resolve(); return; }
         resolveCompletion = resolve;
         rejectCompletion = reject;
