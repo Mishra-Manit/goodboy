@@ -15,13 +15,13 @@ import { deleteRepoMemoryArtifacts } from "../../core/memory/lifecycle/delete.js
 import { listCodeReviewerFeedback } from "../../core/memory/feedback/code-reviewer-feedback.js";
 import { getRepo } from "../../shared/domain/repos.js";
 import { MEMORY_RUN_KINDS } from "../../shared/domain/types.js";
+import { SSE_PING_INTERVAL_MS } from "../../shared/runtime/config.js";
 import { toErrorMessage } from "../../shared/runtime/errors.js";
 import { createLogger } from "../../shared/runtime/logger.js";
 import { readSessionFile, watchSessionFile } from "../../core/pi/session-file.js";
 import { notFound, parseEnumQuery, parseLimit } from "../http.js";
 
 const log = createLogger("api-memory");
-const SSE_PING_INTERVAL_MS = 30_000;
 const MEMORY_RUN_STATUS_POLL_MS = 1_000;
 const memoryRunKindQuerySchema = z.enum(MEMORY_RUN_KINDS);
 
