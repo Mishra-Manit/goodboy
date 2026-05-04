@@ -8,8 +8,7 @@ import { createLogger } from "../../../shared/runtime/logger.js";
 import { resolveModel } from "../../../shared/runtime/config.js";
 import { runStage, type SendTelegram } from "../../../core/stage.js";
 import { prDisplaySystemPrompt, prDisplayInitialPrompt } from "../prompts/display.js";
-import { readReviewArtifact } from "../artifacts/read-review.js";
-import { prReviewArtifactPaths } from "../artifacts/index.js";
+import { prReviewOutputs } from "../output-contracts.js";
 
 const log = createLogger("pr-display");
 
@@ -44,6 +43,7 @@ export async function runPrDisplay(opts: PrDisplayOptions): Promise<void> {
   } = opts;
 
   try {
+    const output = prReviewOutputs.review.resolve(artifactsDir, undefined);
     const result = await runStage({
       taskId,
       stage: "pr_display",
@@ -62,13 +62,7 @@ export async function runPrDisplay(opts: PrDisplayOptions): Promise<void> {
       chatId,
       stageLabel: "PR Display",
       timeoutMs: DISPLAY_TIMEOUT_MS,
-      postValidate: async () => {
-        const paths = prReviewArtifactPaths(artifactsDir);
-        const artifact = await readReviewArtifact(paths.review);
-        return artifact
-          ? { valid: true }
-          : { valid: false, reason: "review.json missing or failed schema validation" };
-      },
+      outputs: [output],
     });
 
     if (result.ok) {

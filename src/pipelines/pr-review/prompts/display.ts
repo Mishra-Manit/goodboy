@@ -3,7 +3,8 @@
  * left behind and writes review.json -- the full dashboard page model.
  */
 
-import { prImpactVariantPaths, prReviewArtifactPaths } from "../artifacts/index.js";
+import { finalResponsePromptBlock, outputContractPromptBlock } from "../../../shared/agent-output/prompts.js";
+import { prImpactVariantPaths, prReviewOutputs, prReviewReportsDir } from "../output-contracts.js";
 
 export interface PrDisplayPromptOptions {
   repo: string;
@@ -122,7 +123,8 @@ Use only the side and kind values listed in this schema. Report categories such 
 
 /** System prompt for the read-only display-model author. */
 export function prDisplaySystemPrompt(opts: PrDisplayPromptOptions): string {
-  const paths = prReviewArtifactPaths(opts.artifactsDir);
+  const paths = prDisplayPaths(opts.artifactsDir);
+  const output = prReviewOutputs.review.resolve(opts.artifactsDir, undefined);
   const impactFiles = opts.availableImpactVariants.map((variant) => (
     prImpactVariantPaths(opts.artifactsDir, variant).impact
   ));
@@ -137,6 +139,10 @@ ROBUST EXECUTION CONTRACT:
 - Use real tool calls only. Never emit XML, markdown, or pseudo-tool syntax such as <file_write>.
 - Write exactly one JSON object to ${paths.review}; no markdown fences, no trailing prose, no second JSON object.
 - Final status belongs only in your final assistant response. Never append {"status":"complete"} to review.json.
+
+${outputContractPromptBlock([output])}
+
+${finalResponsePromptBlock()}
 - If required inputs are missing, do not fabricate a dashboard model.
 
 Inputs you must read first:
@@ -228,17 +234,17 @@ Before returning, review your work:
 4. Ensure JSON is valid and all string lengths match the schema constraints.
 If you find any issues, fix them before writing the file.
 
-- End your turn with {"status": "complete"} after writing and checking the file. This status is the final assistant response only, not part of review.json.`;
+- End your turn with the exact final-response JSON after writing and checking the file. This status is the final assistant response only, not part of review.json.`;
 }
 
 /** Initial instruction sent after the pi session starts. */
 export function prDisplayInitialPrompt(artifactsDir: string, availableImpactVariants: readonly number[]): string {
-  const paths = prReviewArtifactPaths(artifactsDir);
+  const paths = prDisplayPaths(artifactsDir);
   const impactFiles = availableImpactVariants.map((variant) => prImpactVariantPaths(artifactsDir, variant).impact);
   const impactInstruction = impactFiles.length > 0
     ? `Also read successful impact variant files: ${impactFiles.join(", ")}.`
     : "No impact variant files succeeded; continue from summary, reports, context, and diffs.";
-  return `Begin. Read ${paths.updatedContext}, ${paths.updatedDiff}, ${paths.summary}, and the JSON files under ${paths.reportsDir}. ${impactInstruction} Read ${paths.context} and ${paths.diff} only if needed for goodboy_fix annotations. Avoid worktree reads unless selected annotation evidence is unclear. Select the final 3-8 high-impact annotations first, verify only those lines, then use the write tool to write exactly one dashboard artifact JSON object to ${paths.review}. Required top-level keys: prTitle, headSha, summary, chapters, orderedChapterIds. Required chapter keys: id, title, files, rationale, annotations. Required annotation keys: filePath, side, line, kind, title, body. Convert report file→filePath and line_start→line. Use side exactly "new" or "old"; use "new" for normal report issues. Use kind exactly "concern" for unresolved report issues; goodboy fixes use "goodboy_fix". Report categories like correctness/tests/security/style are ranking inputs only, not kind values. Keep summary <=600 chars, chapter title 1-2 words MAX (hard rule), chapter rationale <=140 chars, annotation titles <=70 chars, annotation bodies <=220 chars. Do not append status text to review.json. Final response only: {"status": "complete"}.`;
+  return `Begin. Read ${paths.updatedContext}, ${paths.updatedDiff}, ${paths.summary}, and the JSON files under ${paths.reportsDir}. ${impactInstruction} Read ${paths.context} and ${paths.diff} only if needed for goodboy_fix annotations. Avoid worktree reads unless selected annotation evidence is unclear. Select the final 3-8 high-impact annotations first, verify only those lines, then use the write tool to write exactly one dashboard artifact JSON object to ${paths.review}. Required top-level keys: prTitle, headSha, summary, chapters, orderedChapterIds. Required chapter keys: id, title, files, rationale, annotations. Required annotation keys: filePath, side, line, kind, title, body. Convert report file→filePath and line_start→line. Use side exactly "new" or "old"; use "new" for normal report issues. Use kind exactly "concern" for unresolved report issues; goodboy fixes use "goodboy_fix". Report categories like correctness/tests/security/style are ranking inputs only, not kind values. Keep summary <=600 chars, chapter title 1-2 words MAX (hard rule), chapter rationale <=140 chars, annotation titles <=70 chars, annotation bodies <=220 chars. Do not append status text to review.json. Final response only: {"status":"complete"}.`;
 }
 
 function impactInputBlock(impactFiles: readonly string[]): string {
@@ -247,4 +253,16 @@ function impactInputBlock(impactFiles: readonly string[]): string {
   }
 
   return `- Successful impact analyzer curated context variants:\n${impactFiles.map((file) => `  - ${file}`).join("\n")}`;
+}
+
+function prDisplayPaths(artifactsDir: string) {
+  return {
+    context: prReviewOutputs.context.resolve(artifactsDir, undefined).path,
+    diff: prReviewOutputs.diff.resolve(artifactsDir, undefined).path,
+    updatedContext: prReviewOutputs.updatedContext.resolve(artifactsDir, undefined).path,
+    updatedDiff: prReviewOutputs.updatedDiff.resolve(artifactsDir, undefined).path,
+    summary: prReviewOutputs.summary.resolve(artifactsDir, undefined).path,
+    review: prReviewOutputs.review.resolve(artifactsDir, undefined).path,
+    reportsDir: prReviewReportsDir(artifactsDir),
+  };
 }

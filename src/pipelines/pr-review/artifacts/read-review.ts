@@ -1,11 +1,14 @@
 /**
- * Reads and validates review.json. Missing files, malformed JSON, and schema
- * failures all return null so callers can show a uniform unavailable state.
+ * Reads and validates review.json through the PR review output contract.
+ * Missing files, malformed JSON, and schema failures return null for uniform UI handling.
  */
 
-import { readFile, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { createLogger } from "../../../shared/runtime/logger.js";
-import { prReviewArtifactSchema, type PrReviewArtifact } from "../../../shared/contracts/pr-review.js";
+import { validateFileOutput } from "../../../shared/agent-output/validation.js";
+import type { ResolvedFileOutputContract } from "../../../shared/agent-output/contracts.js";
+import { prReviewOutputs } from "../output-contracts.js";
+import type { PrReviewArtifact } from "../../../shared/contracts/pr-review.js";
 
 const log = createLogger("pr-review-read");
 
@@ -14,34 +17,29 @@ export interface ReadReviewArtifactResult {
   createdAt: Date;
 }
 
-// --- Public API ---
-
 /** All-or-nothing: any failure returns null, with the cause logged. */
-export async function readReviewArtifact(path: string): Promise<ReadReviewArtifactResult | null> {
-  let raw: string;
-  let createdAt: Date;
+export async function readReviewArtifact(
+  input: string | ResolvedFileOutputContract<PrReviewArtifact>,
+): Promise<ReadReviewArtifactResult | null> {
+  const contract = typeof input === "string"
+    ? { ...prReviewOutputs.review.resolve("", undefined), path: input }
+    : input;
+
+  const result = await validateFileOutput(contract);
+  if (!result.valid) {
+    log.warn(`review.json failed validation at ${contract.path}: ${result.reason}`);
+    return null;
+  }
+  if (!result.data) {
+    log.warn(`review.json validation produced no data at ${contract.path}`);
+    return null;
+  }
+
   try {
-    raw = await readFile(path, "utf8");
-    const info = await stat(path);
-    createdAt = info.mtime;
+    const info = await stat(contract.path);
+    return { artifact: result.data, createdAt: info.mtime };
   } catch (err) {
-    log.warn(`review.json not readable at ${path}`, err);
+    log.warn(`review.json stat failed at ${contract.path}`, err);
     return null;
   }
-
-  let json: unknown;
-  try {
-    json = JSON.parse(raw);
-  } catch (err) {
-    log.warn(`review.json malformed at ${path}`, err);
-    return null;
-  }
-
-  const parsed = prReviewArtifactSchema.safeParse(json);
-  if (!parsed.success) {
-    log.warn(`review.json failed schema validation at ${path}: ${parsed.error.message}`);
-    return null;
-  }
-
-  return { artifact: parsed.data, createdAt };
 }
