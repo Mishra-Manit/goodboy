@@ -80,6 +80,7 @@ describe("composePrInboxRows", () => {
 
     expect(row.state).toBe("review_running");
     expect(row.reviewTaskId).toBe("running");
+    expect(row.openTarget).toEqual({ type: "task", taskId: "running" });
     expect(row.canStartReview).toBe(false);
   });
 
@@ -91,6 +92,7 @@ describe("composePrInboxRows", () => {
 
     expect(row.state).toBe("review_failed");
     expect(row.reviewTaskId).toBe("failed");
+    expect(row.openTarget).toEqual({ type: "task", taskId: "failed" });
     expect(row.canRetryReview).toBe(true);
   });
 
@@ -105,6 +107,7 @@ describe("composePrInboxRows", () => {
     expect(row.state).toBe("reviewed");
     expect(row.reviewSessionId).toBe("review-session");
     expect(row.ownSessionId).toBe("own-session");
+    expect(row.openTarget).toEqual({ type: "pr_session", sessionId: "review-session" });
     expect(row.canRerunReview).toBe(true);
   });
 
@@ -112,6 +115,7 @@ describe("composePrInboxRows", () => {
     const row = compose({ sessions: [session({ id: "own-session", mode: "own" })] });
 
     expect(row.state).toBe("owned");
+    expect(row.openTarget).toEqual({ type: "pr_session", sessionId: "own-session" });
     expect(row.canStartReview).toBe(true);
   });
 
@@ -119,6 +123,7 @@ describe("composePrInboxRows", () => {
     const row = compose({});
 
     expect(row.state).toBe("not_started");
+    expect(row.openTarget).toEqual({ type: "external", url: pr.url });
     expect(row.canStartReview).toBe(true);
     expect(row.reviewTaskId).toBeNull();
   });

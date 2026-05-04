@@ -3,9 +3,9 @@
 import type { GitHubOpenPr } from "../core/git/github.js";
 import type { PrSession, Task } from "../db/repository.js";
 import { isTerminalStatus } from "../shared/domain/types.js";
-import type { PrInboxRow, PrInboxState } from "../shared/contracts/pr-inbox.js";
+import type { PrInboxOpenTarget, PrInboxRow, PrInboxState } from "../shared/contracts/pr-inbox.js";
 
-export type { PrInboxRow, PrInboxState } from "../shared/contracts/pr-inbox.js";
+export type { PrInboxOpenTarget, PrInboxRow, PrInboxState } from "../shared/contracts/pr-inbox.js";
 
 /** Merge live GitHub rows with persisted tasks/sessions without touching IO. */
 export function composePrInboxRows(input: {
@@ -22,6 +22,7 @@ export function composePrInboxRows(input: {
       task.kind === "pr_review" && !isTerminalStatus(task.status)
     ));
     const reviewFailed = matchingTasks.find((task) => task.kind === "pr_review" && task.status === "failed");
+    const reviewTask = reviewRunning ?? reviewFailed ?? null;
     const reviewSession = matchingSessions.find((session) => (
       session.mode === "review" && session.status === "active"
     ));
@@ -40,6 +41,13 @@ export function composePrInboxRows(input: {
             ? "owned"
             : "not_started";
     const watchSession = reviewSession ?? ownSession;
+    const openTarget: PrInboxOpenTarget = reviewTask
+      ? { type: "task", taskId: reviewTask.id }
+      : reviewSession
+        ? { type: "pr_session", sessionId: reviewSession.id }
+        : ownSession
+          ? { type: "pr_session", sessionId: ownSession.id }
+          : { type: "external", url: pr.url };
 
     return {
       repo: input.repo,
@@ -56,9 +64,10 @@ export function composePrInboxRows(input: {
       state,
       ownSessionId: ownSession?.id ?? null,
       reviewSessionId: reviewSession?.id ?? null,
-      reviewTaskId: reviewRunning?.id ?? reviewFailed?.id ?? null,
+      reviewTaskId: reviewTask?.id ?? null,
       watchSessionId: watchSession?.id ?? null,
       watchStatus: watchSession?.watchStatus ?? null,
+      openTarget,
       canStartReview: !reviewRunning && !reviewFailed && !reviewSession,
       canRetryReview: !!reviewFailed && !reviewRunning,
       canRerunReview: !!reviewSession && !reviewRunning,
