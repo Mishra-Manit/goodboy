@@ -24,9 +24,9 @@ import {
   type CodingStage,
   type WorktreeEnv,
 } from "./prompts.js";
+import { codingStageOutput } from "./output-contracts.js";
 import { startPrSession } from "../pr-session/session.js";
 import { memoryBlock } from "../../core/memory/output/render.js";
-import { requireNonEmptyArtifact } from "../../shared/artifacts/index.js";
 import { toErrorMessage } from "../../shared/runtime/errors.js";
 import {
   handlePipelineError,
@@ -40,28 +40,20 @@ const log = createLogger("coding");
 interface StageSpec {
   readonly label: string;
   readonly modelKey: Parameters<typeof resolveModel>[0];
-  readonly artifact: string;
-  readonly artifactError: string;
 }
 
 const STAGES: Record<CodingStage, StageSpec> = {
   planner: {
     label: "Planner",
     modelKey: "PI_MODEL_PLANNER",
-    artifact: "plan.md",
-    artifactError: "Planner failed to write plan.md",
   },
   implementer: {
     label: "Implementer",
     modelKey: "PI_MODEL_IMPLEMENTER",
-    artifact: "implementation-summary.md",
-    artifactError: "Implementer failed to write implementation-summary.md",
   },
   reviewer: {
     label: "Reviewer",
     modelKey: "PI_MODEL_REVIEWER",
-    artifact: "review.md",
-    artifactError: "Reviewer failed to write review.md",
   },
 };
 
@@ -115,7 +107,6 @@ async function runCodingPipelineInner(
         return;
       }
       await runCodingStage(stage, { taskId, task, worktreePath, artifactsDir, worktreeEnv, memory, sendTelegram });
-      await requireNonEmptyArtifact(artifactsDir, STAGES[stage].artifact, STAGES[stage].artifactError);
     }
 
     await completeTask(taskId);
@@ -165,6 +156,7 @@ interface StageContext {
 async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<void> {
   const absArtifacts = path.resolve(ctx.artifactsDir);
   const spec = STAGES[stage];
+  const output = codingStageOutput(stage).resolve(absArtifacts, undefined);
   const { systemPrompt, initialPrompt } = codingPrompts(
     stage, ctx.memory, absArtifacts, ctx.worktreeEnv, ctx.task.description,
   );
@@ -173,7 +165,7 @@ async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<vo
   // --no-extensions for reproducibility.
   const cap = stage === "planner" ? subagentCapability() : null;
 
-  await runStage({
+  const result = await runStage({
     taskId: ctx.taskId,
     stage,
     cwd: ctx.worktreePath,
@@ -183,9 +175,14 @@ async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<vo
     sendTelegram: ctx.sendTelegram,
     chatId: ctx.task.telegramChatId,
     stageLabel: spec.label,
+    outputs: [output],
     extensions: cap?.extensions,
     envOverrides: cap?.envOverrides ?? {},
   });
+
+  if (!result.ok) {
+    throw new Error(`${spec.label} validation failed: ${result.reason}`);
+  }
 }
 
 // --- Helpers ---

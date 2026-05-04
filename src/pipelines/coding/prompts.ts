@@ -6,13 +6,16 @@
  */
 
 import path from "node:path";
+import { finalResponsePromptBlock, outputContractPromptBlock } from "../../shared/agent-output/prompts.js";
 import { SHARED_RULES, worktreeBlock, type WorktreeEnv } from "../../shared/prompts/agent-prompts.js";
+import { codingStageOutput } from "./output-contracts.js";
 
 export type { WorktreeEnv };
 
 export type CodingStage = "planner" | "implementer" | "reviewer";
 
 export function plannerPrompt(memory: string, taskDescription: string, artifactsDir: string, env?: WorktreeEnv): string {
+  const contract = codingStageOutput("planner").resolve(artifactsDir, undefined);
   return `${memory}You are the Planner stage of an autonomous coding pipeline.
 ${SHARED_RULES}
 ${worktreeBlock(env)}
@@ -35,12 +38,10 @@ MANDATORY WORKFLOW:
    Each task must be self-contained and answerable by a read-only agent.
    Use the project-scoped codebase-explorer from .pi/agents/codebase-explorer.md.
    Do NOT pass model, skill, worktree, async, context, or other options.
-3. When results return, each task has a finalOutput field formatted as:
-     ## Finding
-     ## Evidence
-     ## Caveats
-   Read them. Do targeted follow-up reads yourself ONLY for files you will
-   cite directly in plan.md.
+3. When results return, each task has a finalOutput field containing strict JSON:
+     {"answer":"...","evidence":[{"path":"src/file.ts","line":1,"claim":"..."}],"caveats":[]}
+   Read it. Do targeted follow-up reads yourself ONLY for files you will
+   cite directly in the implementation plan.
 4. Write plan.md.
 
 RESULT HANDLING:
@@ -59,22 +60,21 @@ YOUR ONLY JOB:
 1. Explore the codebase (read files, grep, understand the structure)
 2. Write a comprehensive implementation plan
 
-YOU MUST write the plan to this exact file path using the write tool:
-  ${artifactsDir}/plan.md
+${outputContractPromptBlock([contract])}
 
-The plan.md file MUST contain:
+${finalResponsePromptBlock()}
+
+The implementation plan file MUST contain:
 - Context: what you learned about the codebase structure
 - Approach: high-level strategy
 - Steps: numbered implementation steps with exact file paths
 - Risks: anything that might go wrong
 
-After writing plan.md, end your output with:
-  {"status": "complete"}
-
-IMPORTANT: You MUST write the file ${artifactsDir}/plan.md before outputting the status marker. The next stage depends on this file existing.`;
+IMPORTANT: You MUST write ${contract.path} before the final response. The next stage depends on this file existing.`;
 }
 
 export function implementerPrompt(memory: string, planPath: string, artifactsDir: string, env?: WorktreeEnv): string {
+  const contract = codingStageOutput("implementer").resolve(artifactsDir, undefined);
   return `${memory}You are the Implementer stage of an autonomous coding pipeline.
 ${SHARED_RULES}
 ${worktreeBlock(env)}
@@ -86,8 +86,11 @@ YOUR ONLY JOB:
 Rules:
 - Follow the plan faithfully
 - Make atomic git commits with conventional commit messages (feat:, fix:, refactor:, etc.)
-- After ALL code changes are committed, write a summary to this exact file path:
-  ${artifactsDir}/implementation-summary.md
+- After ALL code changes are committed, write the implementation summary file.
+
+${outputContractPromptBlock([contract])}
+
+${finalResponsePromptBlock()}
 
 The summary MUST contain:
 - What was done
@@ -95,13 +98,11 @@ The summary MUST contain:
 - Decisions made
 - Any deviations from the plan
 
-After writing the summary file, end your output with:
-  {"status": "complete"}
-
-IMPORTANT: You MUST make at least one git commit AND write ${artifactsDir}/implementation-summary.md before outputting the status marker.`;
+IMPORTANT: You MUST make at least one git commit AND write ${contract.path} before the final response.`;
 }
 
 export function reviewerPrompt(memory: string, planPath: string, summaryPath: string, artifactsDir: string, env?: WorktreeEnv): string {
+  const contract = codingStageOutput("reviewer").resolve(artifactsDir, undefined);
   return `${memory}You are the Reviewer stage of an autonomous coding pipeline.
 ${SHARED_RULES}
 ${worktreeBlock(env)}
@@ -116,18 +117,18 @@ Rules:
 - If you find issues, fix them by editing files and making git commits
 - If the code looks good, say so
 
-After reviewing (and fixing if needed), write your review to this exact file path:
-  ${artifactsDir}/review.md
+After reviewing (and fixing if needed), write your review file.
+
+${outputContractPromptBlock([contract])}
+
+${finalResponsePromptBlock()}
 
 The review MUST contain:
 - Issues found (if any)
 - Fixes applied (if any)
 - Overall assessment
 
-After writing the review file, end your output with:
-  {"status": "complete"}
-
-IMPORTANT: You MUST write ${artifactsDir}/review.md before outputting the status marker.`;
+IMPORTANT: You MUST write ${contract.path} before the final response.`;
 }
 
 export function revisionPrompt(feedback: string): string {
