@@ -5,7 +5,7 @@
  * assets staged into `.pi/` for project-scoped agents.
  */
 
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { createLogger } from "../../shared/runtime/logger.js";
 import { z } from "zod";
@@ -66,10 +66,28 @@ export async function createPrWorktree(repoPath: string, headRef: string, taskId
   await forceDeleteBranch(repoPath, headRef);
 
   await exec("git", ["fetch", "origin", `${headRef}:${headRef}`], { cwd: repoPath });
-  await exec("git", ["worktree", "add", dir, headRef], { cwd: repoPath });
-  log.info(`Created PR worktree at ${dir} on branch ${headRef}`);
-  await stageSubagentAssets(dir);
+  await addPrWorktree(repoPath, headRef, dir);
   return dir;
+}
+
+/** Recreate a PR-session worktree without stealing a branch checked out elsewhere. */
+export async function createPrSessionWorktree(repoPath: string, headRef: string, prSessionId: string): Promise<string> {
+  const dir = path.join(repoPath, "..", `goodboy-pr-${prSessionId.slice(0, 8)}`);
+
+  await forceRemoveWorktree(repoPath, dir);
+  await pruneWorktrees(repoPath);
+  await exec("git", ["fetch", "origin", `+${headRef}:${headRef}`], { cwd: repoPath });
+  await addPrWorktree(repoPath, headRef, dir);
+  return dir;
+}
+
+/** True when a stored worktree path still exists as a directory. */
+export async function worktreeExists(worktreePath: string): Promise<boolean> {
+  try {
+    return (await stat(worktreePath)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /** Remove a worktree. Falls back to `rm -rf` + `git worktree prune` if git no longer tracks it. */
@@ -131,6 +149,12 @@ export async function generateBranchName(taskId: string, description: string): P
 }
 
 // --- Helpers ---
+
+async function addPrWorktree(repoPath: string, headRef: string, dir: string): Promise<void> {
+  await exec("git", ["worktree", "add", dir, headRef], { cwd: repoPath });
+  log.info(`Created PR worktree at ${dir} on branch ${headRef}`);
+  await stageSubagentAssets(dir);
+}
 
 async function forceRemoveWorktree(repoPath: string, dir: string): Promise<void> {
   try {
