@@ -52,6 +52,8 @@ export { shortId } from "@shared/lib/strings.js";
 
 export { TEST_INSTANCE_PREFIX, isTestInstance } from "@shared/domain/test-instance.js";
 
+export type { PrInboxRow, PrInboxState, PrInboxResponse } from "@shared/contracts/pr-inbox.js";
+
 export type {
   FileEntry,
   SessionEntry,
