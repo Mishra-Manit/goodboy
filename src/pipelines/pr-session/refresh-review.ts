@@ -9,7 +9,7 @@ import { createLogger } from "../../shared/runtime/logger.js";
 import { parseNwo, getPrDiff, getPrMetadata } from "../../core/git/github.js";
 import { getRepoNwo } from "../../shared/domain/repos.js";
 import { taskArtifactsDir } from "../../shared/artifacts/index.js";
-import { prReviewArtifactPaths } from "../pr-review/artifacts/index.js";
+import { prReviewOutputs } from "../pr-review/output-contracts.js";
 import { toErrorMessage } from "../../shared/runtime/errors.js";
 
 const log = createLogger("pr-refresh-review");
@@ -31,7 +31,11 @@ export async function refreshReviewArtifacts(input: RefreshReviewInput): Promise
     return;
   }
 
-  const paths = prReviewArtifactPaths(taskArtifactsDir(input.sourceTaskId));
+  const artifactsDir = taskArtifactsDir(input.sourceTaskId);
+  const paths = {
+    updatedDiff: prReviewOutputs.updatedDiff.resolve(artifactsDir, undefined).path,
+    updatedContext: prReviewOutputs.updatedContext.resolve(artifactsDir, undefined).path,
+  };
   try {
     const metadata = await getPrMetadata(nwo, input.prNumber);
     const diff = await getPrDiff(input.worktreePath, metadata.baseRef);

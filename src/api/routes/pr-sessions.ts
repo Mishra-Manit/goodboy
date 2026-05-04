@@ -11,8 +11,8 @@ import { toErrorMessage } from "../../shared/runtime/errors.js";
 import { createLogger } from "../../shared/runtime/logger.js";
 import { readSessionFile, prSessionPath } from "../../core/pi/session-file.js";
 import { reconcilePrSessions } from "../../core/pr-session/reconcile.js";
-import { prReviewArtifactPaths } from "../../pipelines/pr-review/artifacts/index.js";
 import { readReviewArtifact } from "../../pipelines/pr-review/artifacts/read-review.js";
+import { prReviewOutputs } from "../../pipelines/pr-review/output-contracts.js";
 import { refreshReviewArtifacts } from "../../pipelines/pr-session/refresh-review.js";
 import { extractReviewChatMessages } from "../../pipelines/pr-session/review-chat/index.js";
 import {
@@ -86,7 +86,12 @@ export function registerPrSessionRoutes(app: Hono): void {
       return c.json({ session: sessionDto, run: null } satisfies PrReviewPageDto);
     }
 
-    const paths = prReviewArtifactPaths(taskArtifactsDir(reviewTaskId));
+    const artifactsDir = taskArtifactsDir(reviewTaskId);
+    const paths = {
+      review: prReviewOutputs.review.resolve(artifactsDir, undefined).path,
+      updatedDiff: prReviewOutputs.updatedDiff.resolve(artifactsDir, undefined).path,
+      diff: prReviewOutputs.diff.resolve(artifactsDir, undefined).path,
+    };
     const reviewResult = await readReviewArtifact(paths.review);
     if (!reviewResult) {
       return c.json({ session: sessionDto, run: null } satisfies PrReviewPageDto);

@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { config } from "@src/shared/runtime/config.js";
 import { taskArtifactsDir } from "@src/shared/artifacts/index.js";
-import { prReviewArtifactPaths } from "@src/pipelines/pr-review/artifacts/index.js";
+import { prReviewOutputs } from "@src/pipelines/pr-review/output-contracts.js";
 import type { PrReviewArtifact } from "@src/shared/contracts/pr-review.js";
 
 const mocks = vi.hoisted(() => ({
@@ -125,6 +125,14 @@ afterEach(async () => {
   await rm(taskArtifactsDir(TASK_ID), { recursive: true, force: true });
 });
 
+function prReviewTestPaths(artifactsDir: string) {
+  return {
+    review: prReviewOutputs.review.resolve(artifactsDir, undefined).path,
+    updatedDiff: prReviewOutputs.updatedDiff.resolve(artifactsDir, undefined).path,
+    diff: prReviewOutputs.diff.resolve(artifactsDir, undefined).path,
+  };
+}
+
 describe("GET /api/pr-sessions/:id/review", () => {
   it("returns 404 for invalid ids", async () => {
     const app = createApi();
@@ -161,7 +169,7 @@ describe("GET /api/pr-sessions/:id/review", () => {
   });
 
   it("returns the validated artifact with updated diff", async () => {
-    const paths = prReviewArtifactPaths(taskArtifactsDir(TASK_ID));
+    const paths = prReviewTestPaths(taskArtifactsDir(TASK_ID));
     await mkdir(path.dirname(paths.review), { recursive: true });
     await writeFile(paths.review, JSON.stringify(validArtifact), "utf8");
     await writeFile(paths.updatedDiff, "diff --git a/src/a.ts b/src/a.ts\n", "utf8");
@@ -179,7 +187,7 @@ describe("GET /api/pr-sessions/:id/review", () => {
   });
 
   it("falls back to the original diff when updated diff is missing", async () => {
-    const paths = prReviewArtifactPaths(taskArtifactsDir(TASK_ID));
+    const paths = prReviewTestPaths(taskArtifactsDir(TASK_ID));
     await mkdir(config.artifactsDir, { recursive: true });
     await mkdir(path.dirname(paths.review), { recursive: true });
     await writeFile(paths.review, JSON.stringify(validArtifact), "utf8");

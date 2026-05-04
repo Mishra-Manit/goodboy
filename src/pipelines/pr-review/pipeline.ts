@@ -31,7 +31,7 @@ import {
 } from "../common.js";
 import { memoryBlock } from "../../core/memory/output/render.js";
 import { codeReviewerFeedbackBlock } from "../../core/memory/feedback/code-reviewer-feedback.js";
-import { PR_IMPACT_VARIANT_COUNT, PR_REVIEW_DIRS, prImpactVariantPaths, prReviewArtifactPaths } from "./artifacts/index.js";
+import { PR_IMPACT_VARIANT_COUNT, PR_REVIEW_REPORTS_DIR, prImpactVariantPaths, prReviewOutputs } from "./output-contracts.js";
 import { permuteDiff } from "./diff/permute.js";
 
 const log = createLogger("pr-review");
@@ -66,12 +66,18 @@ async function runPrReviewInner(
   const prepared = await prepareTaskPipeline({
     ctx,
     startMessage: `PR review ${taskId.slice(0, 8)} starting for ${nwo}#${prNumber}.`,
-    artifactSubdirs: [PR_REVIEW_DIRS.reports],
+    artifactSubdirs: [PR_REVIEW_REPORTS_DIR],
   });
   if (!prepared) return;
 
   const { artifactsDir } = prepared;
-  const paths = prReviewArtifactPaths(artifactsDir);
+  const paths = {
+    context: prReviewOutputs.context.resolve(artifactsDir, undefined).path,
+    diff: prReviewOutputs.diff.resolve(artifactsDir, undefined).path,
+    updatedContext: prReviewOutputs.updatedContext.resolve(artifactsDir, undefined).path,
+    updatedDiff: prReviewOutputs.updatedDiff.resolve(artifactsDir, undefined).path,
+    reviewerFeedback: prReviewOutputs.reviewerFeedback.resolve(artifactsDir, undefined).path,
+  };
 
   // Fetch PR metadata first — we need headRef and baseRef to create the worktree
   // and to run git diff inside it.
