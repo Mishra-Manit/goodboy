@@ -55,6 +55,26 @@ export { TEST_INSTANCE_PREFIX, isTestInstance } from "@shared/domain/test-instan
 export type { PrInboxRow, PrInboxState, PrInboxResponse } from "@shared/contracts/pr-inbox.js";
 
 export type {
+  Task,
+  TaskStage,
+  TaskWithStages,
+  PrSession,
+  PrSessionWithUrl,
+  PrSessionRun,
+  PrSessionWithRuns,
+  MemoryZone,
+  MemoryStatus,
+  MemoryRun,
+  RepoSummary,
+  CodeReviewerFeedbackRule,
+  CodeReviewerFeedbackStatus,
+  CodeReviewerFeedbackScope,
+  CodeReviewerFeedbackSource,
+  StageSession,
+  CreateTaskResponse,
+} from "@shared/contracts/wire.js";
+
+export type {
   FileEntry,
   SessionEntry,
   SessionHeader,

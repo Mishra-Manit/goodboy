@@ -2,13 +2,13 @@
 
 import { ExternalLink } from "lucide-react";
 import { fetchMemoryStatus } from "@dashboard/lib/api";
-import type { Repo, MemoryStatus, MemoryStatusKind } from "@dashboard/lib/api";
+import type { RepoSummary, MemoryStatus, MemoryStatusKind } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { timeAgo } from "@dashboard/lib/format";
 import { cn } from "@dashboard/lib/utils";
 
 interface RepoRowProps {
-  repo: Repo;
+  repo: RepoSummary;
 }
 
 export function RepoRow({ repo }: RepoRowProps) {

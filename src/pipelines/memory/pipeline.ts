@@ -88,6 +88,9 @@ async function runMemoryInner(opts: RunMemoryOptions, pipelineSpan: Span): Promi
 
     const outcome = await withMemoryRun(repo, repoPath, taskId, async (worktree) => {
       const headSha = await currentHeadSha(worktree);
+      if (!headSha) {
+        throw new Error(`Failed to read HEAD sha for ${repo}`);
+      }
       pipelineSpan.setAttribute(Goodboy.MemorySha, headSha);
       const state = await readState(repo);
 
