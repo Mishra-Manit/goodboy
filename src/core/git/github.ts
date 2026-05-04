@@ -265,6 +265,17 @@ export async function isPrOpen(nwo: string, prNumber: number): Promise<boolean> 
   return data.state === "OPEN";
 }
 
+/** Best-effort HEAD sha for a git repo. Returns `null` on any failure. */
+export async function revParseHead(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await exec("git", ["rev-parse", "HEAD"], { cwd });
+    return stdout.trim() || null;
+  } catch (err) {
+    log.warn(`git rev-parse HEAD failed in ${cwd}`, err);
+    return null;
+  }
+}
+
 /** True if the PR is merged or closed. Returns `false` on error (logged). */
 export async function isPrClosed(
   nwo: string,

@@ -375,10 +375,7 @@ export async function releaseLock(repo: string): Promise<void> {
 
 // --- Git ---
 
-export async function currentHeadSha(repoPath: string): Promise<string> {
-  const { stdout } = await exec("git", ["rev-parse", "HEAD"], { cwd: repoPath });
-  return stdout.trim();
-}
+export { revParseHead as currentHeadSha } from "../git/github.js";
 
 export async function gitDiffFiles(
   repoPath: string, fromSha: string, toSha: string,
