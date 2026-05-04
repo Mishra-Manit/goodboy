@@ -13,10 +13,13 @@ import { emit } from "../shared/runtime/events.js";
 import { toErrorMessage } from "../shared/runtime/errors.js";
 import * as queries from "../db/repository.js";
 import { spawnPiSession, type PiSession } from "./pi/spawn.js";
-import { ensureSessionDir, taskSessionPath } from "./pi/session-file.js";
+import { ensureSessionDir, readLatestAssistantText, taskSessionPath } from "./pi/session-file.js";
 import { broadcastSessionFile } from "./pi/session-broadcast.js";
 import { withStageSpan, bridgeSessionToOtel } from "../observability/index.js";
 import { releaseMemoryLockForTask } from "./memory/index.js";
+import { stageCompleteFinalResponseContract, type ResolvedFileOutputContract } from "../shared/agent-output/contracts.js";
+import { parseBareFinalJson } from "../shared/agent-output/final-response.js";
+import { validateFileOutputs } from "../shared/agent-output/validation.js";
 import type { StageName } from "../shared/domain/types.js";
 
 const log = createLogger("stage");
@@ -201,8 +204,12 @@ interface RunStageOptions {
   sessionEventMeta?: {
     memoryRunId?: string;
   };
+  /** File outputs that must be validated after pi exits cleanly. */
+  outputs?: readonly ResolvedFileOutputContract[];
+  /** Validate the latest assistant message as bare {"status":"complete"}. Defaults to true. */
+  validateFinalResponse?: boolean;
   /**
-   * Runs after pi exits cleanly, before the stage row is marked complete.
+   * Runs after file-output validation, before the stage row is marked complete.
    * A failed result persists/emits `failed`; throws behave like pi failures.
    */
   postValidate?: () => Promise<StageValidation>;
@@ -292,7 +299,8 @@ export async function runStage<T = unknown>(
 
       try {
         await withTimeout(session.waitForCompletion(), timeoutMs ?? STAGE_TIMEOUT_MS, `Stage ${stage}`);
-        const validation = await validateStageOutput(options.postValidate);
+        await validateFinalStageResponse(sessionPath, options.validateFinalResponse ?? true);
+        const validation = await validateDeclaredOutputs(options.outputs ?? [], options.postValidate);
         if (!validation.valid) {
           await markStageTerminal(stageRecord?.id, taskId, stage, variant, "failed", validation.reason);
           log.warn(`Stage ${stage} failed postValidate for task ${taskId}: ${validation.reason}`);
@@ -327,10 +335,21 @@ export async function runStage<T = unknown>(
   );
 }
 
-async function validateStageOutput<T>(
+async function validateDeclaredOutputs<T>(
+  outputs: readonly ResolvedFileOutputContract[],
   postValidate: (() => Promise<StageValidation<T>>) | undefined,
 ): Promise<StageValidation<T>> {
+  const files = await validateFileOutputs(outputs);
+  if (!files.valid && !files.soft) return { valid: false, reason: files.reason };
   return postValidate ? postValidate() : { valid: true };
+}
+
+async function validateFinalStageResponse(sessionPath: string, enabled: boolean): Promise<void> {
+  if (!enabled) return;
+  const text = await readLatestAssistantText(sessionPath);
+  if (!text || !parseBareFinalJson(text, stageCompleteFinalResponseContract.schema)) {
+    throw new Error(`Stage final response must be exactly ${stageCompleteFinalResponseContract.example}`);
+  }
 }
 
 async function markStageTerminal(

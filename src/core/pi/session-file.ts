@@ -13,6 +13,7 @@ import { createLogger } from "../../shared/runtime/logger.js";
 import { config } from "../../shared/runtime/config.js";
 import { taskArtifactsDir } from "../../shared/artifacts/index.js";
 import { CURRENT_SESSION_VERSION, type FileEntry } from "../../shared/contracts/session.js";
+import { latestAssistantText } from "../../shared/agent-output/final-response.js";
 import type { StageName } from "../../shared/domain/types.js";
 
 const log = createLogger("session-file");
@@ -59,6 +60,11 @@ export async function readSessionFile(filePath: string): Promise<FileEntry[]> {
   const entries = parseLines(content);
   assertSupportedVersion(entries, filePath);
   return entries;
+}
+
+/** Read the latest assistant text from a session file, or null when absent. */
+export async function readLatestAssistantText(filePath: string): Promise<string | null> {
+  return latestAssistantText(await readSessionFile(filePath));
 }
 
 /**
