@@ -23,22 +23,20 @@ pi-assets/
 ### `agents/codebase-explorer.md`
 
 Read-only codebase research subagent invoked by the planner and memory pipeline.
-Returns `## Finding / ## Evidence / ## Caveats` by default, but obeys explicit
-JSON-only schemas when asked.
+Returns strict JSON final responses only; parent stages read those responses and write canonical artifacts themselves.
 
 ### `agents/pr-slice-reviewer.md`
 
 Fast read-only PR review subagent invoked by the PR analyst. It reads one group
 from `review-plan.json`, anchors issues to changed lines in `pr.diff`, and
-returns compact JSON only. It uses the same MiniMax M2.7 model as the general
+returns compact JSON only. It uses the same small model as the general
 codebase explorer so PR review fanout stays cheap and predictable.
 
 ## Model registry
 
 Goodboy stage models are selected through `PI_MODEL*` env vars and resolved
 against the host's `~/.pi/agent/models.json` on both the laptop and the EC2
-host. Fireworks models currently used here include MiniMax M2.7.
-Stage pi processes inherit that registry naturally — no project-local override,
+host. Stage pi processes inherit that registry naturally — no project-local override,
 no `PI_CODING_AGENT_DIR` env var. If you spin up a fresh machine, add the
 Fireworks provider entries there before running a task.
 
@@ -47,5 +45,6 @@ Fireworks provider entries there before running a task.
 - Agent definitions explicitly set `extensions:` (empty value) and
   `inheritSkills: false` / `inheritProjectContext: false` when supported to
   prevent user extensions and skills from leaking into subagent processes.
-- Keep subagent system prompts focused, with rigid output formats where the
+- Subagents are read-only advisors: they never write files or mutate code.
+- Keep subagent system prompts focused, with rigid JSON output formats where the
   parent stage needs to splice findings into its own artifacts.

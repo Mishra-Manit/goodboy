@@ -587,8 +587,9 @@ has its own pipeline file.
 | `pr_review` | `pipelines/pr-review/pipeline.ts` | `pr_impact` -> `pr_analyst`, then hands off to a PR session via `pr-session/session.ts#handoffExternalReview` |
 
 All three use `core/stage.ts#runStage` to spawn a pi RPC subprocess, tail
-its native session file into SSE, and enforce a 30-minute timeout.
-`runStage` is where the real shared orchestration lives.
+its native session file into SSE, enforce a 30-minute timeout, validate declared
+agent-output files, and parse the final assistant response contract from the
+persisted session JSONL. `runStage` is where the real shared orchestration lives.
 
 ### Coding pipeline flow
 
@@ -659,7 +660,12 @@ transcript -- one source of truth.
 ### Artifact-based inter-stage communication
 
 Stages don't communicate through function returns or shared memory. They
-write files to `artifacts/<taskId>/`:
+write files to `artifacts/<taskId>/`, and every LLM-produced output is declared
+as an agent output contract in that pipeline's `output-contracts.ts`.
+Prompts, validation, final-response parsing, and dashboard artifact metadata
+derive from those contracts.
+
+Examples:
 
 - `plan.md` -- planner writes, all others read
 - `implementation-summary.md` -- implementer writes, reviewer reads
@@ -671,18 +677,20 @@ write files to `artifacts/<taskId>/`:
 - If a stage fails, you can examine the artifacts it left behind
 - Makes retry logic simpler -- just re-run the stage, it reads fresh artifacts
 
-`requireArtifact()` in `pipelines/coding/pipeline.ts` validates the file
-exists and isn't empty before proceeding to the next stage.
+Generic contract validation enforces non-empty text outputs and strict Zod
+schemas for JSON outputs. Subagents are read-only advisors: they return strict
+JSON final responses, and only parent stages write canonical artifacts.
+Non-chat stage final responses must be exactly `{"status":"complete"}`;
+review chat keeps natural prose plus a final-line strict JSON marker.
 
 ### No planner conversation loop
 
 Earlier designs had the planner ask clarifying questions via Telegram
 (`{status: "needs_input", questions: [...]}`) and block on a `waitForReply`
-promise. That loop has been removed. Stage completion is now detected via pi's
-`agent_end` RPC event -- not a text marker. Prompts still ask the model to
-emit `{"status": "complete"}` at the end for human readability, but nothing
-parses it. If you need a human-in-the-loop step again, add it inside
-`runStage` -- do not rebuild it per pipeline.
+promise. That loop has been removed. Stage subprocess completion still comes
+from pi, but Goodboy now validates the latest assistant message in the session
+JSONL before marking a stage complete. If you need a human-in-the-loop step
+again, add it inside `runStage` -- do not rebuild it per pipeline.
 
 ### Timeout pattern
 

@@ -1,7 +1,7 @@
 ---
 name: pr-slice-reviewer
 description: Fast read-only PR slice reviewer. Reads one planned review group and returns compact JSON findings anchored to changed lines.
-model: accounts/fireworks/models/minimax-m2p7
+model: openai/gpt-5.4-mini
 fallbackModels:
 inheritProjectContext: false
 inheritSkills: false
@@ -27,6 +27,8 @@ WORKFLOW:
 7. Anchor every issue to a changed line from `pr.diff`. If you cannot anchor it to a changed line, omit it.
 
 STRICT LIMITS:
+- Do NOT write, edit, create, delete, move, or mutate files.
+- Do NOT run git write commands, package installs, builds, or app code.
 - Prefer `read` over broad shell commands.
 - Use `grep`, `find`, or `bash` only for targeted lookup after reading the plan/diff.
 - Do not inspect unrelated directories.

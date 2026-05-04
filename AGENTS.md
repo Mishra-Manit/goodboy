@@ -107,7 +107,10 @@ Never report "done" without running `npm run build && npm test`.
 ## When Touching Pipelines
 
 - Every stage goes through `core/stage.ts#runStage`. Do not spawn `pi` directly from a pipeline.
-- Inter-stage data passes through files in `artifacts/<taskId>/`, not return values. Each new artifact must be validated with `requireArtifact` before the next stage reads it.
+- Every new agent output must be declared in that pipeline's `output-contracts.ts`; prompts, validation, final-response parsing, and dashboard metadata derive from those contracts.
+- Inter-stage data passes through files in `artifacts/<taskId>/`, not return values. Required outputs are validated by the agent-output contract system before the next stage reads them.
+- Subagents are read-only advisors: they never write files or mutate code, and return strict JSON final responses for parent stages to validate and copy into canonical artifacts.
+- Non-chat stage final responses must be exactly `{"status":"complete"}`. Review chat replies keep a natural response plus a final-line strict JSON marker.
 - Only the planner loads the `pi-subagents` extension. Other stages run `--no-extensions` for reproducibility.
 - Pipeline top-level catches all errors and maps them to `failTask`. Never leak a pipeline exception up to the bot handler.
 - Telegram notifications are side effects: wrap with `notifyTelegram` (log-and-continue on failure).
