@@ -86,6 +86,13 @@ export function registerPrReviewRoutes(app: Hono): void {
     const activeReviewSession = sessions.find((session) => (
       session.mode === "review" && session.status === "active"
     ));
+    const activeOwnSession = sessions.find((session) => (
+      session.mode === "own" && session.status === "active"
+    ));
+    if (activeOwnSession && await queries.getRunningPrSessionRun(activeOwnSession.id)) {
+      return c.json({ error: "Owned PR session is already running", sessionId: activeOwnSession.id }, 409);
+    }
+
     if (activeReviewSession && !replaceExisting) {
       return c.json({
         error: "Review session already exists",
@@ -94,18 +101,20 @@ export function registerPrReviewRoutes(app: Hono): void {
     }
 
     if (activeReviewSession && replaceExisting) {
-      // Close the old review session first so the new run becomes the canonical active review row.
+      // Release the branch before starting the replacement pipeline; git only
+      // allows one worktree checkout per local branch.
+      if (activeReviewSession.worktreePath) {
+        try {
+          await removeWorktree(repo.localPath, activeReviewSession.worktreePath);
+        } catch (err) {
+          return c.json({ error: `Failed to remove old review worktree: ${toErrorMessage(err)}` }, 500);
+        }
+      }
       await queries.updatePrSession(activeReviewSession.id, {
         status: "closed",
         worktreePath: null,
         branch: null,
       });
-      if (activeReviewSession.worktreePath) {
-        removeWorktree(repo.localPath, activeReviewSession.worktreePath)
-          .catch((err) => log.warn(
-            `Failed to remove old review worktree ${activeReviewSession.id}: ${toErrorMessage(err)}`,
-          ));
-      }
     }
 
     const task = await queries.createTask({
