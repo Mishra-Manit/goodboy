@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { validatePrAnalystArtifacts } from "@src/pipelines/pr-review/artifacts/validate-analyst.js";
+import { validatePrAnalystOutputs } from "@src/pipelines/pr-review/analyst-validation.js";
 
 async function makeArtifactsDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "analyst-artifacts-"));
@@ -50,12 +50,12 @@ async function writeValidArtifacts(dir: string): Promise<void> {
   await writeReport(dir, "holistic");
 }
 
-describe("validatePrAnalystArtifacts", () => {
+describe("validatePrAnalystOutputs", () => {
   it("accepts a complete analyst artifact set", async () => {
     const dir = await makeArtifactsDir();
     await writeValidArtifacts(dir);
 
-    await expect(validatePrAnalystArtifacts(dir)).resolves.toEqual({ valid: true });
+    await expect(validatePrAnalystOutputs(dir)).resolves.toEqual({ valid: true });
   });
 
   it("rejects a missing summary", async () => {
@@ -65,7 +65,7 @@ describe("validatePrAnalystArtifacts", () => {
     await writeReport(dir, "group-02");
     await writeReport(dir, "holistic");
 
-    const result = await validatePrAnalystArtifacts(dir);
+    const result = await validatePrAnalystOutputs(dir);
 
     expect(result.valid).toBe(false);
     expect(result.reason).toContain("summary.md");
@@ -78,7 +78,7 @@ describe("validatePrAnalystArtifacts", () => {
     await writeReport(dir, "group-01");
     await writeReport(dir, "holistic");
 
-    const result = await validatePrAnalystArtifacts(dir);
+    const result = await validatePrAnalystOutputs(dir);
 
     expect(result.valid).toBe(false);
     expect(result.reason).toContain("group-02.json");
@@ -89,7 +89,7 @@ describe("validatePrAnalystArtifacts", () => {
     await writeValidArtifacts(dir);
     await writeFile(join(dir, "reports", "group-01.json"), "{}\n{}", "utf8");
 
-    const result = await validatePrAnalystArtifacts(dir);
+    const result = await validatePrAnalystOutputs(dir);
 
     expect(result.valid).toBe(false);
     expect(result.reason).toContain("malformed JSON");
@@ -106,7 +106,7 @@ describe("validatePrAnalystArtifacts", () => {
       notes: "",
     }), "utf8");
 
-    const result = await validatePrAnalystArtifacts(dir);
+    const result = await validatePrAnalystOutputs(dir);
 
     expect(result.valid).toBe(false);
     expect(result.reason).toContain("subagent_id mismatch");
@@ -123,7 +123,7 @@ describe("validatePrAnalystArtifacts", () => {
     await writeReport(dir, "group-01");
     await writeReport(dir, "holistic");
 
-    const result = await validatePrAnalystArtifacts(dir);
+    const result = await validatePrAnalystOutputs(dir);
 
     expect(result.valid).toBe(false);
     expect(result.reason).toContain("empty focus");
