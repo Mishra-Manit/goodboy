@@ -79,6 +79,7 @@ async function processSession(session: PrSession, sendTelegram: SendTelegram): P
   }
 
   if (session.watchStatus === "muted") return;
+  if (await queries.getRunningPrSessionRun(session.id)) return;
 
   // Capture the start of this poll cycle BEFORE fetching, so any comment
   // posted during the fetch window is still picked up next tick.
@@ -94,8 +95,8 @@ async function processSession(session: PrSession, sendTelegram: SendTelegram): P
   log.info(`Found ${comments.length} new comments on PR #${session.prNumber}`);
   inFlight.add(session.id);
   try {
-    await resumePrSession({ prSessionId: session.id, comments, sendTelegram });
-    await queries.updatePrSession(session.id, { lastPolledAt: nextCursor });
+    const handled = await resumePrSession({ prSessionId: session.id, comments, sendTelegram });
+    if (handled) await queries.updatePrSession(session.id, { lastPolledAt: nextCursor });
   } catch (err) {
     log.error(`Failed to resume PR session ${session.id}`, err);
   } finally {

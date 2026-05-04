@@ -4,6 +4,7 @@ const { queriesHandler, githubHandler, sessionHandler, cleanupHandler } = vi.hoi
   queriesHandler: {
     listActivePrSessions: vi.fn(),
     updatePrSession: vi.fn(),
+    getRunningPrSessionRun: vi.fn(),
   },
   githubHandler: {
     isPrClosed: vi.fn(),
@@ -22,6 +23,7 @@ const { queriesHandler, githubHandler, sessionHandler, cleanupHandler } = vi.hoi
 vi.mock("@src/db/repository.js", () => ({
   listActivePrSessions: (...args: unknown[]) => queriesHandler.listActivePrSessions(...args),
   updatePrSession: (...args: unknown[]) => queriesHandler.updatePrSession(...args),
+  getRunningPrSessionRun: (...args: unknown[]) => queriesHandler.getRunningPrSessionRun(...args),
 }));
 
 vi.mock("@src/core/git/github.js", () => ({
@@ -61,11 +63,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   queriesHandler.listActivePrSessions.mockResolvedValue([]);
   queriesHandler.updatePrSession.mockResolvedValue(undefined);
+  queriesHandler.getRunningPrSessionRun.mockResolvedValue(null);
   githubHandler.isPrClosed.mockResolvedValue(false);
   githubHandler.getPrComments.mockResolvedValue([]);
   githubHandler.getPrReviewComments.mockResolvedValue([]);
   githubHandler.getPrReviews.mockResolvedValue([]);
-  sessionHandler.resumePrSession.mockResolvedValue(undefined);
+  sessionHandler.resumePrSession.mockResolvedValue(true);
   cleanupHandler.cleanupPrSession.mockResolvedValue(undefined);
 });
 
@@ -89,6 +92,16 @@ describe("pollOnce", () => {
     await pollOnce(async () => undefined);
 
     expect(cleanupHandler.cleanupPrSession).toHaveBeenCalledWith("ps1");
+    expect(githubHandler.getPrComments).not.toHaveBeenCalled();
+    expect(sessionHandler.resumePrSession).not.toHaveBeenCalled();
+  });
+
+  it("skips sessions already running a PR turn", async () => {
+    queriesHandler.listActivePrSessions.mockResolvedValue([mkSession()]);
+    queriesHandler.getRunningPrSessionRun.mockResolvedValue({ id: "run1" });
+
+    await pollOnce(async () => undefined);
+
     expect(githubHandler.getPrComments).not.toHaveBeenCalled();
     expect(sessionHandler.resumePrSession).not.toHaveBeenCalled();
   });
@@ -136,6 +149,18 @@ describe("pollOnce", () => {
     // Cursor lives in [pollStart - 5s, now]; we just bound it loosely.
     expect(cursor.getTime()).toBeLessThanOrEqual(after);
     expect(cursor.getTime()).toBeGreaterThanOrEqual(before - 6_000);
+  });
+
+  it("does not advance lastPolledAt when resume cannot handle comments", async () => {
+    queriesHandler.listActivePrSessions.mockResolvedValue([mkSession()]);
+    githubHandler.getPrComments.mockResolvedValue([
+      { kind: "conversation", id: "c1", author: "manit", body: "x", createdAt: "2026-04-25T12:00:00.000Z" },
+    ]);
+    sessionHandler.resumePrSession.mockResolvedValue(false);
+
+    await pollOnce(async () => undefined);
+
+    expect(queriesHandler.updatePrSession).not.toHaveBeenCalled();
   });
 
   it("updates lastPolledAt when no new comments are found", async () => {
