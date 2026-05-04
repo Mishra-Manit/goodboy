@@ -125,6 +125,31 @@ export async function listPrSessions(): Promise<PrSession[]> {
     .orderBy(desc(schema.prSessions.createdAt));
 }
 
+export async function listPrSessionsForRepo(repo: string): Promise<PrSession[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(schema.prSessions)
+    .where(and(
+      eq(schema.prSessions.instance, instanceId()),
+      eq(schema.prSessions.repo, repo),
+    ))
+    .orderBy(desc(schema.prSessions.createdAt));
+}
+
+export async function listPrSessionsForRepoAndPr(repo: string, prNumber: number): Promise<PrSession[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(schema.prSessions)
+    .where(and(
+      eq(schema.prSessions.instance, instanceId()),
+      eq(schema.prSessions.repo, repo),
+      eq(schema.prSessions.prNumber, prNumber),
+    ))
+    .orderBy(desc(schema.prSessions.createdAt));
+}
+
 export async function getPrSessionBySourceTask(sourceTaskId: string): Promise<PrSession | null> {
   const db = getDb();
   const [session] = await db
