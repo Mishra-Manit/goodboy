@@ -89,7 +89,7 @@ export function PrSessionDetail() {
               onToggleWatch={handleToggleWatch}
             />
 
-            {session.mode === "review" && (
+            {session.prNumber !== null && (
               <button
                 type="button"
                 onClick={() => navigate(`/prs/${session.id}/review`)}

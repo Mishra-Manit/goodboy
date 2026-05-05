@@ -3,10 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, GitPullRequest } from "lucide-react";
+import { fetchTaskPrReviewPage } from "@dashboard/lib/api/tasks";
 import { fetchPrReviewPage } from "@dashboard/lib/api/pr-sessions";
 import { splitUnifiedDiffByFile } from "@dashboard/lib/diff-patch";
 import { formatDate } from "@dashboard/lib/format";
-import type { PrReviewAnnotation, PrReviewPageDto } from "@dashboard/shared";
+import type {
+  PrReviewAnnotation,
+  PrReviewRunDto,
+  PrReviewSessionDto,
+  TaskPrReviewPageDto,
+} from "@dashboard/shared";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { PageState } from "@dashboard/components/PageState";
 import { FileStack } from "@dashboard/components/pr-review/FileStack";
@@ -17,26 +23,88 @@ import { ReviewChat } from "@dashboard/components/pr-review/ReviewChat";
 export function PrReview() {
   const { id } = useParams<{ id: string }>();
   if (!id) return <Navigate to="/prs" replace />;
-  return <PrReviewContent sessionId={id} />;
+  return <SessionPrReviewContent sessionId={id} />;
 }
 
-interface PrReviewContentProps {
+export function TaskPrReview() {
+  const { id } = useParams<{ id: string }>();
+  if (!id) return <Navigate to="/" replace />;
+  return <TaskPrReviewContent taskId={id} />;
+}
+
+// --- Page Loaders ---
+
+interface SessionPrReviewContentProps {
   sessionId: string;
 }
 
-function PrReviewContent({ sessionId }: PrReviewContentProps) {
+function SessionPrReviewContent({ sessionId }: SessionPrReviewContentProps) {
   const navigate = useNavigate();
   const { data, loading, error, refetch } = useQuery(
     `pr-review:${sessionId}`,
     () => fetchPrReviewPage(sessionId),
   );
+
+  return (
+    <ReviewPageShell
+      data={data ? { session: data.session, task: null, run: data.run } : null}
+      loading={loading}
+      error={error}
+      onRetry={refetch}
+      onBack={() => navigate(`/prs/${sessionId}`)}
+      onChanged={refetch}
+    />
+  );
+}
+
+interface TaskPrReviewContentProps {
+  taskId: string;
+}
+
+function TaskPrReviewContent({ taskId }: TaskPrReviewContentProps) {
+  const navigate = useNavigate();
+  const { data, loading, error, refetch } = useQuery(
+    `task-pr-review:${taskId}`,
+    () => fetchTaskPrReviewPage(taskId),
+  );
+
+  return (
+    <ReviewPageShell
+      data={data ? { session: data.session, task: data.task, run: data.run } : null}
+      loading={loading}
+      error={error}
+      onRetry={refetch}
+      onBack={() => navigate(`/tasks/${taskId}`)}
+      onChanged={refetch}
+    />
+  );
+}
+
+// --- Shared Review Page ---
+
+interface ReviewPageData {
+  session: PrReviewSessionDto | null;
+  task: TaskPrReviewPageDto["task"] | null;
+  run: PrReviewRunDto | null;
+}
+
+interface ReviewPageShellProps {
+  data: ReviewPageData | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onBack: () => void;
+  onChanged: () => void;
+}
+
+function ReviewPageShell({ data, loading, error, onRetry, onBack, onChanged }: ReviewPageShellProps) {
   return (
     <div className="animate-fade-in">
-      <PageState data={data} loading={loading} error={error} onRetry={refetch} loadingLabel="loading review...">
+      <PageState data={data} loading={loading} error={error} onRetry={onRetry} loadingLabel="loading review...">
         {(dto) => (
           dto.run
-            ? <ReviewRun dto={dto} onBack={() => navigate(`/prs/${sessionId}`)} onChanged={refetch} />
-            : <UnavailableReview />
+            ? <ReviewRun dto={dto} onBack={onBack} onChanged={onChanged} />
+            : <UnavailableReview onBack={onBack} />
         )}
       </PageState>
     </div>
@@ -44,14 +112,13 @@ function PrReviewContent({ sessionId }: PrReviewContentProps) {
 }
 
 interface ReviewRunProps {
-  dto: PrReviewPageDto;
+  dto: ReviewPageData & { run: PrReviewRunDto };
   onBack: () => void;
   onChanged: () => void;
 }
 
 function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
-  const run = dto.run!;
-  const session = dto.session;
+  const { run, session, task } = dto;
   const allFiles = useMemo(
     () => run.chapters.flatMap((chapter) => chapter.files.map((file) => file.path)),
     [run.chapters],
@@ -100,8 +167,8 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
     <div className="-mx-2 mt-2 flex flex-col">
       <ReviewHeader
         title={run.prTitle}
-        repo={session.repo}
-        prNumber={session.prNumber}
+        repo={session?.repo ?? task?.repo ?? "PR"}
+        prNumber={session?.prNumber ?? task?.prNumber ?? null}
         sha={run.headSha}
         createdAt={run.createdAt}
         onBack={onBack}
@@ -139,14 +206,18 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
         right={
           <aside className="min-w-0">
             <div className="lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
-              <ReviewChat
-                sessionId={session.id}
-                mode={session.mode}
-                activeFile={activeFile}
-                attachedAnnotation={attachedAnnotation}
-                onClearAnnotation={() => setAttachedAnnotation(null)}
-                onChanged={onChanged}
-              />
+              {session ? (
+                <ReviewChat
+                  sessionId={session.id}
+                  mode={session.mode}
+                  activeFile={activeFile}
+                  attachedAnnotation={attachedAnnotation}
+                  onClearAnnotation={() => setAttachedAnnotation(null)}
+                  onChanged={onChanged}
+                />
+              ) : (
+                <ReviewChatUnavailable reason="Review chat is unavailable because this review has no linked PR session." />
+              )}
             </div>
           </aside>
         }
@@ -199,16 +270,43 @@ function ReviewHeader({ title, repo, prNumber, sha, createdAt, onBack }: ReviewH
   );
 }
 
-// --- Empty State ---
+// --- Empty States ---
 
-function UnavailableReview() {
+interface UnavailableReviewProps {
+  onBack: () => void;
+}
+
+function UnavailableReview({ onBack }: UnavailableReviewProps) {
   return (
     <div className="px-2 py-8">
+      <button
+        type="button"
+        onClick={onBack}
+        className="group mb-5 flex items-center gap-1 font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim"
+      >
+        <ArrowLeft size={10} className="transition-transform group-hover:-translate-x-0.5" />
+        back
+      </button>
       <h1 className="font-display text-[18px] text-text">Review unavailable</h1>
       <p className="mt-3 font-body text-[12px] leading-relaxed text-text-secondary">
         The dashboard model for this PR review has not been generated yet, or it failed validation.
         Check the GitHub PR comment for the analyst summary.
       </p>
+    </div>
+  );
+}
+
+function ReviewChatUnavailable({ reason }: { reason: string }) {
+  return (
+    <div className="flex h-full flex-col overflow-hidden bg-bg">
+      <header className="flex items-center border-b border-glass-border px-[18px] py-[14px]">
+        <h2 className="min-w-0 truncate font-display text-[12px] font-medium text-text">
+          Review thread
+        </h2>
+      </header>
+      <div className="flex flex-1 items-center justify-center px-6 text-center">
+        <p className="font-body text-[12px] text-text-secondary">{reason}</p>
+      </div>
     </div>
   );
 }

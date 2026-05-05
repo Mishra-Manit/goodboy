@@ -180,6 +180,8 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
           prReviewUrl={prReviewUrl}
           prReviewTarget={prReviewTarget}
           linkedSession={prSession}
+          canViewReview={task.status === "complete"}
+          onReviewClick={() => navigate(`/tasks/${task.id}/review`)}
           onSessionClick={() => prSession && navigate(`/prs/${prSession.id}`)}
         />
       )}
@@ -228,11 +230,20 @@ export interface PrReviewBannerProps {
   prReviewUrl: string | null;
   prReviewTarget: string;
   linkedSession: { id: string } | null;
+  canViewReview: boolean;
+  onReviewClick: () => void;
   onSessionClick: () => void;
 }
 
 /** Inline header strip for `pr_review` tasks: target + optional session link. */
-function PrReviewBanner({ prReviewUrl, prReviewTarget, linkedSession, onSessionClick }: PrReviewBannerProps) {
+function PrReviewBanner({
+  prReviewUrl,
+  prReviewTarget,
+  linkedSession,
+  canViewReview,
+  onReviewClick,
+  onSessionClick,
+}: PrReviewBannerProps) {
   return (
     <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-text-ghost">
       <span>
@@ -250,10 +261,21 @@ function PrReviewBanner({ prReviewUrl, prReviewTarget, linkedSession, onSessionC
           prReviewTarget
         )}
       </span>
+      {canViewReview && (
+        <button
+          type="button"
+          onClick={onReviewClick}
+          className="flex items-center gap-1 text-accent transition-colors hover:underline"
+        >
+          view review
+          <ArrowUpRight size={9} />
+        </button>
+      )}
       {linkedSession && (
         <button
+          type="button"
           onClick={onSessionClick}
-          className="flex items-center gap-1 text-accent transition-colors hover:underline"
+          className="flex items-center gap-1 text-text-ghost transition-colors hover:text-accent hover:underline"
         >
           PR session ({shortId(linkedSession.id)})
           <ArrowUpRight size={9} />

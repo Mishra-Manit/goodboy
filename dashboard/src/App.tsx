@@ -13,6 +13,7 @@ import { MemoryDetail } from "@dashboard/pages/MemoryDetail";
 import { ReviewerFeedback } from "@dashboard/pages/ReviewerFeedback";
 
 const PrReview = lazy(() => import("@dashboard/pages/PrReview").then((mod) => ({ default: mod.PrReview })));
+const TaskPrReview = lazy(() => import("@dashboard/pages/PrReview").then((mod) => ({ default: mod.TaskPrReview })));
 
 export function App() {
   return (
@@ -21,6 +22,7 @@ export function App() {
         <Route path="/" element={<Tasks />} />
         <Route path="/history" element={<Navigate to="/" replace />} />
         <Route path="/tasks/:id" element={<TaskDetail />} />
+        <Route path="/tasks/:id/review" element={<LazyTaskPrReview />} />
         <Route path="/prs" element={<PullRequests />} />
         <Route path="/prs/:id" element={<PrSessionDetail />} />
         <Route path="/prs/:id/review" element={<LazyPrReview />} />
@@ -37,6 +39,14 @@ function LazyPrReview() {
   return (
     <Suspense fallback={<div className="font-mono text-[11px] text-text-ghost">loading review...</div>}>
       <PrReview />
+    </Suspense>
+  );
+}
+
+function LazyTaskPrReview() {
+  return (
+    <Suspense fallback={<div className="font-mono text-[11px] text-text-ghost">loading review...</div>}>
+      <TaskPrReview />
     </Suspense>
   );
 }

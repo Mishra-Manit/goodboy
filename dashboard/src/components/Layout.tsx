@@ -86,7 +86,7 @@ function useHideOnScrollDown(threshold = 24): boolean {
 /** Wide canvas on the PR review page; editorial column elsewhere. */
 function Main() {
   const { pathname } = useLocation();
-  const wide = /^\/prs\/[^/]+\/review$/.test(pathname);
+  const wide = /^\/prs\/[^/]+\/review$/.test(pathname) || /^\/tasks\/[^/]+\/review$/.test(pathname);
   return (
     <main
       className={cn(

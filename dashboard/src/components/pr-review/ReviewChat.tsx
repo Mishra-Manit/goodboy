@@ -100,7 +100,7 @@ export function ReviewChat({
   return (
     <div className="flex h-full flex-col overflow-hidden bg-bg">
       <ChatHeader />
-      <ChatBody messages={messages} pending={pending} unavailableReason={mode !== "review" ? null : unavailableReason} />
+      <ChatBody messages={messages} pending={pending} unavailableReason={unavailableReason} />
       <Composer
         input={input}
         onInput={setInput}
