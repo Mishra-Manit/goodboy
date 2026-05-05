@@ -1,7 +1,8 @@
 /**
  * Coding task pipeline: sync repo -> worktree -> planner -> implementer ->
- * reviewer -> hand off to a PR session. Marks the task complete before
- * handoff; the PR session owns its own lifecycle from that point on.
+ * reviewer -> pr_creator -> complete. Each stage runs via `runStage` and
+ * is fully visible in the dashboard. After pr_creator succeeds, the task is
+ * marked complete and a `pr_sessions` row is registered for comment watching.
  */
 
 import path from "node:path";
@@ -21,11 +22,12 @@ import {
 } from "../../core/stage.js";
 import {
   codingPrompts,
+  prCreatorPrompts,
   type CodingStage,
   type WorktreeEnv,
 } from "./prompts.js";
 import { codingStageOutput } from "./output-contracts.js";
-import { startPrSession } from "../pr-session/session.js";
+import { registerOwnedPrSession } from "../pr-session/session.js";
 import { memoryBlock } from "../../core/memory/output/render.js";
 import { toErrorMessage } from "../../shared/runtime/errors.js";
 import {
@@ -34,6 +36,11 @@ import {
   withTaskPipeline,
   type TaskPipelineContext,
 } from "../common.js";
+import { readLatestAssistantText, taskSessionPath } from "../../core/pi/session-file.js";
+import { parseBareFinalJson } from "../../shared/agent-output/final-response.js";
+import { prCreationFinalResponseContract } from "../../shared/agent-output/contracts.js";
+import { parsePrNumberFromUrl } from "../../core/git/github.js";
+import { getRepoNwo } from "../../shared/domain/repos.js";
 
 const log = createLogger("coding");
 
@@ -109,23 +116,27 @@ async function runCodingPipelineInner(
       await runCodingStage(stage, { taskId, task, worktreePath, artifactsDir, worktreeEnv, memory, sendTelegram });
     }
 
-    await completeTask(taskId);
-    await notifyTelegram(sendTelegram, chatId,
-      `Task ${task.id.slice(0, 8)} complete. Handing off to PR session...`);
+    const githubRepo = getRepoNwo(task.repo);
+    if (!githubRepo) {
+      await failTask(taskId, `Repo '${task.repo}' has no GitHub URL configured.`, sendTelegram, chatId);
+      return;
+    }
 
-    // PR session runs independently; don't await.
-    startPrSession({
+    const { prUrl, prNumber } = await runPrCreatorStage({
+      taskId, task, worktreePath, artifactsDir, worktreeEnv, memory, sendTelegram,
+      branch, githubRepo, repo: task.repo,
+    });
+
+    await queries.updateTask(taskId, { prUrl, prNumber });
+    await completeTask(taskId);
+    await registerOwnedPrSession({
       sourceTaskId: taskId,
       repo: task.repo,
       branch,
       worktreePath,
-      artifactsDir,
-      sendTelegram,
+      prNumber,
       chatId,
-    }).catch((err) => {
-      log.error(`PR session failed for task ${taskId}`, err);
-      notifyTelegram(sendTelegram, chatId,
-        `PR session failed: ${toErrorMessage(err)}`);
+      sendTelegram,
     });
   } catch (err) {
     await handlePipelineError({
@@ -183,6 +194,68 @@ async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<vo
   if (!result.ok) {
     throw new Error(`${spec.label} validation failed: ${result.reason}`);
   }
+}
+
+// --- PR Creator stage runner ---
+
+interface PrCreatorStageContext extends StageContext {
+  branch: string;
+  githubRepo: string;
+  repo: string;
+}
+
+/**
+ * Run the pr_creator stage end-to-end. Uses a custom postValidate because
+ * the final response schema `{"status":"complete","prUrl":"..."}` is a strict
+ * superset of the default `{"status":"complete"}` and would fail the standard
+ * check. The PR URL is extracted from the session file and returned so the
+ * pipeline can persist it on the task row before calling completeTask.
+ */
+async function runPrCreatorStage(
+  ctx: PrCreatorStageContext,
+): Promise<{ prUrl: string; prNumber: number }> {
+  const absArtifacts = path.resolve(ctx.artifactsDir);
+  const sessionPath = taskSessionPath(ctx.taskId, "pr_creator");
+  const { systemPrompt, initialPrompt } = prCreatorPrompts({
+    branch: ctx.branch,
+    githubRepo: ctx.githubRepo,
+    repo: ctx.repo,
+    artifactsDir: absArtifacts,
+    env: ctx.worktreeEnv,
+  });
+
+  const result = await runStage<{ prUrl: string; prNumber: number }>({
+    taskId: ctx.taskId,
+    stage: "pr_creator",
+    cwd: ctx.worktreePath,
+    systemPrompt,
+    initialPrompt,
+    model: resolveModel("PI_MODEL_PR_CREATOR"),
+    sendTelegram: ctx.sendTelegram,
+    chatId: ctx.task.telegramChatId,
+    stageLabel: "PR Creator",
+    outputs: [],
+    validateFinalResponse: false,
+    postValidate: async () => {
+      const text = await readLatestAssistantText(sessionPath);
+      if (!text) return { valid: false, reason: "PR creator final response is missing" };
+      const parsed = parseBareFinalJson(text, prCreationFinalResponseContract.schema);
+      if (!parsed) {
+        return {
+          valid: false,
+          reason: `PR creator final response must match: ${prCreationFinalResponseContract.example}`,
+        };
+      }
+      const prNumber = parsePrNumberFromUrl(parsed.prUrl);
+      if (!prNumber) {
+        return { valid: false, reason: `PR creator returned an invalid GitHub PR URL: ${parsed.prUrl}` };
+      }
+      return { valid: true, data: { prUrl: parsed.prUrl, prNumber } };
+    },
+  });
+
+  if (!result.ok) throw new Error(`PR Creator validation failed: ${result.reason}`);
+  return result.data!;
 }
 
 // --- Helpers ---
