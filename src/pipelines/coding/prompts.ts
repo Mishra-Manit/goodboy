@@ -1,12 +1,13 @@
 /**
  * System prompts for each stage of the coding pipeline (planner, implementer,
- * reviewer). Pure string composition -- no disk IO. Callers pre-render the
- * memory block once per task and pass it in, so all three stages reuse one
- * snapshot instead of each re-reading memory files from disk.
+ * reviewer, pr_creator). Pure string composition -- no disk IO. Callers
+ * pre-render the memory block once per task and pass it in, so all three
+ * coding stages reuse one snapshot instead of each re-reading memory files.
  */
 
 import path from "node:path";
 import { finalResponsePromptBlock, outputContractPromptBlock } from "../../shared/agent-output/prompts.js";
+import { prCreationFinalResponseContract } from "../../shared/agent-output/contracts.js";
 import { SHARED_RULES, worktreeBlock, type WorktreeEnv } from "../../shared/prompts/agent-prompts.js";
 import { codingStageOutput } from "./output-contracts.js";
 
@@ -149,6 +150,57 @@ Rules:
 
 After pushing, end your output with:
   {"status": "complete"}`;
+}
+
+// --- PR Creator ---
+
+/**
+ * System + initial prompts for the pr_creator stage. Pushes the branch,
+ * opens the PR on GitHub, and returns the PR URL in its bare-JSON final
+ * response. Artifact files provide context for the PR description body.
+ */
+export function prCreatorPrompts(options: {
+  branch: string;
+  githubRepo: string;
+  repo: string;
+  artifactsDir: string;
+  env?: WorktreeEnv;
+}): { systemPrompt: string; initialPrompt: string } {
+  const { branch, githubRepo, repo, artifactsDir, env } = options;
+  const planPath = path.join(artifactsDir, "plan.md");
+  const summaryPath = path.join(artifactsDir, "implementation-summary.md");
+  const reviewPath = path.join(artifactsDir, "review.md");
+
+  const systemPrompt = `You are the PR Creator stage of an autonomous coding pipeline.
+${SHARED_RULES}
+${worktreeBlock(env)}
+REPO: ${repo}
+GITHUB_REPO: ${githubRepo}
+BRANCH: ${branch}
+
+YOUR ONLY JOB:
+1. Push the branch: git push -u origin ${branch}
+2. Read the artifact files below for context on the PR description.
+3. Create the PR: gh pr create --title "..." --body-file /tmp/pr-body.md --base main --repo ${githubRepo}
+4. Copy the exact PR URL printed by gh into your final response.
+
+ARTIFACT FILES (read these to write a good PR description):
+- Plan: ${planPath}
+- Implementation summary: ${summaryPath}
+- Review: ${reviewPath}
+
+RULES:
+- Write the PR body to a temp file (e.g. /tmp/pr-body.md) and use --body-file.
+  NEVER pass backtick-wrapped strings to --body; bash interprets them as command substitution.
+- The PR title must use a conventional commit prefix (feat:, fix:, refactor:, etc.).
+- Target the main branch unless the plan specifies otherwise.
+- Use \`gh\` for all GitHub interactions.
+
+${finalResponsePromptBlock(prCreationFinalResponseContract)}`;
+
+  const initialPrompt = `Push the branch and create a PR on GitHub. Read the artifact files at ${artifactsDir} for context on the PR description. Do not stop until the PR URL is in your final response.`;
+
+  return { systemPrompt, initialPrompt };
 }
 
 // --- Stage routing ---
