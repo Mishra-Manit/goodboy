@@ -8,6 +8,10 @@ import type { PrReviewArtifact } from "@src/shared/contracts/pr-review.js";
 
 const mocks = vi.hoisted(() => ({
   getPrSession: vi.fn(),
+  getPrSessionBySourceTask: vi.fn(),
+  getTask: vi.fn(),
+  listPrSessionsForRepoAndPr: vi.fn(),
+  listTasksForRepoAndPr: vi.fn(),
 }));
 
 vi.mock("@src/shared/domain/repos.js", () => ({
@@ -35,14 +39,17 @@ vi.mock("@src/core/memory/lifecycle/cleanup.js", () => ({
 
 vi.mock("@src/db/repository.js", () => ({
   getPrSession: (...args: unknown[]) => mocks.getPrSession(...args),
+  getPrSessionBySourceTask: (...args: unknown[]) => mocks.getPrSessionBySourceTask(...args),
   updatePrSession: async () => null,
   listTasks: async () => [],
   listPrSessions: async () => [],
+  listPrSessionsForRepoAndPr: (...args: unknown[]) => mocks.listPrSessionsForRepoAndPr(...args),
+  listTasksForRepoAndPr: (...args: unknown[]) => mocks.listTasksForRepoAndPr(...args),
   getRunsForPrSession: async () => [],
   listMemoryRuns: async () => [],
   getMemoryRun: async () => null,
   listTasksByRepo: async () => [],
-  getTask: async () => null,
+  getTask: (...args: unknown[]) => mocks.getTask(...args),
   getStagesForTask: async () => [],
   updateTask: async () => undefined,
   deactivateMemoryRunsForRepo: async () => 0,
@@ -108,8 +115,30 @@ function mkSession(overrides: Record<string, unknown> = {}): Record<string, unkn
     sourceTaskId: TASK_ID,
     telegramChatId: null,
     lastPolledAt: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
+function mkTask(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: TASK_ID,
+    repo: "goodboy",
+    kind: "pr_review",
+    description: "Review PR #42",
+    status: "complete",
+    branch: null,
+    worktreePath: null,
+    prUrl: null,
+    prNumber: 42,
+    prIdentifier: "42",
+    error: null,
+    instance: "test",
+    telegramChatId: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    completedAt: new Date(),
     ...overrides,
   };
 }
@@ -117,6 +146,10 @@ function mkSession(overrides: Record<string, unknown> = {}): Record<string, unkn
 beforeEach(async () => {
   vi.clearAllMocks();
   mocks.getPrSession.mockResolvedValue(mkSession());
+  mocks.getPrSessionBySourceTask.mockResolvedValue(null);
+  mocks.getTask.mockResolvedValue(null);
+  mocks.listPrSessionsForRepoAndPr.mockResolvedValue([]);
+  mocks.listTasksForRepoAndPr.mockResolvedValue([]);
   await rm(taskArtifactsDir(TASK_ID), { recursive: true, force: true });
 });
 
@@ -131,6 +164,77 @@ function prReviewTestPaths(artifactsDir: string) {
     diff: prReviewOutputs.diff.resolve(artifactsDir, undefined).path,
   };
 }
+
+describe("GET /api/tasks/:id/review", () => {
+  it("returns 404 for invalid ids", async () => {
+    const app = createApi();
+
+    const res = await app.fetch(new Request("http://goodboy.test/api/tasks/not-a-uuid/review"));
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 for non-PR-review tasks", async () => {
+    mocks.getTask.mockResolvedValue(mkTask({ kind: "coding_task" }));
+    const app = createApi();
+
+    const res = await app.fetch(new Request(`http://goodboy.test/api/tasks/${TASK_ID}/review`));
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns run null when review.json is unavailable", async () => {
+    mocks.getTask.mockResolvedValue(mkTask());
+    const app = createApi();
+
+    const res = await app.fetch(new Request(`http://goodboy.test/api/tasks/${TASK_ID}/review`));
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      task: { id: TASK_ID, kind: "pr_review", prNumber: 42 },
+      session: null,
+      run: null,
+    });
+  });
+
+  it("resolves direct external review sessions by source task", async () => {
+    mocks.getTask.mockResolvedValue(mkTask());
+    mocks.getPrSessionBySourceTask.mockResolvedValue(mkSession());
+    const paths = prReviewTestPaths(taskArtifactsDir(TASK_ID));
+    await mkdir(path.dirname(paths.review), { recursive: true });
+    await writeFile(paths.review, JSON.stringify(validArtifact), "utf8");
+    await writeFile(paths.diff, "diff --git a/src/a.ts b/src/a.ts\n", "utf8");
+    const app = createApi();
+
+    const res = await app.fetch(new Request(`http://goodboy.test/api/tasks/${TASK_ID}/review`));
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      session: { id: SESSION_ID, mode: "review" },
+      run: { prTitle: validArtifact.prTitle },
+    });
+  });
+
+  it("resolves owned PR sessions by repo and PR number", async () => {
+    mocks.getTask.mockResolvedValue(mkTask());
+    mocks.listPrSessionsForRepoAndPr.mockResolvedValue([
+      mkSession({ mode: "own", sourceTaskId: "33333333-3333-3333-3333-333333333333" }),
+    ]);
+    const paths = prReviewTestPaths(taskArtifactsDir(TASK_ID));
+    await mkdir(path.dirname(paths.review), { recursive: true });
+    await writeFile(paths.review, JSON.stringify(validArtifact), "utf8");
+    await writeFile(paths.updatedDiff, "diff --git a/src/owned.ts b/src/owned.ts\n", "utf8");
+    const app = createApi();
+
+    const res = await app.fetch(new Request(`http://goodboy.test/api/tasks/${TASK_ID}/review`));
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      session: { id: SESSION_ID, mode: "own" },
+      run: { diffPatch: "diff --git a/src/owned.ts b/src/owned.ts\n" },
+    });
+  });
+});
 
 describe("GET /api/pr-sessions/:id/review", () => {
   it("returns 404 for invalid ids", async () => {

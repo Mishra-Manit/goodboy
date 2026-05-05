@@ -13,6 +13,7 @@ import { readSessionFile, taskSessionPath } from "../../core/pi/session-file.js"
 import { cancelAndUpdateTask, type SendTelegram } from "../../core/stage.js";
 import { dismissTask } from "../../core/cleanup.js";
 import { PIPELINES } from "../../pipelines/index.js";
+import { buildTaskPrReviewPage } from "../pr-review-page.js";
 import {
   dedupeStageSessionRows,
   notFound,
@@ -60,6 +61,17 @@ export function registerTaskRoutes(app: Hono): void {
       })),
     );
     return c.json({ stages: stages.filter((stage) => stage.entries.length > 0) });
+  });
+
+  app.get("/api/tasks/:id/review", async (c) => {
+    const id = c.req.param("id");
+    if (!UUID_PATTERN.test(id)) return notFound(c);
+    const task = await queries.getTask(id);
+    if (!task) return notFound(c);
+
+    const page = await buildTaskPrReviewPage(task);
+    if (!page) return notFound(c);
+    return c.json(page);
   });
 
   app.get("/api/tasks/:id/artifacts/:name", async (c) => {
