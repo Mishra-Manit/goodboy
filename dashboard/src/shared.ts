@@ -37,6 +37,7 @@ export type {
   PrReviewAnnotationKind,
   PrReviewArtifact,
   PrReviewChapter,
+  PrReviewFile,
   PrReviewPageDto,
   ReviewChatMessage,
   ReviewChatPart,

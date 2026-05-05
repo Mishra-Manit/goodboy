@@ -25,12 +25,6 @@ const STYLES: Record<PrReviewAnnotationKind, KindStyle> = {
     bg: "bg-accent-dim",
     border: "border-l-accent",
   },
-  user_change: {
-    label: "user change",
-    text: "text-text-secondary",
-    bg: "bg-white/5",
-    border: "border-l-text-ghost",
-  },
   note: {
     label: "note",
     text: "text-info",

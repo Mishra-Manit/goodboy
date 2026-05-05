@@ -8,12 +8,7 @@ import { PR_SESSION_MODES } from "../domain/types.js";
 
 // --- Enums ---
 
-export const PR_REVIEW_ANNOTATION_KINDS = [
-  "user_change",
-  "goodboy_fix",
-  "concern",
-  "note",
-] as const;
+export const PR_REVIEW_ANNOTATION_KINDS = ["goodboy_fix", "concern", "note"] as const;
 
 export type PrReviewAnnotationKind = (typeof PR_REVIEW_ANNOTATION_KINDS)[number];
 
@@ -21,9 +16,13 @@ export type PrReviewAnnotationKind = (typeof PR_REVIEW_ANNOTATION_KINDS)[number]
 
 const slugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,79}$/);
 
+const prReviewFileSchema = z.object({
+  path: z.string().min(1),
+  narrative: z.string().min(1).max(300),
+}).strict();
+
 export const prReviewAnnotationSchema = z.object({
   filePath: z.string().min(1),
-  side: z.enum(["old", "new"]),
   line: z.number().int().positive(),
   kind: z.enum(PR_REVIEW_ANNOTATION_KINDS),
   title: z.string().min(1).max(140),
@@ -33,8 +32,8 @@ export const prReviewAnnotationSchema = z.object({
 export const prReviewChapterSchema = z.object({
   id: slugSchema,
   title: z.string().min(1).max(120),
-  files: z.array(z.string().min(1)).min(1),
-  rationale: z.string().min(1).max(400),
+  files: z.array(prReviewFileSchema).min(1),
+  narrative: z.string().min(1).max(400),
   annotations: z.array(prReviewAnnotationSchema),
 }).strict();
 
@@ -43,34 +42,17 @@ export const prReviewArtifactSchema = z.object({
   headSha: z.string().min(7).max(64),
   summary: z.string().min(1).max(2000),
   chapters: z.array(prReviewChapterSchema).min(1),
-  orderedChapterIds: z.array(slugSchema).min(1),
 }).strict().superRefine((value, ctx) => {
-  const chapterIds = value.chapters.map((chapter) => chapter.id);
   const seenChapterIds = new Set<string>();
-  for (const id of chapterIds) {
-    if (seenChapterIds.has(id)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate chapter id: ${id}` });
-    }
-    seenChapterIds.add(id);
-  }
-
-  const chapterIdSet = new Set(chapterIds);
-  const orderedIdSet = new Set(value.orderedChapterIds);
-  if (
-    orderedIdSet.size !== value.orderedChapterIds.length ||
-    value.orderedChapterIds.length !== chapterIds.length ||
-    !value.orderedChapterIds.every((id) => chapterIdSet.has(id))
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "orderedChapterIds must be a unique permutation of chapters[].id",
-    });
-  }
-
   for (const chapter of value.chapters) {
-    const fileSet = new Set(chapter.files);
+    if (seenChapterIds.has(chapter.id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate chapter id: ${chapter.id}` });
+    }
+    seenChapterIds.add(chapter.id);
+
+    const filePathSet = new Set(chapter.files.map((file) => file.path));
     for (const annotation of chapter.annotations) {
-      if (!fileSet.has(annotation.filePath)) {
+      if (!filePathSet.has(annotation.filePath)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: `annotation filePath '${annotation.filePath}' not in chapter '${chapter.id}' files`,
@@ -82,6 +64,7 @@ export const prReviewArtifactSchema = z.object({
 
 // --- Types ---
 
+export type PrReviewFile = z.infer<typeof prReviewFileSchema>;
 export type PrReviewAnnotation = z.infer<typeof prReviewAnnotationSchema>;
 export type PrReviewChapter = z.infer<typeof prReviewChapterSchema>;
 export type PrReviewArtifact = z.infer<typeof prReviewArtifactSchema>;

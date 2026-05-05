@@ -44,6 +44,7 @@ export type {
   PrReviewAnnotationKind,
   PrReviewArtifact,
   PrReviewChapter,
+  PrReviewFile,
   PrReviewPageDto,
 } from "@dashboard/shared";
 
