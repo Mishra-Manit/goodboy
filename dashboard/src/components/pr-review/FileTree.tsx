@@ -5,27 +5,21 @@ import type { PrReviewAnnotation, PrReviewChapter } from "@dashboard/shared";
 
 interface FileTreeProps {
   chapters: PrReviewChapter[];
-  orderedChapterIds: string[];
   activeFile: string | null;
   onSelectFile: (file: string) => void;
 }
 
-export function FileTree({ chapters, orderedChapterIds, activeFile, onSelectFile }: FileTreeProps) {
-  const byId = new Map(chapters.map((c) => [c.id, c]));
+export function FileTree({ chapters, activeFile, onSelectFile }: FileTreeProps) {
   return (
     <nav aria-label="Files" className="flex h-full flex-col gap-5 bg-bg py-4 pr-3">
-      {orderedChapterIds.map((id) => {
-        const chapter = byId.get(id);
-        if (!chapter) return null;
-        return (
-          <ChapterSection
-            key={id}
-            chapter={chapter}
-            activeFile={activeFile}
-            onSelectFile={onSelectFile}
-          />
-        );
-      })}
+      {chapters.map((chapter) => (
+        <ChapterSection
+          key={chapter.id}
+          chapter={chapter}
+          activeFile={activeFile}
+          onSelectFile={onSelectFile}
+        />
+      ))}
     </nav>
   );
 }
@@ -47,12 +41,12 @@ function ChapterSection({ chapter, activeFile, onSelectFile }: ChapterSectionPro
         </h3>
       </header>
       <ul className="flex flex-col">
-        {chapter.files.map((file) => (
+        {chapter.files.map(({ path }) => (
           <FileRow
-            key={file}
-            file={file}
-            annotations={chapter.annotations.filter((a) => a.filePath === file)}
-            active={file === activeFile}
+            key={path}
+            file={path}
+            annotations={chapter.annotations.filter((a) => a.filePath === path)}
+            active={path === activeFile}
             onSelect={onSelectFile}
           />
         ))}
@@ -75,8 +69,7 @@ function FileRow({ file, annotations, active, onSelect }: FileRowProps) {
   const fixes = annotations.filter((a) => a.kind === "goodboy_fix").length;
   const notes = annotations.filter((a) => a.kind === "note").length;
   const total = concerns + fixes + notes;
-  const totalColor =
-    concerns > 0 ? "text-fail" : fixes > 0 ? "text-warn" : "text-info";
+  const totalColor = concerns > 0 ? "text-fail" : fixes > 0 ? "text-warn" : "text-info";
 
   return (
     <li>

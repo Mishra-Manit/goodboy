@@ -275,7 +275,6 @@ interface AnnotationChipProps {
 }
 
 function AnnotationChip({ annotation, onRemove, compact }: AnnotationChipProps) {
-  const sideMark = annotation.side === "old" ? "−" : "+";
   const tail = filenameTail(annotation.filePath);
   return (
     <div
@@ -288,7 +287,7 @@ function AnnotationChip({ annotation, onRemove, compact }: AnnotationChipProps) 
         {annotation.kind.replace(/_/g, " ")}
       </span>
       <span className="truncate font-mono text-[10px] text-text-dim">
-        {tail}:{sideMark}{annotation.line}
+        {tail}:line {annotation.line}
       </span>
       {onRemove && (
         <button
