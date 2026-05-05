@@ -1,4 +1,4 @@
-/** PR review page: V8 stacked-diff layout. Left file rail · center file stack · right review thread. */
+/** PR review page: natural-language diff layout. Left file rail · center narrative stack · right review thread. */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
@@ -9,10 +9,10 @@ import { formatDate } from "@dashboard/lib/format";
 import type { PrReviewAnnotation, PrReviewPageDto } from "@dashboard/shared";
 import { useQuery } from "@dashboard/hooks/use-query";
 import { PageState } from "@dashboard/components/PageState";
-import { FileTree } from "@dashboard/components/pr-review/FileTree";
 import { FileStack } from "@dashboard/components/pr-review/FileStack";
-import { ReviewChat } from "@dashboard/components/pr-review/ReviewChat";
+import { FileTree } from "@dashboard/components/pr-review/FileTree";
 import { ResizablePanels } from "@dashboard/components/pr-review/ResizablePanels";
+import { ReviewChat } from "@dashboard/components/pr-review/ReviewChat";
 
 export function PrReview() {
   const { id } = useParams<{ id: string }>();
@@ -53,13 +53,10 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
   const run = dto.run!;
   const session = dto.session;
   const allFiles = useMemo(
-    () => run.orderedChapterIds.flatMap((id) => run.chapters.find((c) => c.id === id)?.files ?? []),
-    [run.chapters, run.orderedChapterIds],
+    () => run.chapters.flatMap((chapter) => chapter.files.map((file) => file.path)),
+    [run.chapters],
   );
   const [activeFile, setActiveFile] = useState<string | null>(allFiles[0] ?? null);
-  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(
-    () => new Set(allFiles),
-  );
   const [attachedAnnotation, setAttachedAnnotation] = useState<PrReviewAnnotation | null>(null);
 
   const handleReplyAnnotation = useCallback((annotation: PrReviewAnnotation) => {
@@ -69,55 +66,34 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
 
   useEffect(() => {
     setActiveFile(allFiles[0] ?? null);
-    setExpandedFiles(new Set(allFiles));
-  }, [run.headSha]);
+  }, [allFiles, run.headSha]);
 
   const annotationsByFile = useMemo(() => {
     const map = new Map<string, PrReviewAnnotation[]>();
     for (const chapter of run.chapters) {
       for (const annotation of chapter.annotations) {
         const list = map.get(annotation.filePath) ?? [];
-        list.push(annotation);
-        map.set(annotation.filePath, list);
+        map.set(annotation.filePath, [...list, annotation]);
       }
     }
     return map;
   }, [run.chapters]);
 
   const patchByFile = useMemo(
-    () => new Map(splitUnifiedDiffByFile(run.diffPatch).map((p) => [p.filePath, p.patch])),
+    () => new Map(splitUnifiedDiffByFile(run.diffPatch).map((patch) => [patch.filePath, patch.patch])),
     [run.diffPatch],
   );
 
   const fileRefs = useRef<Map<string, HTMLElement>>(new Map());
 
-  const focusFile = useCallback(
-    (file: string) => {
-      setActiveFile(file);
-      setExpandedFiles((prev) => {
-        if (prev.has(file)) return prev;
-        const next = new Set(prev);
-        next.add(file);
-        return next;
-      });
-      const el = fileRefs.current.get(file);
-      if (el) {
-        requestAnimationFrame(() => el.scrollIntoView({ behavior: "smooth", block: "start" }));
-      }
-    },
-    [],
-  );
-
-  const toggleExpand = useCallback((file: string) => {
-    setExpandedFiles((prev) => {
-      const next = new Set(prev);
-      if (next.has(file)) next.delete(file);
-      else next.add(file);
-      return next;
-    });
+  const focusFile = useCallback((file: string) => {
+    setActiveFile(file);
+    const el = fileRefs.current.get(file);
+    if (el) {
+      requestAnimationFrame(() => el.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
   }, []);
 
-  useFileKeyboardNavigation(allFiles, activeFile, focusFile);
   useScrollSpyActiveFile(allFiles, fileRefs, setActiveFile);
 
   return (
@@ -139,7 +115,6 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
             <div className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
               <FileTree
                 chapters={run.chapters}
-                orderedChapterIds={run.orderedChapterIds}
                 activeFile={activeFile}
                 onSelectFile={focusFile}
               />
@@ -149,17 +124,15 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
         center={
           <div className="min-w-0 px-[18px] py-[18px]">
             <FileStack
+              summary={run.summary}
               chapters={run.chapters}
-              orderedChapterIds={run.orderedChapterIds}
               patchByFile={patchByFile}
               annotationsByFile={annotationsByFile}
               activeFile={activeFile}
-              expandedFiles={expandedFiles}
-              onToggleExpand={toggleExpand}
-              onSelectFile={setActiveFile}
               diffStyle="unified"
               fileRefs={fileRefs}
               onReplyAnnotation={handleReplyAnnotation}
+              onSelectFile={setActiveFile}
             />
           </div>
         }
@@ -178,7 +151,6 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
           </aside>
         }
       />
-
     </div>
   );
 }
@@ -201,7 +173,7 @@ function ReviewHeader({ title, repo, prNumber, sha, createdAt, onBack }: ReviewH
         <button
           type="button"
           onClick={onBack}
-          className="group flex items-center gap-1 text-text-ghost hover:text-text-dim transition-colors"
+          className="group flex items-center gap-1 text-text-ghost transition-colors hover:text-text-dim"
         >
           <ArrowLeft size={10} className="transition-transform group-hover:-translate-x-0.5" />
           back
@@ -227,7 +199,7 @@ function ReviewHeader({ title, repo, prNumber, sha, createdAt, onBack }: ReviewH
   );
 }
 
-// --- Empty state ---
+// --- Empty State ---
 
 function UnavailableReview() {
   return (
@@ -241,12 +213,9 @@ function UnavailableReview() {
   );
 }
 
-// --- Scroll spy ---
+// --- Scroll Spy ---
 
-/**
- * Sync `activeFile` with whatever file card is currently in the top band of the viewport.
- * Lets the left rail's highlight follow free-scroll without requiring a click.
- */
+/** Sync `activeFile` with whatever file card is currently in the top band of the viewport. */
 function useScrollSpyActiveFile(
   files: string[],
   fileRefs: React.MutableRefObject<Map<string, HTMLElement>>,
@@ -258,7 +227,7 @@ function useScrollSpyActiveFile(
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries
-          .filter((e) => e.isIntersecting)
+          .filter((entry) => entry.isIntersecting)
           .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
         if (visible.length === 0) return;
         const file = elementToFile.get(visible[0].target);
@@ -272,30 +241,4 @@ function useScrollSpyActiveFile(
     }
     return () => observer.disconnect();
   }, [files, fileRefs, setActiveFile]);
-}
-
-// --- Keyboard nav ---
-
-function useFileKeyboardNavigation(
-  files: string[],
-  activeFile: string | null,
-  focusFile: (file: string) => void,
-): void {
-  useEffect(() => {
-    if (!files.length) return;
-    function onKey(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
-      const currentIndex = activeFile ? Math.max(0, files.indexOf(activeFile)) : 0;
-      if (event.key === "j" || event.key === "ArrowDown") {
-        const next = files[Math.min(currentIndex + 1, files.length - 1)];
-        if (next) focusFile(next);
-      } else if (event.key === "k" || event.key === "ArrowUp") {
-        const previous = files[Math.max(currentIndex - 1, 0)];
-        if (previous) focusFile(previous);
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [activeFile, files, focusFile]);
 }
