@@ -1,7 +1,8 @@
 /** Task + artifact endpoints. */
 
-import { request, requestText } from "./client.js";
-import type { Task, TaskWithStages, StageSession, RetryTaskResponse } from "./types.js";
+import { taskPrReviewPageDtoSchema } from "@dashboard/shared";
+import { request, requestJson, requestText } from "./client.js";
+import type { Task, TaskWithStages, StageSession, RetryTaskResponse, TaskPrReviewPageDto } from "./types.js";
 
 export async function fetchTasks(filters?: {
   status?: string;
@@ -26,6 +27,10 @@ export async function fetchTaskSession(id: string): Promise<{ stages: StageSessi
 
 export async function fetchArtifact(taskId: string, name: string): Promise<string> {
   return requestText(`/api/tasks/${taskId}/artifacts/${name}`);
+}
+
+export async function fetchTaskPrReviewPage(taskId: string): Promise<TaskPrReviewPageDto> {
+  return requestJson(`/api/tasks/${taskId}/review`, taskPrReviewPageDtoSchema);
 }
 
 export async function retryTask(id: string): Promise<RetryTaskResponse> {

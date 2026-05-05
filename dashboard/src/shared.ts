@@ -28,6 +28,7 @@ export type {
 
 export {
   prReviewPageDtoSchema,
+  taskPrReviewPageDtoSchema,
   reviewChatResponseSchema,
   reviewChatPostResponseSchema,
 } from "@shared/contracts/pr-review.js";
@@ -39,6 +40,9 @@ export type {
   PrReviewChapter,
   PrReviewFile,
   PrReviewPageDto,
+  PrReviewRunDto,
+  PrReviewSessionDto,
+  TaskPrReviewPageDto,
   ReviewChatMessage,
   ReviewChatPart,
   ReviewChatRequest,

@@ -13,6 +13,7 @@ import type {
   PrSessionMode,
   PrComment,
   PrReviewPageDto,
+  TaskPrReviewPageDto,
 } from "@dashboard/shared";
 
 export type {
@@ -46,6 +47,7 @@ export type {
   PrReviewChapter,
   PrReviewFile,
   PrReviewPageDto,
+  TaskPrReviewPageDto,
 } from "@dashboard/shared";
 
 export { TASK_KIND_CONFIG } from "@dashboard/shared";
