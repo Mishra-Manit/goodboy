@@ -1,9 +1,10 @@
 /**
  * System prompts for the PR session. Supports two modes: `own` (we authored
  * the PR; address feedback on it) and `review` (external PR we are reviewing).
+ * PR creation is handled exclusively by the pr_creator pipeline stage
+ * in `coding/prompts.ts` and never by this module.
  */
 
-import { prCreationFinalResponseContract } from "../../shared/agent-output/contracts.js";
 import { finalResponsePromptBlock } from "../../shared/agent-output/prompts.js";
 import { SHARED_RULES } from "../../shared/prompts/agent-prompts.js";
 import type { PrComment } from "../../shared/domain/types.js";
@@ -14,12 +15,9 @@ export function prSessionPrompt(options: {
   branch: string;
   githubRepo?: string;
   prNumber?: number;
-  planPath?: string;
-  summaryPath?: string;
-  reviewPath?: string;
   feedbackToolPolicy?: string;
 }): string {
-  const { mode, repo, branch, githubRepo, prNumber, planPath, summaryPath, reviewPath, feedbackToolPolicy } = options;
+  const { mode, repo, branch, githubRepo, prNumber, feedbackToolPolicy } = options;
   const ghRepo = githubRepo ?? repo;
 
   const shared = `You are a PR session agent managing a pull request on GitHub.
@@ -39,26 +37,11 @@ ${feedbackToolPolicy ? `\n${feedbackToolPolicy}` : ""}
 `;
 
   if (mode === "own") {
-    const artifactLines = [
-      planPath ? `- Plan: ${planPath}` : null,
-      summaryPath ? `- Implementation summary: ${summaryPath}` : null,
-      reviewPath ? `- Review: ${reviewPath}` : null,
-    ].filter(Boolean).join("\n");
-
     return `${shared}
-MODE: You wrote the code for this PR.
+MODE: You wrote the code for this PR and are now addressing reviewer feedback.
+Address feedback directly: edit code, commit, and push changes to the branch.
 
-${prNumber ? "" : `NO PR EXISTS YET. Your first job is to:
-1. Push the branch: git push -u origin ${branch}
-2. Read the artifact files for context on the PR description.
-3. Create the PR: gh pr create --title "..." --body-file /path/to/body.md --base main --repo ${ghRepo}
-4. Copy the exact PR URL printed by gh into your final response as prUrl.
-
-CRITICAL: When writing the PR body, avoid using backticks for code formatting in the --body string passed to bash. Bash interprets backticks as command substitution, which will cause errors. Prefer writing the body to a file and using --body-file.
-`}
-${artifactLines ? `ARTIFACT FILES (read these for context):\n${artifactLines}` : ""}
-
-${finalResponsePromptBlock(prNumber ? undefined : prCreationFinalResponseContract)}`;
+${finalResponsePromptBlock()}`;
   }
 
   // mode === "review"
@@ -93,6 +76,3 @@ function formatComment(c: PrComment): string {
       return `[review submission -- ${c.state}] @${c.author}:\n${c.body}`;
   }
 }
-
-/** Initial prompt for the PR creation turn (push branch + open PR). */
-export const prCreationPrompt = `Push the branch and create a PR. Read the artifact files for context on the PR description.`;
