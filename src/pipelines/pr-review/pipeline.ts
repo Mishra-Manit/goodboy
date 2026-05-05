@@ -201,7 +201,11 @@ async function runPrReviewInner(
       if (ownedReviewSessionId) {
         // The analyst posts via the user's GitHub auth; advance the watch cursor
         // past that self-authored summary so the PR poller does not resume on it.
+        // Also redirect the session to this pr_review task so review chat can
+        // locate the correct artifacts directory and the mode guard passes.
         await queries.updatePrSession(ownedReviewSessionId, {
+          mode: "review",
+          sourceTaskId: taskId,
           lastPolledAt: new Date(Date.now() + OWNED_REVIEW_POLL_CURSOR_BUFFER_MS),
         });
       }

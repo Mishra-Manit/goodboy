@@ -167,6 +167,8 @@ export async function updatePrSession(
   data: Partial<{
     status: "active" | "closed";
     watchStatus: PrSessionWatchStatus;
+    mode: PrSessionMode;
+    sourceTaskId: string;
     prNumber: number;
     lastPolledAt: Date;
     worktreePath: string | null;
