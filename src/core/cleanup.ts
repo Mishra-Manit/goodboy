@@ -105,6 +105,23 @@ async function cleanupGitResources(repoPath: string, resources: GitResources): P
   if (resources.branch) await deleteLocalBranch(repoPath, resources.branch);
 }
 
+/** Close a PR from the inbox: closes on GitHub and tears down all active sessions for it. */
+export async function closePrFromInbox(repo: string, prNumber: number): Promise<void> {
+  const repoConfig = getRepo(repo);
+  if (!repoConfig?.githubUrl) throw new Error(`Repo ${repo} not configured for GitHub`);
+  const nwo = parseNwo(repoConfig.githubUrl);
+  if (!nwo) throw new Error(`Cannot parse GitHub URL for repo ${repo}`);
+
+  await closePr(nwo, prNumber);
+
+  const sessions = await queries.listPrSessionsForRepoAndPr(repo, prNumber);
+  await Promise.all(
+    sessions.filter((s) => s.status === "active").map((s) => cleanupPrSession(s.id)),
+  );
+
+  log.info(`Closed PR #${prNumber} on ${repo} from inbox`);
+}
+
 /** Close a PR via `gh` and delete its remote branch. Best-effort (logs and swallows). */
 async function closePr(nwo: string, prNumber: number): Promise<void> {
   try {

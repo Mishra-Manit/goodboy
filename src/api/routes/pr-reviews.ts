@@ -3,6 +3,7 @@
 import type { Hono } from "hono";
 import { z } from "zod";
 import { isPrOpen, listOpenPrs } from "../../core/git/github.js";
+import { closePrFromInbox } from "../../core/cleanup.js";
 import { removeWorktree } from "../../core/git/worktree.js";
 import type { SendTelegram } from "../../core/stage.js";
 import * as queries from "../../db/repository.js";
@@ -129,5 +130,19 @@ export function registerPrReviewRoutes(app: Hono): void {
     PIPELINES.pr_review(task.id, noopSend).catch((err) => log.error(`PR review error ${task.id}`, err));
 
     return c.json({ ok: true, task }, 201);
+  });
+
+  app.post("/api/github/prs/:repo/:prNumber/close", async (c) => {
+    const repoName = decodeURIComponent(c.req.param("repo"));
+    const prNumber = parseInt(c.req.param("prNumber"), 10);
+    if (!repoName || !Number.isInteger(prNumber) || prNumber <= 0) {
+      return c.json({ error: "Invalid repo or PR number" }, 400);
+    }
+    try {
+      await closePrFromInbox(repoName, prNumber);
+      return c.json({ ok: true });
+    } catch (err) {
+      return c.json({ error: toErrorMessage(err) }, 502);
+    }
   });
 }

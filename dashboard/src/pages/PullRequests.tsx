@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   createPrReview,
+  closePrOnGitHub,
   fetchPrInbox,
   fetchRepos,
   fetchTask,
@@ -38,6 +39,7 @@ export function PullRequests() {
   const [repo, setRepo] = useState<string | null>(() => loadSelectedRepo());
   const [taskDetails, setTaskDetails] = useState<Map<string, TaskWithStages>>(new Map());
   const [actionKey, setActionKey] = useState<string | null>(null);
+  const [closeKey, setCloseKey] = useState<string | null>(null);
   const [watchKey, setWatchKey] = useState<string | null>(null);
   const [reconcileState, setReconcileState] = useState<{
     busy: boolean;
@@ -130,6 +132,20 @@ export function PullRequests() {
       inboxQuery.refetch();
     } finally {
       setWatchKey(null);
+    }
+  }
+
+  async function handleClose(row: PrInboxRow) {
+    const key = `${row.repo}#${row.number}`;
+    if (closeKey) return;
+    const confirmed = window.confirm(`Close PR #${row.number} "${row.title}" on GitHub?`);
+    if (!confirmed) return;
+    setCloseKey(key);
+    try {
+      await closePrOnGitHub(row.repo, row.number);
+      inboxQuery.refetch();
+    } finally {
+      setCloseKey(null);
     }
   }
 
@@ -238,11 +254,13 @@ export function PullRequests() {
                       detail={row.reviewTaskId ? taskDetails.get(row.reviewTaskId) : undefined}
                       actionKey={actionKey}
                       watchUpdating={watchKey === row.watchSessionId}
+                      closing={closeKey === `${row.repo}#${row.number}`}
                       onOpen={() => openRow(row)}
                       onToggleWatch={() => handleToggleWatch(row)}
                       onStart={() => handleStart(row)}
                       onRetry={() => handleRetry(row)}
                       onRerun={() => handleRerun(row)}
+                      onClose={() => handleClose(row)}
                     />
                   ))}
                 </div>
@@ -313,11 +331,13 @@ interface PrInboxCardProps {
   detail: TaskWithStages | undefined;
   actionKey: string | null;
   watchUpdating: boolean;
+  closing: boolean;
   onOpen: () => void;
   onToggleWatch: () => Promise<void>;
   onStart: () => Promise<void>;
   onRetry: () => Promise<void>;
   onRerun: () => Promise<void>;
+  onClose: () => Promise<void>;
 }
 
 /** Compact PR row; all state decisions arrive precomputed from the API. */
@@ -327,11 +347,13 @@ function PrInboxCard({
   detail,
   actionKey,
   watchUpdating,
+  closing,
   onOpen,
   onToggleWatch,
   onStart,
   onRetry,
   onRerun,
+  onClose,
 }: PrInboxCardProps) {
   const activeAction = actionKey?.startsWith(`${row.repo}#${row.number}:`) ?? false;
 
@@ -359,6 +381,20 @@ function PrInboxCard({
 
         <div className="flex shrink-0 items-center gap-2">
           {renderAction(row, activeAction, onStart, onRetry, onRerun)}
+          <button
+            type="button"
+            disabled={closing}
+            onClick={onClose}
+            title="Close PR on GitHub"
+            className={cn(
+              "rounded-full border px-3 py-1.5 font-mono text-[10px] transition-colors",
+              closing
+                ? "cursor-wait border-glass-border text-text-void"
+                : "border-fail/30 text-fail hover:border-fail hover:bg-glass-hover",
+            )}
+          >
+            {closing ? "closing..." : "close pr"}
+          </button>
         </div>
       </div>
 

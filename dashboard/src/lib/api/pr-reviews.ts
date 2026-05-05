@@ -8,7 +8,13 @@ export async function fetchPrInbox(repo: string): Promise<PrInboxResponse> {
   return request(`/api/github/prs?repo=${encodeURIComponent(repo)}`);
 }
 
-/** Start a review task; `replaceExisting` closes the current review session before rerunning. */
+/** Close a PR on GitHub and clean up associated Goodboy sessions. */
+export async function closePrOnGitHub(repo: string, prNumber: number): Promise<void> {
+  await request(`/api/github/prs/${encodeURIComponent(repo)}/${prNumber}/close`, {
+    method: "POST",
+  });
+}
+
 export async function createPrReview(input: {
   repo: string;
   prNumber: number;
