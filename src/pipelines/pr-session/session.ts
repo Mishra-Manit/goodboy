@@ -1,10 +1,11 @@
 /**
- * Long-lived PR session: owns a pull request from creation through every
- * comment-driven revision. `startPrSession` is invoked after the coding
- * reviewer stage; `resumePrSession` is driven by the poller; and
- * `handoffExternalReview` finalizes a pr_review task by promoting it to a
- * watchable session. All three share the same pi-session + persistent
- * sessionfile machinery.
+ * Long-lived PR session lifecycle: owns a pull request through every
+ * comment-driven revision. `registerOwnedPrSession` is called after the
+ * pr_creator stage to register a new owned session for comment watching;
+ * `resumePrSession` is driven by the poller; and `handoffExternalReview`
+ * finalizes a pr_review task by promoting it to a watchable session.
+ * All three share the same pi-session + persistent sessionfile machinery
+ * (except `registerOwnedPrSession`, which creates no pi session).
  */
 
 import path from "node:path";
@@ -23,7 +24,7 @@ import {
 } from "../../core/pi/session-file.js";
 import { broadcastSessionFile } from "../../core/pi/session-broadcast.js";
 import * as queries from "../../db/repository.js";
-import { prSessionPrompt, formatCommentsPrompt, prCreationPrompt } from "./prompts.js";
+import { prSessionPrompt, formatCommentsPrompt } from "./prompts.js";
 import { memoryBlock } from "../../core/memory/output/render.js";
 import { codeReviewerFeedbackBlock } from "../../core/memory/feedback/code-reviewer-feedback.js";
 import { codeReviewerFeedbackCapability } from "../../core/pi/extensions.js";
@@ -55,7 +56,7 @@ import { withPipelineSpan, bridgeSessionToOtel } from "../../observability/index
 import { trace } from "@opentelemetry/api";
 import { Goodboy } from "../../observability/attributes.js";
 import { toErrorMessage } from "../../shared/runtime/errors.js";
-import { getRepo, getRepoNwo } from "../../shared/domain/repos.js";
+import { getRepo } from "../../shared/domain/repos.js";
 
 const exec = promisify(execFile);
 const log = createLogger("pr-session");
@@ -64,69 +65,33 @@ const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
 // --- Lifecycle entry points ---
 
-/** Called right after the reviewer stage. Creates the PR and persists the session for future rounds. */
-export async function startPrSession(options: {
+/**
+ * Register a pr_session row for an owned coding task after its PR has been
+ * created by the pr_creator pipeline stage. Transfers branch/worktree
+ * ownership from the task to the session and starts watching for comments.
+ * Does NOT spawn a pi session — PR creation already happened in the stage.
+ */
+export async function registerOwnedPrSession(options: {
   sourceTaskId: string;
   repo: string;
   branch: string;
   worktreePath: string;
-  artifactsDir: string;
-  sendTelegram: SendTelegram;
+  prNumber: number;
   chatId: string | null;
-}): Promise<void> {
-  const { sourceTaskId, repo, branch, worktreePath, artifactsDir, sendTelegram, chatId } = options;
+  sendTelegram: SendTelegram;
+}): Promise<string> {
+  const { sourceTaskId, repo, branch, worktreePath, prNumber, chatId, sendTelegram } = options;
 
   const prSession = await queries.createPrSessionAndTransferTaskOwnership({
-    repo, branch, worktreePath,
+    repo, branch, worktreePath, prNumber,
     mode: "own", sourceTaskId,
     telegramChatId: chatId,
+    lastPolledAt: new Date(),
   });
 
-  const run = await queries.createPrSessionRun({
-    prSessionId: prSession.id,
-    trigger: "pr_creation",
-  });
-  log.info(`Starting PR session ${prSession.id} for task ${sourceTaskId}`);
-
-  try {
-    const githubRepo = getRepoNwo(repo);
-    if (!githubRepo) {
-      const message = `Repo '${repo}' is missing a GitHub owner/repo URL.`;
-      await queries.failPrSessionRun(run.id, message);
-      throw new Error(message);
-    }
-
-    const finalResponse = await runSessionTurn({
-      prSessionId: prSession.id,
-      trigger: "pr_creation",
-      labelSuffix: "create",
-      cwd: worktreePath,
-      systemPrompt: prSessionPrompt({
-        mode: "own", repo, githubRepo, branch,
-        planPath: path.join(artifactsDir, "plan.md"),
-        summaryPath: path.join(artifactsDir, "implementation-summary.md"),
-        reviewPath: path.join(artifactsDir, "review.md"),
-      }),
-      model: resolveModel("PI_MODEL_PR_CREATOR"),
-      prompt: prCreationPrompt,
-      run,
-      timeoutLabel: "PR session (create)",
-      finalResponseContract: prCreationFinalResponseContract,
-    });
-
-    const prUrl = finalResponse.prUrl;
-    const prNumber = parsePrNumberFromUrl(prUrl);
-    if (!prNumber) {
-      throw new Error(`PR creation final response contained an invalid GitHub PR URL: ${prUrl}`);
-    }
-
-    await queries.updatePrSession(prSession.id, { prNumber, lastPolledAt: new Date() });
-    await queries.updateTask(sourceTaskId, { prUrl, prNumber });
-    await notifyTelegram(sendTelegram, chatId, `PR is up: ${prUrl}\nI will watch for comments.`);
-  } catch (err) {
-    log.error(`PR session create failed for task ${sourceTaskId}`, err);
-    await notifyTelegram(sendTelegram, chatId, `PR session failed: ${toErrorMessage(err)}`);
-  }
+  log.info(`Registered owned PR session ${prSession.id} for task ${sourceTaskId} (PR #${prNumber})`);
+  await notifyTelegram(sendTelegram, chatId, `PR #${prNumber} is up. Watching for comments.`);
+  return prSession.id;
 }
 
 /** Resume a PR session to address new comments detected by the poller. */
