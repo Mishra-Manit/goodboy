@@ -9,12 +9,11 @@ const validArtifact: PrReviewArtifact = {
     {
       id: "main-change",
       title: "Main change",
-      files: ["src/a.ts"],
-      rationale: "This file carries the core behavior.",
+      narrative: "This group carries the core behavior.",
+      files: [{ path: "src/a.ts", narrative: "This file carries the core behavior." }],
       annotations: [
         {
           filePath: "src/a.ts",
-          side: "new",
           line: 12,
           kind: "concern",
           title: "Check the boundary",
@@ -23,7 +22,6 @@ const validArtifact: PrReviewArtifact = {
       ],
     },
   ],
-  orderedChapterIds: ["main-change"],
 };
 
 describe("prReviewArtifactSchema", () => {
@@ -35,7 +33,6 @@ describe("prReviewArtifactSchema", () => {
     const result = prReviewArtifactSchema.safeParse({
       ...validArtifact,
       chapters: [{ ...validArtifact.chapters[0], id: "-bad-slug" }],
-      orderedChapterIds: ["-bad-slug"],
     });
 
     expect(result.success).toBe(false);
@@ -55,23 +52,10 @@ describe("prReviewArtifactSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects duplicate ordered chapter ids", () => {
+  it("rejects duplicate chapter ids", () => {
     const result = prReviewArtifactSchema.safeParse({
       ...validArtifact,
-      chapters: [
-        validArtifact.chapters[0],
-        { ...validArtifact.chapters[0], id: "second-change", title: "Second change" },
-      ],
-      orderedChapterIds: ["main-change", "main-change"],
-    });
-
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects ordered chapter ids that are not real chapters", () => {
-    const result = prReviewArtifactSchema.safeParse({
-      ...validArtifact,
-      orderedChapterIds: ["missing-chapter"],
+      chapters: [validArtifact.chapters[0], { ...validArtifact.chapters[0] }],
     });
 
     expect(result.success).toBe(false);

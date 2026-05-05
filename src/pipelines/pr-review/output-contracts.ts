@@ -107,12 +107,16 @@ export const prReviewOutputs = {
     {
       "id": "chapter",
       "title": "Chapter",
-      "files": ["src/example.ts"],
-      "rationale": "Why this file matters.",
+      "narrative": "What this group of changes achieves.",
+      "files": [
+        {
+          "path": "src/example.ts",
+          "narrative": "What changed in this file and why it matters."
+        }
+      ],
       "annotations": []
     }
-  ],
-  "orderedChapterIds": ["chapter"]
+  ]
 }`,
     },
     dashboard: () => ({ key: "review.json", label: "display model" }),

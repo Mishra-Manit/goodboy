@@ -81,13 +81,12 @@ function parseAnnotationFromUserPrompt(text: string): PrReviewAnnotation | null 
       .filter((m): m is RegExpMatchArray => Boolean(m))
       .map((m) => [m[1], m[2]] as const),
   );
-  const location = fields.location?.match(/^(.+):([+-])(\d+)$/);
+  const location = fields.location?.match(/^(.+):(\d+)$/);
   if (!fields.kind || !fields.title || !fields.body || !location) return null;
   if (!isAnnotationKind(fields.kind)) return null;
   return {
     filePath: location[1],
-    side: location[2] === "-" ? "old" : "new",
-    line: Number(location[3]),
+    line: Number(location[2]),
     kind: fields.kind,
     title: fields.title,
     body: fields.body,

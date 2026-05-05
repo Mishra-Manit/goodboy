@@ -22,7 +22,6 @@ const artifacts = {
 
 const annotation: PrReviewAnnotation = {
   filePath: "src/checkoutMachine.ts",
-  side: "new",
   line: 42,
   kind: "concern",
   title: "Migration drops v2 sessions",
@@ -80,7 +79,7 @@ describe("formatReviewChatPrompt", () => {
     expect(out).toContain("REPLYING TO ANNOTATION:");
     expect(out).toContain(annotation.title);
     expect(out).toContain(annotation.body);
-    expect(out).toContain(`${annotation.filePath}:+${annotation.line}`);
+    expect(out).toContain(`${annotation.filePath}:${annotation.line}`);
   });
 
   it("marks the active file as none when omitted", () => {

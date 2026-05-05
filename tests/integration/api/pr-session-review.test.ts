@@ -88,12 +88,11 @@ const validArtifact: PrReviewArtifact = {
     {
       id: "main-change",
       title: "Main change",
-      files: ["src/a.ts"],
-      rationale: "This file carries the core behavior.",
+      narrative: "This group carries the core behavior.",
+      files: [{ path: "src/a.ts", narrative: "This file carries the core behavior." }],
       annotations: [],
     },
   ],
-  orderedChapterIds: ["main-change"],
 };
 
 function mkSession(overrides: Record<string, unknown> = {}): Record<string, unknown> {

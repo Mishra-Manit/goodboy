@@ -84,10 +84,9 @@ export function formatReviewChatPrompt(options: {
 }
 
 function formatAnnotation(a: PrReviewAnnotation): string {
-  const sideMark = a.side === "old" ? "-" : "+";
   return [
     `kind: ${a.kind}`,
-    `location: ${a.filePath}:${sideMark}${a.line}`,
+    `location: ${a.filePath}:${a.line}`,
     `title: ${a.title}`,
     `body: ${a.body}`,
   ].join("\n");
