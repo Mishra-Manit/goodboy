@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod";
-import { PR_SESSION_MODES } from "../domain/types.js";
+import { PR_SESSION_MODES, TASK_STATUSES } from "../domain/types.js";
 
 // --- Enums ---
 
@@ -37,30 +37,14 @@ export const prReviewChapterSchema = z.object({
   annotations: z.array(prReviewAnnotationSchema),
 }).strict();
 
-export const prReviewArtifactSchema = z.object({
+const prReviewArtifactBaseSchema = z.object({
   prTitle: z.string().min(1).max(200),
   headSha: z.string().min(7).max(64),
   summary: z.string().min(1).max(2000),
   chapters: z.array(prReviewChapterSchema).min(1),
-}).strict().superRefine((value, ctx) => {
-  const seenChapterIds = new Set<string>();
-  for (const chapter of value.chapters) {
-    if (seenChapterIds.has(chapter.id)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate chapter id: ${chapter.id}` });
-    }
-    seenChapterIds.add(chapter.id);
+}).strict();
 
-    const filePathSet = new Set(chapter.files.map((file) => file.path));
-    for (const annotation of chapter.annotations) {
-      if (!filePathSet.has(annotation.filePath)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `annotation filePath '${annotation.filePath}' not in chapter '${chapter.id}' files`,
-        });
-      }
-    }
-  }
-});
+export const prReviewArtifactSchema = prReviewArtifactBaseSchema.superRefine(validatePrReviewArtifact);
 
 // --- Types ---
 
@@ -71,25 +55,46 @@ export type PrReviewArtifact = z.infer<typeof prReviewArtifactSchema>;
 
 // --- API DTO ---
 
+export const prReviewSessionDtoSchema = z.object({
+  id: z.string(),
+  repo: z.string(),
+  prNumber: z.number().int().positive().nullable(),
+  prUrl: z.string().nullable(),
+  branch: z.string().nullable(),
+  mode: z.enum(PR_SESSION_MODES),
+}).strict();
+
+export const prReviewRunDtoSchema = prReviewArtifactBaseSchema.extend({
+  diffPatch: z.string(),
+  createdAt: z.string(),
+}).strict().superRefine(validatePrReviewArtifact);
+
 export const prReviewPageDtoSchema = z.object({
-  session: z.object({
+  session: prReviewSessionDtoSchema,
+  run: prReviewRunDtoSchema.nullable(),
+}).strict();
+
+export const taskPrReviewPageDtoSchema = z.object({
+  task: z.object({
     id: z.string(),
     repo: z.string(),
+    kind: z.literal("pr_review"),
+    description: z.string(),
+    status: z.enum(TASK_STATUSES),
     prNumber: z.number().int().positive().nullable(),
+    prIdentifier: z.string().nullable(),
     prUrl: z.string().nullable(),
-    branch: z.string().nullable(),
-    mode: z.enum(PR_SESSION_MODES),
-  }),
-  run: z.intersection(
-    prReviewArtifactSchema,
-    z.object({
-      diffPatch: z.string(),
-      createdAt: z.string(),
-    }),
-  ).nullable(),
-});
+    createdAt: z.string(),
+    completedAt: z.string().nullable(),
+  }).strict(),
+  session: prReviewSessionDtoSchema.nullable(),
+  run: prReviewRunDtoSchema.nullable(),
+}).strict();
 
+export type PrReviewSessionDto = z.infer<typeof prReviewSessionDtoSchema>;
+export type PrReviewRunDto = z.infer<typeof prReviewRunDtoSchema>;
 export type PrReviewPageDto = z.infer<typeof prReviewPageDtoSchema>;
+export type TaskPrReviewPageDto = z.infer<typeof taskPrReviewPageDtoSchema>;
 
 // --- Review chat DTOs ---
 
@@ -138,3 +143,28 @@ export type ReviewChatMessage = z.infer<typeof reviewChatMessageSchema>;
 export type ReviewChatRequest = z.infer<typeof reviewChatRequestSchema>;
 export type ReviewChatResponse = z.infer<typeof reviewChatResponseSchema>;
 export type ReviewChatPostResponse = z.infer<typeof reviewChatPostResponseSchema>;
+
+// --- Helpers ---
+
+function validatePrReviewArtifact(
+  value: z.infer<typeof prReviewArtifactBaseSchema>,
+  ctx: z.RefinementCtx,
+): void {
+  const seenChapterIds = new Set<string>();
+  for (const chapter of value.chapters) {
+    if (seenChapterIds.has(chapter.id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate chapter id: ${chapter.id}` });
+    }
+    seenChapterIds.add(chapter.id);
+
+    const filePathSet = new Set(chapter.files.map((file) => file.path));
+    for (const annotation of chapter.annotations) {
+      if (!filePathSet.has(annotation.filePath)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `annotation filePath '${annotation.filePath}' not in chapter '${chapter.id}' files`,
+        });
+      }
+    }
+  }
+}
