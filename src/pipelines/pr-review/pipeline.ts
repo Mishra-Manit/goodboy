@@ -36,6 +36,8 @@ import { permuteDiff } from "./diff/permute.js";
 
 const log = createLogger("pr-review");
 
+const OWNED_REVIEW_POLL_CURSOR_BUFFER_MS = 30_000;
+
 export async function runPrReview(taskId: string, sendTelegram: SendTelegram): Promise<void> {
   return withTaskPipeline(taskId, "pr_review", sendTelegram, async (ctx) => {
     await runPrReviewInner(ctx);
@@ -95,6 +97,7 @@ async function runPrReviewInner(
 
   const ownedSession = await findOwnedPrSession(task.repo, prNumber);
   let ownedReviewRunId: string | null = null;
+  let ownedReviewSessionId: string | null = null;
   let worktreePath: string;
   let ownsWorktree = false;
 
@@ -106,6 +109,7 @@ async function runPrReviewInner(
     }
     worktreePath = borrowed.worktreePath;
     ownedReviewRunId = borrowed.runId;
+    ownedReviewSessionId = ownedSession.id;
   } else {
     try {
       worktreePath = await createPrWorktree(repo.localPath, headRef, taskId);
@@ -194,6 +198,13 @@ async function runPrReviewInner(
 
     if (ownedReviewRunId) {
       await queries.completePrSessionRun(ownedReviewRunId);
+      if (ownedReviewSessionId) {
+        // The analyst posts via the user's GitHub auth; advance the watch cursor
+        // past that self-authored summary so the PR poller does not resume on it.
+        await queries.updatePrSession(ownedReviewSessionId, {
+          lastPolledAt: new Date(Date.now() + OWNED_REVIEW_POLL_CURSOR_BUFFER_MS),
+        });
+      }
     } else {
       // Promote the finished external review into a watchable PR session. The
       // session takes ownership of the worktree from this point on.
