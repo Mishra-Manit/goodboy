@@ -1,19 +1,14 @@
 /** PR session dashboard routes, including review page and review chat. */
 
 import type { Hono } from "hono";
-import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import * as queries from "../../db/repository.js";
 import { buildPrUrl } from "../../shared/domain/repos.js";
 import { PR_SESSION_WATCH_STATUSES } from "../../shared/domain/types.js";
-import { taskArtifactsDir } from "../../shared/artifacts/index.js";
-import { toErrorMessage } from "../../shared/runtime/errors.js";
 import { createLogger } from "../../shared/runtime/logger.js";
 import { readSessionFile, prSessionPath } from "../../core/pi/session-file.js";
 import { reconcilePrSessions } from "../../core/pr-session/reconcile.js";
-import { readReviewArtifact } from "../../pipelines/pr-review/artifacts/read-review.js";
-import { prReviewOutputs } from "../../pipelines/pr-review/output-contracts.js";
-import { refreshReviewArtifacts } from "../../pipelines/pr-session/refresh-review.js";
+import { buildSessionPrReviewPage } from "../pr-review-page.js";
 import { extractReviewChatMessages } from "../../pipelines/pr-session/review-chat/index.js";
 import {
   ReviewChatBusyError,
@@ -23,21 +18,16 @@ import {
 } from "../../pipelines/pr-session/session.js";
 import {
   reviewChatRequestSchema,
-  type PrReviewPageDto,
   type ReviewChatMessage,
   type ReviewChatPostResponse,
   type ReviewChatResponse,
 } from "../../shared/contracts/pr-review.js";
-import { exec } from "../../core/git/exec.js";
 import { notFound, UUID_PATTERN } from "../http.js";
 
 const log = createLogger("api-pr-sessions");
 const prSessionWatchBodySchema = z.object({
   watchStatus: z.enum(PR_SESSION_WATCH_STATUSES),
 });
-
-/** Per-session debounce so concurrent requests don't trigger overlapping refreshes. */
-const refreshInFlight = new Map<string, Promise<void>>();
 
 /** Register PR session routes. */
 export function registerPrSessionRoutes(app: Hono): void {
@@ -72,45 +62,7 @@ export function registerPrSessionRoutes(app: Hono): void {
     const session = await queries.getPrSession(id);
     if (!session) return notFound(c);
 
-    const sessionDto: PrReviewPageDto["session"] = {
-      id: session.id,
-      repo: session.repo,
-      prNumber: session.prNumber,
-      prUrl: buildPrUrl(session.repo, session.prNumber),
-      branch: session.branch,
-      mode: session.mode,
-    };
-
-    const reviewTaskId = await resolveReviewTaskId(session);
-    if (!reviewTaskId) {
-      return c.json({ session: sessionDto, run: null } satisfies PrReviewPageDto);
-    }
-
-    const artifactsDir = taskArtifactsDir(reviewTaskId);
-    const paths = {
-      review: prReviewOutputs.review.resolve(artifactsDir, undefined).path,
-      updatedDiff: prReviewOutputs.updatedDiff.resolve(artifactsDir, undefined).path,
-      diff: prReviewOutputs.diff.resolve(artifactsDir, undefined).path,
-    };
-    const reviewResult = await readReviewArtifact(paths.review);
-    if (!reviewResult) {
-      return c.json({ session: sessionDto, run: null } satisfies PrReviewPageDto);
-    }
-
-    await maybeRefreshDiffFromWorktree(session, reviewTaskId, reviewResult.artifact.headSha);
-
-    const diffPatch = await readFile(paths.updatedDiff, "utf8")
-      .catch(() => readFile(paths.diff, "utf8"))
-      .catch(() => "");
-
-    return c.json({
-      session: sessionDto,
-      run: {
-        ...reviewResult.artifact,
-        diffPatch,
-        createdAt: reviewResult.createdAt.toISOString(),
-      },
-    } satisfies PrReviewPageDto);
+    return c.json(await buildSessionPrReviewPage(session));
   });
 
   app.get("/api/pr-sessions/:id/review-chat", async (c) => {
@@ -188,54 +140,8 @@ function reviewChatUnavailableReason(session: queries.PrSession): string | null 
   return null;
 }
 
-async function resolveReviewTaskId(session: queries.PrSession): Promise<string | null> {
-  if (session.mode === "review") return session.sourceTaskId;
-  if (!session.prNumber) return null;
-
-  const tasks = await queries.listTasksForRepoAndPr(session.repo, session.prNumber);
-  return tasks.find((task) => task.kind === "pr_review")?.id ?? null;
-}
-
 async function loadReviewChatMessages(prSessionId: string): Promise<ReviewChatMessage[]> {
   const entries = await readSessionFile(prSessionPath(prSessionId));
   return extractReviewChatMessages(entries);
 }
 
-/**
- * Lazy diff refresh. If the session's worktree HEAD has advanced past the cached `headSha`,
- * regenerate the updated diff artifact before serving the review page. Best-effort.
- */
-async function maybeRefreshDiffFromWorktree(
-  session: queries.PrSession,
-  reviewTaskId: string,
-  cachedHeadSha: string | undefined,
-): Promise<void> {
-  if (!session.worktreePath || !session.prNumber) return;
-
-  const existing = refreshInFlight.get(session.id);
-  if (existing) return existing;
-
-  const work = (async () => {
-    let workHead: string;
-    try {
-      const { stdout } = await exec("git", ["rev-parse", "HEAD"], { cwd: session.worktreePath! });
-      workHead = stdout.trim();
-    } catch (err) {
-      log.warn(`maybeRefreshDiffFromWorktree: rev-parse failed for ${session.id}: ${toErrorMessage(err)}`);
-      return;
-    }
-    if (!workHead || workHead === cachedHeadSha) return;
-
-    log.info(`Refreshing diff for PR session ${session.id}: cached=${cachedHeadSha ?? "<none>"} → worktree=${workHead}`);
-    await refreshReviewArtifacts({
-      prSessionId: session.id,
-      sourceTaskId: reviewTaskId,
-      repo: session.repo,
-      prNumber: session.prNumber!,
-      worktreePath: session.worktreePath!,
-    });
-  })().finally(() => refreshInFlight.delete(session.id));
-
-  refreshInFlight.set(session.id, work);
-  return work;
-}
