@@ -58,13 +58,28 @@ export async function createWorktree(repoPath: string, branch: string, taskId: s
  * (v1): because the PR branch lives at `origin/<headRef>`, we fetch it into
  * an identically-named local branch and check that out -- a direct
  * `git push origin <headRef>` from the worktree Just Works.
+ *
+ * Handles the retry case: if headRef is already checked out in a stale coding
+ * worktree, that worktree is force-removed first so the fetch doesn't fail.
  */
 export async function createPrWorktree(repoPath: string, headRef: string, taskId: string): Promise<string> {
   const dir = path.join(repoPath, "..", `goodboy-pr-${taskId.slice(0, 8)}`);
 
+  // Remove the PR review worktree we're about to recreate.
   await forceRemoveWorktree(repoPath, dir);
-  await forceDeleteBranch(repoPath, headRef);
 
+  // If headRef is checked out in any other worktree (e.g. a stale coding
+  // worktree from the task that created this branch), remove it now.
+  // Without this, `git fetch origin headRef:headRef` and `git branch -D`
+  // both fail with "refusing to fetch into branch checked out at <path>".
+  const staleDir = await findWorktreeForBranch(repoPath, headRef);
+  if (staleDir) {
+    log.info(`Branch ${headRef} still checked out at ${staleDir}; removing stale worktree`);
+    await forceRemoveWorktree(repoPath, staleDir);
+    await pruneWorktrees(repoPath);
+  }
+
+  await forceDeleteBranch(repoPath, headRef);
   await exec("git", ["fetch", "origin", `${headRef}:${headRef}`], { cwd: repoPath });
   await addPrWorktree(repoPath, headRef, dir);
   return dir;
@@ -154,6 +169,28 @@ async function addPrWorktree(repoPath: string, headRef: string, dir: string): Pr
   await exec("git", ["worktree", "add", dir, headRef], { cwd: repoPath });
   log.info(`Created PR worktree at ${dir} on branch ${headRef}`);
   await stageSubagentAssets(dir);
+}
+
+/**
+ * Parse `git worktree list --porcelain` and return the worktree path that has
+ * `branch` checked out, or null if none.
+ */
+async function findWorktreeForBranch(repoPath: string, branch: string): Promise<string | null> {
+  try {
+    const { stdout } = await exec("git", ["worktree", "list", "--porcelain"], { cwd: repoPath });
+    // Each worktree block is separated by a blank line. Fields: worktree, HEAD, branch.
+    const blocks = stdout.trim().split(/\n\n+/);
+    for (const block of blocks) {
+      const worktreeLine = block.match(/^worktree (.+)$/m);
+      const branchLine = block.match(/^branch refs\/heads\/(.+)$/m);
+      if (worktreeLine && branchLine && branchLine[1] === branch) {
+        return worktreeLine[1];
+      }
+    }
+  } catch (err) {
+    log.warn(`git worktree list failed in ${repoPath}`, err);
+  }
+  return null;
 }
 
 async function forceRemoveWorktree(repoPath: string, dir: string): Promise<void> {
