@@ -8,7 +8,7 @@ Operational policy for AI coding agents working in this repo. Keep it short, com
 
 ## Response Style
 
-- Be as concise as possible while still being useful.
+- Be extremely concise with responses while still being useful.
 - Write conversationally, like a sharp teammate, not a report generator.
 - Explain clearly: state the answer, the reason, and the next step when relevant.
 - Before presenting text or options, think through what the user actually needs and show only the useful result.
