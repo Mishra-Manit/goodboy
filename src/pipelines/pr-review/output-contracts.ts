@@ -13,6 +13,17 @@ export { PR_IMPACT_VARIANT_COUNT, prImpactVariantFiles };
 export const PR_REVIEW_REPORTS_DIR = "reports";
 export const HOLISTIC_REPORT_ID = "holistic";
 
+// The complete list of valid dimension values. These are the ONLY strings
+// accepted by the schema. Any other value (e.g. "reliability", "docs",
+// "performance") will fail Zod validation and fail the task.
+const DIMENSIONS_LEGEND = `\
+VALID dimensions values — use ONLY these exact strings, nothing else:
+  "correctness"  logic bugs, runtime errors, incorrect behaviour
+  "style"        formatting, naming, readability
+  "tests"        test coverage, test correctness
+  "security"     auth, injection, secrets, data exposure
+Do NOT invent values like "reliability", "docs", "performance", or "maintainability".`;
+
 export const prReviewOutputs = {
   context: defineTextOutput({
     id: "prReview.context",
@@ -51,17 +62,23 @@ export const prReviewOutputs = {
     schema: prReviewPlanSchema,
     prompt: {
       name: "PR review fanout plan",
-      instructions: "Write the analyst fanout plan here as strict JSON.",
+      instructions: `Write the analyst fanout plan here as strict JSON.\n\n${DIMENSIONS_LEGEND}`,
       skeleton: `{
   "groups": [
     {
       "id": "group-01",
       "files": ["src/example.ts"],
-      "dimensions": ["correctness"],
+      "dimensions": ["correctness", "style"],
+      "focus": "what this group should verify"
+    },
+    {
+      "id": "group-02",
+      "files": ["src/example.test.ts"],
+      "dimensions": ["tests"],
       "focus": "what this group should verify"
     }
   ],
-  "skipped": [],
+  "skipped": ["package-lock.json"],
   "focus_notes": "short overall review focus"
 }`,
     },
@@ -72,7 +89,7 @@ export const prReviewOutputs = {
     schema: prReviewReportSchema,
     prompt: {
       name: "PR slice report",
-      instructions: "Parent analyst writes one validated report JSON for this report id after reading subagent final JSON.",
+      instructions: `Parent analyst writes one validated report JSON for this report id after reading subagent final JSON.\n\n${DIMENSIONS_LEGEND}`,
       skeleton: `{
   "subagent_id": "group-01",
   "files_reviewed": [],
@@ -138,4 +155,3 @@ export function prImpactVariantPaths(artifactsDir: string, variant: number): { v
 export function allPrImpactVariantPaths(artifactsDir: string): Array<{ variant: number; diff: string; impact: string }> {
   return Array.from({ length: PR_IMPACT_VARIANT_COUNT }, (_, index) => prImpactVariantPaths(artifactsDir, index + 1));
 }
-

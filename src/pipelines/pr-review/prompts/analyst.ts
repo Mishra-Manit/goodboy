@@ -137,15 +137,29 @@ WORKFLOW:
      "groups": [
        {
          "id": "group-01",
-         "files": ["src/a.ts", "src/a.test.ts"],
+         "files": ["src/a.ts"],
          "dimensions": ["correctness", "style"],
+         "focus": "short paragraph distilled from impact reports or memory"
+       },
+       {
+         "id": "group-02",
+         "files": ["src/a.test.ts"],
+         "dimensions": ["tests"],
          "focus": "short paragraph distilled from impact reports or memory"
        }
      ],
      "skipped": ["package-lock.json"],
      "focus_notes": "one paragraph: what the PR does and where the risk surface is"
    }
-   Rules:
+
+   DIMENSION VALUES — the schema accepts ONLY these four strings. Any other value fails validation and fails the task:
+     "correctness"  logic bugs, runtime errors, incorrect behaviour
+     "style"        formatting, naming, readability
+     "tests"        test coverage, test correctness
+     "security"     auth, injection, secrets, data exposure
+   Do NOT use "reliability", "docs", "performance", "maintainability", or anything else.
+
+   Other rules:
    - Group by risk surface, not by every file. Prefer broad coherent slices.
    - Normal PRs should use 2-3 groups total; use 4 only for large or clearly split diffs.
    - Never exceed 4 file groups. The holistic reviewer is added separately.
