@@ -98,7 +98,7 @@ export function ReviewChat({
   }, [input, pending, available, attachedAnnotation, sessionId, activeFile, onClearAnnotation, onChanged]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full flex-col">
       <ChatBody messages={messages} pending={pending} unavailableReason={unavailableReason} />
       <Composer
         input={input}
@@ -123,7 +123,7 @@ interface ChatBodyProps {
 function ChatBody({ messages, pending, unavailableReason }: ChatBodyProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages.length, pending]);
 
   if (unavailableReason) {
@@ -137,15 +137,23 @@ function ChatBody({ messages, pending, unavailableReason }: ChatBodyProps) {
   if (messages.length === 0 && !pending) {
     return (
       <div className="flex flex-1 items-center justify-center px-4 text-center">
-        <p className="font-mono text-[11px] text-text-secondary">
-          Ask a question or hit Reply on an annotation to start.
-        </p>
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-ghost">
+            <ArrowUp className="h-4 w-4 text-accent opacity-60" />
+          </div>
+          <p className="font-mono text-[11px] leading-relaxed text-text-secondary">
+            Ask a question or hit Reply on an annotation to start.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div ref={scrollRef} className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4 pt-4">
+    <div
+      ref={scrollRef}
+      className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pb-4 pt-4 scroll-smooth"
+    >
       {messages.map((m) => <Message key={m.id} message={m} />)}
       {pending && <WorkerBubble />}
     </div>
@@ -162,11 +170,11 @@ function Message({ message }: { message: ReviewChatMessage }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="flex max-w-[280px] flex-col gap-[6px]">
+        <div className="flex max-w-[85%] flex-col gap-[6px]">
           {annotation && annotation.type === "annotation" && (
             <AnnotationChip annotation={annotation.annotation} compact />
           )}
-          <div className="rounded-lg bg-info-dim px-3 py-2">
+          <div className="rounded-2xl rounded-br-md bg-accent/15 px-3 py-2">
             <p className="whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.6] text-text">{text}</p>
           </div>
         </div>
@@ -175,10 +183,12 @@ function Message({ message }: { message: ReviewChatMessage }) {
   }
 
   return (
-    <Markdown
-      content={text}
-      className="font-mono text-[11px] leading-[1.65] prose-p:text-text prose-li:text-text prose-strong:text-text prose-code:text-[10px]"
-    />
+    <div className="max-w-[95%]">
+      <Markdown
+        content={text}
+        className="font-mono text-[11px] leading-[1.65] prose-p:text-text-secondary prose-li:text-text-secondary prose-strong:text-text prose-code:text-[10px]"
+      />
+    </div>
   );
 }
 
@@ -208,44 +218,59 @@ interface ComposerProps {
 
 function Composer({ input, onInput, onSend, disabled, attachedAnnotation, onClearAnnotation }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "0px";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [input]);
+
+  const canSend = !disabled && input.trim().length > 0;
+
   return (
-    <footer className="flex shrink-0 flex-col gap-2 border-t border-glass-border px-4 py-3">
+    <footer className="shrink-0 px-3 pb-3 pt-2">
       {attachedAnnotation && (
-        <AnnotationChip annotation={attachedAnnotation} onRemove={onClearAnnotation} />
+        <div className="mb-2">
+          <AnnotationChip annotation={attachedAnnotation} onRemove={onClearAnnotation} />
+        </div>
       )}
-      <textarea
-        ref={textareaRef}
-        rows={1}
-        value={input}
-        disabled={disabled}
-        onChange={(e) => onInput(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            onSend();
-          }
-        }}
-        placeholder={disabled ? "…" : "Ask, or request a change"}
+      <div
         className={cn(
-          "max-h-[160px] w-full resize-none overflow-y-auto bg-transparent font-mono text-[11px] leading-[1.6] text-text placeholder:text-text-void focus:outline-none",
-          disabled && "cursor-not-allowed",
+          "relative flex items-end rounded-xl border border-glass-border bg-white/[0.025] transition-all duration-200",
+          "focus-within:border-accent/40 focus-within:bg-white/[0.035] focus-within:shadow-[0_0_12px_rgba(212,160,23,0.06)]",
         )}
-      />
-      <div className="flex items-center justify-end">
+      >
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          value={input}
+          disabled={disabled}
+          onChange={(e) => onInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSend();
+            }
+          }}
+          placeholder={disabled ? "Waiting..." : "Ask about this review..."}
+          className={cn(
+            "max-h-[120px] min-h-[36px] w-full resize-none bg-transparent py-[10px] pl-3 pr-10",
+            "font-mono text-[11px] leading-[1.6] text-text",
+            "placeholder:text-text-ghost/60 focus:outline-none",
+            disabled && "cursor-not-allowed opacity-50",
+          )}
+        />
         <button
           type="button"
-          aria-label="Send"
-          disabled={disabled || input.trim().length === 0}
+          aria-label="Send message"
+          disabled={!canSend}
           onClick={onSend}
           className={cn(
-            "flex h-7 w-7 items-center justify-center rounded-md bg-accent text-bg transition-opacity",
-            (disabled || input.trim().length === 0) ? "opacity-40" : "hover:opacity-90",
+            "absolute bottom-[6px] right-[6px] flex h-7 w-7 items-center justify-center rounded-lg transition-all duration-200",
+            canSend
+              ? "bg-accent text-bg shadow-[0_0_8px_rgba(212,160,23,0.3)] hover:shadow-[0_0_14px_rgba(212,160,23,0.5)] hover:scale-105 active:scale-95"
+              : "bg-white/[0.04] text-text-ghost cursor-not-allowed",
           )}
         >
           <ArrowUp className="h-[14px] w-[14px]" strokeWidth={2.5} />
@@ -266,7 +291,7 @@ function AnnotationChip({ annotation, onRemove, compact }: AnnotationChipProps) 
   return (
     <div
       className={cn(
-        "flex items-center gap-[6px] rounded-md border border-glass-border bg-bg-raised/60 px-[8px] py-[4px]",
+        "flex items-center gap-[6px] rounded-md border border-white/20 bg-bg-raised/60 px-[10px] py-[5px]",
         compact && "self-end",
       )}
     >
