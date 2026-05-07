@@ -10,11 +10,13 @@ import {
   fetchRepos,
   type MemoryRun,
   type MemoryStatus,
-  type Repo,
+  type RepoSummary,
 } from "@dashboard/lib/api";
 import { MEMORY_RUN_KINDS } from "@dashboard/shared";
 import { PageState } from "@dashboard/components/PageState";
 import { EmptyState } from "@dashboard/components/EmptyState";
+import { FilterPillGroup } from "@dashboard/components/FilterPillGroup";
+import { StatCard } from "@dashboard/components/StatCard";
 import { RepositoryLane } from "@dashboard/components/memory/RepositoryLane";
 import type { RepoEntry } from "@dashboard/components/memory/RepoSummaryCard";
 import { useQuery } from "@dashboard/hooks/use-query";
@@ -23,7 +25,7 @@ import { useNow } from "@dashboard/hooks/use-now";
 import { cn } from "@dashboard/lib/utils";
 
 interface MemoryPageData {
-  repos: Repo[];
+  repos: RepoSummary[];
   runs: MemoryRun[];
   statusByRepo: Record<string, MemoryStatus>;
 }
@@ -92,7 +94,7 @@ export function Memory() {
       </header>
 
       <div className="mb-6 flex flex-wrap items-center gap-2">
-        <KindFilters value={kind} onChange={setKind} />
+        <FilterPillGroup filters={KIND_FILTERS} value={kind} onChange={setKind} />
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => setHideTests((value) => !value)}
@@ -137,11 +139,16 @@ export function Memory() {
 
           return (
             <div className="space-y-5">
-              <MemoryCounts
-                repoCount={repoEntries.length}
-                liveCount={live.length}
-                historyCount={history.length}
-              />
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <StatCard label="repos" value={repoEntries.length} />
+                <StatCard
+                  label="live"
+                  value={`${live.length} run${live.length === 1 ? "" : "s"}`}
+                  active={live.length > 0}
+                  accent={live.length > 0}
+                />
+                <StatCard label="history" value={`${history.length} run${history.length === 1 ? "" : "s"}`} />
+              </div>
 
               <section>
                 <div className="mb-3 flex items-center gap-3">
@@ -249,70 +256,4 @@ function buildRepoEntries(
   }));
 
   return [...registered, ...unregistered];
-}
-
-interface KindFiltersProps {
-  value: KindFilter;
-  onChange: (value: KindFilter) => void;
-}
-
-function KindFilters({ value, onChange }: KindFiltersProps) {
-  return (
-    <div className="flex flex-wrap gap-1">
-      {KIND_FILTERS.map((filter) => (
-        <button
-          key={filter}
-          onClick={() => onChange(filter)}
-          className={cn(
-            "rounded-full px-3 py-1 font-mono text-[10px] tracking-wide transition-all duration-200",
-            value === filter ? "bg-glass text-text" : "text-text-ghost hover:text-text-dim",
-          )}
-        >
-          {filter}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-interface MemoryCountsProps {
-  repoCount: number;
-  liveCount: number;
-  historyCount: number;
-}
-
-function MemoryCounts({ repoCount, liveCount, historyCount }: MemoryCountsProps) {
-  return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-      <MemoryCountCard label="repos" value={`${repoCount}`} />
-      <MemoryCountCard
-        label="live"
-        value={`${liveCount} run${liveCount === 1 ? "" : "s"}`}
-        active={liveCount > 0}
-      />
-      <MemoryCountCard label="history" value={`${historyCount} run${historyCount === 1 ? "" : "s"}`} />
-    </div>
-  );
-}
-
-interface MemoryCountCardProps {
-  label: string;
-  value: string;
-  active?: boolean;
-}
-
-function MemoryCountCard({ label, value, active = false }: MemoryCountCardProps) {
-  return (
-    <div
-      className={cn(
-        "rounded-lg border px-3 py-2",
-        active ? "border-accent-dim bg-accent-ghost" : "border-glass-border bg-glass/40",
-      )}
-    >
-      <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-text-ghost">{label}</p>
-      <p className={cn("mt-1 font-mono text-[10px]", active ? "text-accent" : "text-text-dim")}>
-        {value}
-      </p>
-    </div>
-  );
 }
