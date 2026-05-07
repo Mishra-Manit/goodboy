@@ -6,9 +6,9 @@
 import { Brain, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
-import type { MemoryRun, MemoryStatusKind } from "@dashboard/lib/api";
+import type { MemoryRun } from "@dashboard/lib/api";
 import { formatDuration, timeAgo } from "@dashboard/lib/format";
-import { KIND_TONE } from "@dashboard/lib/memory-ui";
+import { KIND_TONE, STATUS_TONE } from "@dashboard/lib/memory-ui";
 import { cn, shortId } from "@dashboard/lib/utils";
 import { isTestInstance } from "@dashboard/shared";
 import type { RepoEntry } from "./RepoSummaryCard.js";
@@ -21,12 +21,6 @@ interface RepositoryLaneProps {
   onDelete: (repo: string) => Promise<void>;
   onOpenRun: (run: MemoryRun) => void;
 }
-
-const STATUS_TONE: Record<MemoryStatusKind, string> = {
-  fresh: "text-accent",
-  stale: "text-warn",
-  missing: "text-text-ghost",
-};
 
 /** Render one repo lane with all memory information for that repo. */
 export function RepositoryLane({ entry, runs, now, deleting, onDelete, onOpenRun }: RepositoryLaneProps) {
