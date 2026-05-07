@@ -1,5 +1,6 @@
 /** Center scroll: overall summary, then for each chapter: group narrative header + 2-panel file cards. */
 
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FileCode, FileText } from "lucide-react";
 import { cn } from "@dashboard/lib/utils";
 import type { PrReviewAnnotation, PrReviewChapter } from "@dashboard/shared";
@@ -169,15 +170,150 @@ function FileCard({
         )}
       </div>
 
-      <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] divide-x divide-glass-border border-t border-glass-border bg-bg-raised">
+      <ResizableFileContent
+        narrative={fileNarrative}
+        annotations={annotations}
+        filePath={filePath}
+        patch={patch}
+        diffStyle={diffStyle}
+        onReplyAnnotation={onReplyAnnotation}
+      />
+    </section>
+  );
+}
+
+// --- Resizable File Content ---
+
+const STORAGE_KEY = "pr-review:file-split";
+const DEFAULT_RATIO = 0.38; // NL panel gets ~38% by default
+const MIN_RATIO = 0.2;
+const MAX_RATIO = 0.6;
+
+function loadRatio(): number {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DEFAULT_RATIO;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? Math.max(MIN_RATIO, Math.min(MAX_RATIO, parsed)) : DEFAULT_RATIO;
+  } catch {
+    return DEFAULT_RATIO;
+  }
+}
+
+function saveRatio(ratio: number): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, String(ratio.toFixed(4)));
+  } catch { /* ignore */ }
+}
+
+// Module-level shared state so all FileCards share the same split
+let _sharedListeners: Set<(r: number) => void> = new Set();
+let _sharedRatio: number = loadRatio();
+
+function subscribeRatio(listener: (r: number) => void): () => void {
+  _sharedListeners.add(listener);
+  return () => { _sharedListeners.delete(listener); };
+}
+
+function broadcastRatio(ratio: number): void {
+  const clamped = Math.max(MIN_RATIO, Math.min(MAX_RATIO, ratio));
+  _sharedRatio = clamped;
+  saveRatio(clamped);
+  for (const fn of _sharedListeners) fn(clamped);
+}
+
+function useSyncedRatio(): [number, (r: number) => void] {
+  const [ratio, setRatio] = useState(_sharedRatio);
+  useEffect(() => {
+    const unsub = subscribeRatio(setRatio);
+    return unsub;
+  }, []);
+  return [ratio, broadcastRatio];
+}
+
+interface ResizableFileContentProps {
+  narrative: string;
+  annotations: PrReviewAnnotation[];
+  filePath: string;
+  patch: string | null;
+  diffStyle: "split" | "unified";
+  onReplyAnnotation: (annotation: PrReviewAnnotation) => void;
+}
+
+function ResizableFileContent({
+  narrative,
+  annotations,
+  filePath,
+  patch,
+  diffStyle,
+  onReplyAnnotation,
+}: ResizableFileContentProps) {
+  const [ratio, setRatio] = useSyncedRatio();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    setDragging(true);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    function onMove(ev: PointerEvent) {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = ev.clientX - rect.left;
+      const proposed = x / rect.width;
+      setRatio(proposed);
+    }
+    function onUp() {
+      setDragging(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, [setRatio]);
+
+  const leftPercent = `${(ratio * 100).toFixed(2)}%`;
+  const rightPercent = `${((1 - ratio) * 100).toFixed(2)}%`;
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative flex border-t border-glass-border bg-bg-raised"
+    >
+      {/* NL panel */}
+      <div style={{ width: leftPercent }} className="min-w-0 shrink-0 overflow-hidden">
         <NlFilePanel
-          narrative={fileNarrative}
+          narrative={narrative}
           annotations={annotations}
           onReplyAnnotation={onReplyAnnotation}
         />
+      </div>
+
+      {/* Drag handle */}
+      <div
+        onPointerDown={onPointerDown}
+        onDoubleClick={() => setRatio(DEFAULT_RATIO)}
+        className="group relative z-10 w-0 cursor-col-resize select-none"
+      >
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 w-px transition-colors",
+            dragging ? "bg-accent" : "bg-glass-border group-hover:bg-text-ghost",
+          )}
+        />
+        {/* Wider invisible hit area */}
+        <div className="absolute inset-y-0 -left-[4px] w-[9px]" />
+      </div>
+
+      {/* Code diff panel */}
+      <div style={{ width: rightPercent }} className="min-w-0 overflow-hidden">
         <FileDiff filePath={filePath} patch={patch} diffStyle={diffStyle} />
       </div>
-    </section>
+    </div>
   );
 }
 
