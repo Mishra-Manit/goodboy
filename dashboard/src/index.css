@@ -76,9 +76,6 @@ body {
   box-shadow: inset 2px 0 12px rgba(212, 160, 23, 0.04);
 }
 
-/* PR review: diff code font. */
-diffs-container { font-size: 12px; }
-
 /* Floating nav shadow */
 .nav-shadow {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findPatchForFile, splitUnifiedDiffByFile } from "@dashboard/lib/diff-patch";
+import { splitUnifiedDiffByFile } from "@dashboard/lib/diff-patch";
 
 describe("splitUnifiedDiffByFile", () => {
   it("returns an empty array for empty input", () => {
@@ -29,10 +29,3 @@ describe("splitUnifiedDiffByFile", () => {
   });
 });
 
-describe("findPatchForFile", () => {
-  it("returns null when the file is absent", () => {
-    const diff = "diff --git a/src/a.ts b/src/a.ts\n@@ -1 +1 @@\n-a\n+A\n";
-
-    expect(findPatchForFile(diff, "src/missing.ts")).toBeNull();
-  });
-});
