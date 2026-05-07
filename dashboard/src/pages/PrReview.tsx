@@ -164,7 +164,7 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
   useScrollSpyActiveFile(allFiles, fileRefs, setActiveFile);
 
   return (
-    <div className="-mx-2 mt-2 flex flex-col">
+    <div className="-mx-2 mt-4 flex flex-col">
       <ReviewHeader
         title={run.prTitle}
         repo={session?.repo ?? task?.repo ?? "PR"}
@@ -239,33 +239,48 @@ interface ReviewHeaderProps {
 
 function ReviewHeader({ title, repo, prNumber, sha, createdAt, onBack }: ReviewHeaderProps) {
   return (
-    <header className="px-2 pb-4">
-      <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-text-void">
-        <button
-          type="button"
-          onClick={onBack}
-          className="group flex items-center gap-1 text-text-ghost transition-colors hover:text-text-dim"
-        >
-          <ArrowLeft size={10} className="transition-transform group-hover:-translate-x-0.5" />
-          back
-        </button>
-        <span className="text-text-ghost/40">·</span>
-        <GitPullRequest size={11} className="text-text-ghost" />
-        <span className="text-[11px] font-medium text-accent">{repo}</span>
-        {prNumber !== null && (
-          <span className="text-[11px] text-text-dim">#{prNumber}</span>
-        )}
-        <span className="text-text-ghost/40">·</span>
-        <span className="uppercase tracking-[0.14em] text-text-ghost/60">review</span>
-        <span className="text-text-ghost/40">·</span>
-        <span>{formatDate(createdAt)}</span>
-        <span className="text-text-ghost/40">·</span>
-        <span>sha {sha.slice(0, 7)}</span>
-      </div>
+    <header className="px-2 pb-5">
+      {/* Back link */}
+      <button
+        type="button"
+        onClick={onBack}
+        className="group mb-4 flex items-center gap-1.5 font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim"
+      >
+        <ArrowLeft size={10} className="transition-transform group-hover:-translate-x-0.5" />
+        back
+      </button>
 
-      <h1 className="font-display text-[20px] font-normal leading-tight tracking-tight text-text">
-        {title}
-      </h1>
+      {/* Full-width header card */}
+      <div className="rounded-lg border border-glass-border bg-glass px-5 py-4">
+        <div className="flex items-start justify-between gap-4">
+          {/* Left: title + repo pill */}
+          <div className="min-w-0 flex-1">
+            <div className="mb-2 flex items-center gap-2.5">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-ghost px-2.5 py-0.5 font-mono text-[10px] font-medium text-accent">
+                <GitPullRequest size={10} />
+                {repo}
+                {prNumber !== null && <span className="text-text-dim">#{prNumber}</span>}
+              </span>
+              <span className="rounded-full border border-glass-border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-text-ghost">
+                review
+              </span>
+            </div>
+            <h1 className="font-display text-[20px] font-medium leading-tight tracking-[-0.02em] text-text">
+              {title}
+            </h1>
+          </div>
+
+          {/* Right: date + sha */}
+          <div className="flex shrink-0 flex-col items-end gap-1.5 pt-0.5">
+            <span className="font-mono text-[11px] text-text-void">
+              {formatDate(createdAt)}
+            </span>
+            <span className="font-mono text-[11px] text-text-ghost">
+              {sha.slice(0, 7)}
+            </span>
+          </div>
+        </div>
+      </div>
     </header>
   );
 }
