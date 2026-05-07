@@ -164,19 +164,10 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
   useScrollSpyActiveFile(allFiles, fileRefs, setActiveFile);
 
   return (
-    <div className="-mx-2 mt-4 flex flex-col">
-      <ReviewHeader
-        title={run.prTitle}
-        repo={session?.repo ?? task?.repo ?? "PR"}
-        prNumber={session?.prNumber ?? task?.prNumber ?? null}
-        sha={run.headSha}
-        createdAt={run.createdAt}
-        onBack={onBack}
-      />
-
+    <div className="-mx-2 mt-1 flex flex-col">
       <ResizablePanels
         storageKey="pr-review-panels"
-        className="min-h-[calc(100vh-12rem)]"
+        className="h-[calc(100vh-3rem)]"
         leftLabel="Files"
         rightLabel="Review thread"
         left={
@@ -187,7 +178,15 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
           />
         }
         center={
-          <div className="min-w-0 px-[18px] pt-2 pb-[18px]">
+          <div className="min-w-0 h-full overflow-y-auto px-[18px] pt-1 pb-[18px]">
+            <ReviewHeader
+              title={run.prTitle}
+              repo={session?.repo ?? task?.repo ?? "PR"}
+              prNumber={session?.prNumber ?? task?.prNumber ?? null}
+              sha={run.headSha}
+              createdAt={run.createdAt}
+              onBack={onBack}
+            />
             <FileStack
               summary={run.summary}
               chapters={run.chapters}
@@ -233,12 +232,12 @@ interface ReviewHeaderProps {
 
 function ReviewHeader({ title, repo, prNumber, sha, createdAt, onBack }: ReviewHeaderProps) {
   return (
-    <header className="px-2 pb-5">
+    <header className="px-2 pb-0">
       {/* Back link */}
       <button
         type="button"
         onClick={onBack}
-        className="group mb-4 flex items-center gap-1.5 font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim"
+        className="group mb-3 flex items-center gap-1.5 font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim"
       >
         <ArrowLeft size={10} className="transition-transform group-hover:-translate-x-0.5" />
         back
@@ -275,6 +274,9 @@ function ReviewHeader({ title, repo, prNumber, sha, createdAt, onBack }: ReviewH
           </div>
         </div>
       </div>
+
+      {/* Separator */}
+      <div className="mt-4 border-t border-glass-border" />
     </header>
   );
 }

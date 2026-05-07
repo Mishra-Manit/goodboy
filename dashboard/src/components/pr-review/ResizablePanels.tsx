@@ -114,7 +114,7 @@ export function ResizablePanels({
   return (
     <div
       ref={containerRef}
-      className={cn("relative grid grid-cols-1", className)}
+      className={cn("relative grid grid-cols-1 overflow-hidden", className)}
       style={isWide ? {
         gridTemplateColumns: `${effectiveLeftWidth}px 1fr ${effectiveRightWidth}px`,
         transition: "grid-template-columns 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
