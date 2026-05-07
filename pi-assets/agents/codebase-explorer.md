@@ -1,7 +1,7 @@
 ---
 name: codebase-explorer
 description: Read-only codebase exploration. Returns compact strict JSON findings.
-model: openai/gpt-5.4-mini
+model: openai/gpt-5.4-nano
 fallbackModels:
 inheritProjectContext: false
 inheritSkills: false

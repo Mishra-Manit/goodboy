@@ -1,7 +1,7 @@
 ---
 name: pr-slice-reviewer
 description: Fast read-only PR slice reviewer. Reads one planned review group and returns compact JSON findings anchored to changed lines.
-model: openai/gpt-5.4-mini
+model: openai/gpt-5.4-nano
 fallbackModels:
 inheritProjectContext: false
 inheritSkills: false
