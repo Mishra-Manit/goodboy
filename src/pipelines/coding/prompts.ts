@@ -23,37 +23,54 @@ ${worktreeBlock(env)}
 
 DELEGATION TO SUBAGENTS:
 
-You have access to a \`subagent\` tool that runs cheap, read-only exploration
-agents in parallel. Use it to offload codebase research before planning.
+You have access to a \`subagent\` tool that runs read-only exploration agents in
+parallel. Use it to decompose codebase research into bounded slices before
+planning. The goal is scalable coverage: small tasks get small fanout, large or
+unknown codebases get more focused subagents, never one vague mega-question.
 
 MANDATORY WORKFLOW:
-1. Read the task. Identify 2-6 independent research questions you need
-   answered about this codebase before you can plan.
-2. Emit ONE subagent tool call with this shape:
+1. Read the task and classify exploration size:
+   - local/simple: 1-2 subagents
+   - medium feature: 2-4 subagents
+   - large/unknown codebase or cross-cutting feature: 4-8 subagents
+2. Decompose by subsystem, path, or boundary. Each subagent owns one slice.
+   Avoid broad themes like "understand config, DB, API, and frontend". Split
+   those into separate tasks such as config loading, persistence, runtime path,
+   API surface, and frontend consumers.
+3. Emit ONE subagent tool call with this shape:
      { "tasks": [
-         { "agent": "codebase-explorer", "task": "<specific question>" },
-         { "agent": "codebase-explorer", "task": "<specific question>" }
+         { "agent": "codebase-explorer", "task": "Objective: <one question>. Scope: <paths/subsystem/boundary>. Need: <facts needed for the plan>. Stop condition: <what evidence is enough>." },
+         { "agent": "codebase-explorer", "task": "Objective: <one question>. Scope: <paths/subsystem/boundary>. Need: <facts needed for the plan>. Stop condition: <what evidence is enough>." }
        ],
        "agentScope": "project"
      }
    Each task must be self-contained and answerable by a read-only agent.
    Use the project-scoped codebase-explorer from .pi/agents/codebase-explorer.md.
    Do NOT pass model, skill, worktree, async, context, or other options.
-3. When results return, each task has a finalOutput field containing strict JSON:
-     {"answer":"...","evidence":[{"path":"src/file.ts","line":1,"claim":"..."}],"caveats":[]}
-   Read it. Do targeted follow-up reads yourself ONLY for files you will
-   cite directly in the implementation plan.
-4. Write plan.md.
+4. When results return, each task has a finalOutput field containing strict JSON:
+     {"answer":"...","evidence":[{"path":"src/file.ts","line":1,"claim":"..."}],"coverage":["..."],"confidence":"high","next_questions":[],"caveats":[]}
+   Read coverage, confidence, and caveats to understand what each slice actually
+   covered. Do targeted follow-up reads yourself ONLY for files you will cite
+   directly in the implementation plan.
+5. Write plan.md.
+
+SUBAGENT TASK QUALITY:
+- Good task: "Objective: Identify how Scout prefilters markets. Scope: backend/coliseum/agents/scout plus direct callers. Need: exact function names, inputs, and where filtering is invoked. Stop condition: enough evidence to cite implementation files; do not inspect unrelated agents."
+- Bad task: "Understand all filtering, DB, API, and frontend patterns."
+- For large codebases, use more subagents with narrower ownership instead of
+  asking any one subagent to understand the whole architecture.
 
 RESULT HANDLING:
 - Each task in the result array may succeed or fail independently.
+- Use subagent caveats and next_questions as planning context; do not blindly
+  expand scope unless the task truly needs it.
 - For failed or malformed tasks: do the exploration yourself using read, grep,
   find, and bash. Do NOT re-issue the subagent call to retry.
 - If ALL tasks failed, proceed with direct exploration.
 
-Do NOT skip step 2. Even for tasks that seem simple, emit the subagent call --
+Do NOT skip step 3. Even for tasks that seem simple, emit the subagent call --
 it catches surprises about the specific repo layout. A trivial task may have
-1-2 subagent tasks, but never zero.
+1 subagent task, but never zero.
 
 TASK: ${taskDescription}
 

@@ -22,8 +22,8 @@ pi-assets/
 
 ### `agents/codebase-explorer.md`
 
-Read-only codebase research subagent invoked by the planner and memory pipeline.
-Returns strict JSON final responses only; parent stages read those responses and write canonical artifacts themselves.
+Read-only scoped codebase research subagent invoked by the planner and memory pipeline.
+Returns strict JSON final responses with evidence, coverage, confidence, and caveats; parent stages read those responses and write canonical artifacts themselves.
 
 ### `agents/pr-slice-reviewer.md`
 

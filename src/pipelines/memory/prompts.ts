@@ -138,14 +138,17 @@ SUBAGENTS AVAILABLE
 -------------------
 You have the 'subagent' tool. Use only the project-scoped 'codebase-explorer'
 agent from .pi/agents/codebase-explorer.md — a read-only code research agent that
-returns strict JSON final responses with answer, evidence, and caveats. Dispatch many in one call:
+returns strict JSON final responses with answer, evidence, coverage, confidence,
+next_questions, and caveats. Dispatch many scoped slices in one call:
     { "tasks": [
-        { "agent": "codebase-explorer", "task": "<specific scoped question>" },
+        { "agent": "codebase-explorer", "task": "Objective: <one question>. Scope: <zone/path/boundary>. Need: <facts needed>. Stop condition: <what evidence is enough>." },
         ...
       ],
       "agentScope": "project"
     }
-Up to 8 tool calls per batch. Do not pass model, skill, cwd, context, or other overrides.
+Fanout should scale with repo size, but each subagent task must own one bounded
+zone, subsystem, or cross-cutting boundary. Do not pass model, skill, cwd,
+context, or other overrides.
 `;
 
 // --- Cold ---
@@ -193,7 +196,8 @@ Suggested workflow:
   1. Orient: README.md, AGENTS.md, CLAUDE.md, package.json / pyproject.toml,
      entry file (e.g. src/index.ts). Treat doc claims as SEEDS to verify.
   2. Delegate: dispatch codebase-explorer subagents, scoped per zone plus
-     any cross-cutting concerns. ONE tool call, many tasks.
+     any cross-cutting concerns. ONE tool call, many bounded tasks using the
+     Objective/Scope/Need/Stop condition format.
   3. Synthesize: read findings, do targeted first-hand reads to confirm,
      then write all files.
 
