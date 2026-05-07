@@ -187,7 +187,7 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
           />
         }
         center={
-          <div className="min-w-0 px-[18px] py-[18px]">
+          <div className="min-w-0 px-[18px] pt-2 pb-[18px]">
             <FileStack
               summary={run.summary}
               chapters={run.chapters}
