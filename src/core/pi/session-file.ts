@@ -6,7 +6,7 @@
  * is the source of truth and pi appends in order.
  */
 
-import { mkdir, stat, readFile, open } from "node:fs/promises";
+import { mkdir, rm, stat, readFile, open } from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { createLogger } from "../../shared/runtime/logger.js";
@@ -40,6 +40,17 @@ export function prSessionPath(prSessionId: string): string {
 /** Ensure the session file's parent directory exists. Call before spawning pi. */
 export async function ensureSessionDir(filePath: string): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
+}
+
+/**
+ * Delete the session directory for a PR session so the next resume starts a
+ * cold pi session. Call whenever the worktree path changes — a session file
+ * stores the cwd it was created in, and pi exits with code 1 if that path no
+ * longer exists.
+ */
+export async function clearPrSessionFile(prSessionId: string): Promise<void> {
+  const dir = path.dirname(prSessionPath(prSessionId));
+  await rm(dir, { recursive: true, force: true });
 }
 
 // --- Read ---

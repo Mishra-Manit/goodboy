@@ -90,6 +90,15 @@ export async function createPrSessionWorktree(repoPath: string, headRef: string,
   const dir = path.join(repoPath, "..", `goodboy-pr-${prSessionId.slice(0, 8)}`);
 
   await forceRemoveWorktree(repoPath, dir);
+
+  // Same guard as createPrWorktree: if headRef is checked out in any other
+  // worktree (e.g. a stale PR review worktree), remove it before fetching.
+  const staleDir = await findWorktreeForBranch(repoPath, headRef);
+  if (staleDir) {
+    log.info(`Branch ${headRef} still checked out at ${staleDir}; removing stale worktree`);
+    await forceRemoveWorktree(repoPath, staleDir);
+  }
+
   await pruneWorktrees(repoPath);
   await exec("git", ["fetch", "origin", `+${headRef}:${headRef}`], { cwd: repoPath });
   await addPrWorktree(repoPath, headRef, dir);

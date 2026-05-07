@@ -1,8 +1,5 @@
 import 'dotenv/config';
-import { getDb } from '../src/db/index.js';
-import { tasks } from '../src/db/schema.js';
-import { sql } from 'drizzle-orm';
-
-const db = getDb();
-const rows = await db.select().from(tasks).where(sql`${tasks.id}::text LIKE 'e458225f%'`);
+import { neon } from '@neondatabase/serverless';
+const sql = neon(process.env.DATABASE_URL!);
+const rows = await sql`SELECT id, status, kind, error, created_at FROM tasks WHERE id::text LIKE '35318433%'`;
 console.log(JSON.stringify(rows, null, 2));

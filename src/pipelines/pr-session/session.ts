@@ -19,6 +19,7 @@ import { createPrSessionWorktree, worktreeExists } from "../../core/git/worktree
 import {
   ensureSessionDir,
   prSessionPath,
+  clearPrSessionFile,
   readLatestAssistantText,
   readSessionFile,
 } from "../../core/pi/session-file.js";
@@ -348,6 +349,7 @@ async function ensureResumeWorktree(
     log.warn(`Recreating missing PR session worktree for ${id}: ${worktreePath ?? "<none>"}`);
     const nextPath = await createPrSessionWorktree(registeredRepo.localPath, branch, id);
     await queries.updatePrSession(id, { worktreePath: nextPath });
+    await clearPrSessionFile(id);
     return nextPath;
   } catch (err) {
     await muteBrokenSession(
