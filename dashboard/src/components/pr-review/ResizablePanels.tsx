@@ -2,10 +2,12 @@
  * Three-pane layout with draggable seams between left/center and center/right.
  * Clamps each side to a min/max range and persists sizes to localStorage.
  * Below lg the layout collapses to a single stacked column. Double-click a
- * handle to reset that side to its default.
+ * handle to reset that side to its default. Each side panel can be collapsed
+ * via a toggle icon on the handle.
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { cn } from "@dashboard/lib/utils";
 
 interface PaneBounds {
@@ -30,6 +32,7 @@ const DEFAULT_LEFT: PaneBounds = { min: 180, max: 400, default: 244 };
 const DEFAULT_RIGHT: PaneBounds = { min: 280, max: 600, default: 400 };
 const DEFAULT_CENTER_MIN = 360;
 const LG_QUERY = "(min-width: 1024px)";
+const COLLAPSED_WIDTH = 36;
 
 export function ResizablePanels({
   storageKey,
@@ -43,32 +46,55 @@ export function ResizablePanels({
 }: ResizablePanelsProps) {
   const [leftWidth, setLeftWidth] = useState(() => loadSize(`${storageKey}:left`, leftBounds));
   const [rightWidth, setRightWidth] = useState(() => loadSize(`${storageKey}:right`, rightBounds));
+  const [leftCollapsed, setLeftCollapsed] = useState(() => loadCollapsed(`${storageKey}:left-collapsed`));
+  const [rightCollapsed, setRightCollapsed] = useState(() => loadCollapsed(`${storageKey}:right-collapsed`));
   const isWide = useMediaQuery(LG_QUERY);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const toggleLeft = useCallback(() => {
+    setLeftCollapsed((prev) => {
+      const next = !prev;
+      saveCollapsed(`${storageKey}:left-collapsed`, next);
+      return next;
+    });
+  }, [storageKey]);
+
+  const toggleRight = useCallback(() => {
+    setRightCollapsed((prev) => {
+      const next = !prev;
+      saveCollapsed(`${storageKey}:right-collapsed`, next);
+      return next;
+    });
+  }, [storageKey]);
+
+  const effectiveLeftWidth = leftCollapsed ? COLLAPSED_WIDTH : leftWidth;
+  const effectiveRightWidth = rightCollapsed ? COLLAPSED_WIDTH : rightWidth;
+
   const onDragLeft = useCallback(
     (clientX: number) => {
+      if (leftCollapsed) return;
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
       const proposed = clientX - rect.left;
-      const maxByCenter = rect.width - rightWidth - centerMin;
+      const maxByCenter = rect.width - effectiveRightWidth - centerMin;
       const next = clamp(proposed, leftBounds.min, Math.min(leftBounds.max, maxByCenter));
       setLeftWidth(next);
     },
-    [leftBounds.min, leftBounds.max, rightWidth, centerMin],
+    [leftBounds.min, leftBounds.max, effectiveRightWidth, centerMin, leftCollapsed],
   );
 
   const onDragRight = useCallback(
     (clientX: number) => {
+      if (rightCollapsed) return;
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
       const proposed = rect.right - clientX;
-      const maxByCenter = rect.width - leftWidth - centerMin;
+      const maxByCenter = rect.width - effectiveLeftWidth - centerMin;
       const next = clamp(proposed, rightBounds.min, Math.min(rightBounds.max, maxByCenter));
       setRightWidth(next);
     },
-    [rightBounds.min, rightBounds.max, leftWidth, centerMin],
+    [rightBounds.min, rightBounds.max, effectiveLeftWidth, centerMin, rightCollapsed],
   );
 
   const persistLeft = useCallback(
@@ -84,26 +110,36 @@ export function ResizablePanels({
     <div
       ref={containerRef}
       className={cn("relative grid grid-cols-1", className)}
-      style={isWide ? { gridTemplateColumns: `${leftWidth}px 1fr ${rightWidth}px` } : undefined}
+      style={isWide ? { gridTemplateColumns: `${effectiveLeftWidth}px 1fr ${effectiveRightWidth}px` } : undefined}
     >
-      {left}
+      {/* Left panel */}
+      <div className={cn("min-w-0 transition-[width] duration-200", leftCollapsed && "overflow-hidden")}>
+        {leftCollapsed ? null : left}
+      </div>
       {center}
-      {right}
+      {/* Right panel */}
+      <div className={cn("min-w-0 transition-[width] duration-200", rightCollapsed && "overflow-hidden")}>
+        {rightCollapsed ? null : right}
+      </div>
       {isWide && (
         <>
           <Handle
-            offsetPx={leftWidth}
+            offsetPx={effectiveLeftWidth}
             side="left"
+            collapsed={leftCollapsed}
             onDrag={onDragLeft}
             onCommit={persistLeft}
             onReset={() => setLeftWidth(leftBounds.default)}
+            onToggle={toggleLeft}
           />
           <Handle
-            offsetPx={rightWidth}
+            offsetPx={effectiveRightWidth}
             side="right"
+            collapsed={rightCollapsed}
             onDrag={onDragRight}
             onCommit={persistRight}
             onReset={() => setRightWidth(rightBounds.default)}
+            onToggle={toggleRight}
           />
         </>
       )}
@@ -116,16 +152,19 @@ export function ResizablePanels({
 interface HandleProps {
   offsetPx: number;
   side: "left" | "right";
+  collapsed: boolean;
   onDrag: (clientX: number) => void;
   onCommit: () => void;
   onReset: () => void;
+  onToggle: () => void;
 }
 
-/** A 1px visual seam with a 9px hit area, overlaid on the grid edge. */
-function Handle({ offsetPx, side, onDrag, onCommit, onReset }: HandleProps) {
+/** A 1px visual seam with a 9px hit area, overlaid on the grid edge. Toggle button in the center. */
+function Handle({ offsetPx, side, collapsed, onDrag, onCommit, onReset, onToggle }: HandleProps) {
   const [active, setActive] = useState(false);
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      if (collapsed) return;
       e.preventDefault();
       setActive(true);
       document.body.style.cursor = "col-resize";
@@ -145,7 +184,7 @@ function Handle({ offsetPx, side, onDrag, onCommit, onReset }: HandleProps) {
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
     },
-    [onDrag, onCommit],
+    [onDrag, onCommit, collapsed],
   );
 
   const positionStyle =
@@ -153,26 +192,55 @@ function Handle({ offsetPx, side, onDrag, onCommit, onReset }: HandleProps) {
       ? { left: `${offsetPx - 4}px` }
       : { right: `${offsetPx - 4}px` };
 
+  const ToggleIcon = getToggleIcon(side, collapsed);
+
   return (
     <div
       role="separator"
       aria-orientation="vertical"
       onPointerDown={onPointerDown}
-      onDoubleClick={onReset}
+      onDoubleClick={collapsed ? undefined : onReset}
       style={positionStyle}
-      className="group absolute inset-y-0 z-20 w-[9px] cursor-col-resize select-none"
+      className={cn(
+        "group absolute inset-y-0 z-20 w-[9px] select-none",
+        collapsed ? "cursor-default" : "cursor-col-resize",
+      )}
     >
+      {/* Seam line */}
       <div
         className={cn(
           "absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors",
           active ? "bg-accent" : "bg-glass-border group-hover:bg-text-ghost",
         )}
       />
+      {/* Toggle button */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        className={cn(
+          "absolute left-1/2 top-6 z-30 -translate-x-1/2",
+          "flex h-7 w-7 items-center justify-center rounded-md",
+          "border border-glass-border bg-bg-hover text-text-dim shadow-sm",
+          "transition-all hover:border-accent/40 hover:text-accent hover:shadow-[0_0_8px_rgba(212,160,23,0.15)]",
+        )}
+        title={collapsed ? `Expand ${side} panel` : `Collapse ${side} panel`}
+      >
+        <ToggleIcon size={14} />
+      </button>
     </div>
   );
 }
 
 // --- Helpers ---
+
+function getToggleIcon(side: "left" | "right", collapsed: boolean) {
+  if (side === "left") return collapsed ? PanelLeftOpen : PanelLeftClose;
+  return collapsed ? PanelRightOpen : PanelRightClose;
+}
 
 function clamp(value: number, min: number, max: number): number {
   if (max < min) return min;
@@ -196,6 +264,24 @@ function saveSize(key: string, value: number): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key, String(Math.round(value)));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+function loadCollapsed(key: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(key) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveCollapsed(key: string, value: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, String(value));
   } catch {
     /* ignore quota errors */
   }
