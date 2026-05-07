@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@dashboard/lib/utils";
 
 interface PaneBounds {
@@ -110,16 +111,43 @@ export function ResizablePanels({
     <div
       ref={containerRef}
       className={cn("relative grid grid-cols-1", className)}
-      style={isWide ? { gridTemplateColumns: `${effectiveLeftWidth}px 1fr ${effectiveRightWidth}px` } : undefined}
+      style={isWide ? {
+        gridTemplateColumns: `${effectiveLeftWidth}px 1fr ${effectiveRightWidth}px`,
+        transition: "grid-template-columns 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
+      } : undefined}
     >
       {/* Left panel */}
-      <div className={cn("min-w-0 transition-[width] duration-200", leftCollapsed && "overflow-hidden")}>
-        {leftCollapsed ? null : left}
+      <div className="min-w-0 overflow-hidden">
+        <AnimatePresence mode="wait">
+          {!leftCollapsed && (
+            <motion.div
+              key="left-panel"
+              initial={{ opacity: 0, x: -12 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+            >
+              {left}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
       {center}
       {/* Right panel */}
-      <div className={cn("min-w-0 transition-[width] duration-200", rightCollapsed && "overflow-hidden")}>
-        {rightCollapsed ? null : right}
+      <div className="min-w-0 overflow-hidden">
+        <AnimatePresence mode="wait">
+          {!rightCollapsed && (
+            <motion.div
+              key="right-panel"
+              initial={{ opacity: 0, x: 12 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 12 }}
+              transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+            >
+              {right}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
       {isWide && (
         <>
@@ -214,13 +242,15 @@ function Handle({ offsetPx, side, collapsed, onDrag, onCommit, onReset, onToggle
         )}
       />
       {/* Toggle button */}
-      <button
+      <motion.button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
           onToggle();
         }}
         onPointerDown={(e) => e.stopPropagation()}
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.9 }}
         className={cn(
           "absolute left-1/2 top-6 z-30 -translate-x-1/2",
           "flex h-7 w-7 items-center justify-center rounded-md",
@@ -230,7 +260,7 @@ function Handle({ offsetPx, side, collapsed, onDrag, onCommit, onReset, onToggle
         title={collapsed ? `Expand ${side} panel` : `Collapse ${side} panel`}
       >
         <ToggleIcon size={14} />
-      </button>
+      </motion.button>
     </div>
   );
 }

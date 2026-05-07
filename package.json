@@ -32,6 +32,7 @@
     "@tailwindcss/typography": "^0.5.19",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.4",
+    "framer-motion": "^12.38.0",
     "grammy": "^1.35.0",
     "hono": "^4.7.4",
     "pi-subagents": "0.15.0",
