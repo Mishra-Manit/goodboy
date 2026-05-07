@@ -78,7 +78,15 @@ export function RunCard({ run, expanded, onToggle, entries, isLive, now }: RunCa
             </div>
           )}
 
-          <LogViewer entries={entries} maxHeight="400px" autoScroll={isLive} />
+          {entries.length === 0 && run.status !== "running" ? (
+            <div className="rounded-lg bg-bg-raised p-4">
+              <span className="font-mono text-xs text-text-void">
+                no transcript available
+              </span>
+            </div>
+          ) : (
+            <LogViewer entries={entries} maxHeight="400px" autoScroll={isLive} />
+          )}
         </div>
       )}
     </div>
