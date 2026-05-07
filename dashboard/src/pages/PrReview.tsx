@@ -307,14 +307,9 @@ function UnavailableReview({ onBack }: UnavailableReviewProps) {
 
 function ReviewChatUnavailable({ reason }: { reason: string }) {
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-bg">
-      <header className="flex items-center border-b border-glass-border px-[18px] py-[14px]">
-        <h2 className="min-w-0 truncate font-display text-[12px] font-medium text-text">
-          Review thread
-        </h2>
-      </header>
-      <div className="flex flex-1 items-center justify-center px-6 text-center">
-        <p className="font-body text-[12px] text-text-secondary">{reason}</p>
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex flex-1 items-center justify-center px-4 text-center">
+        <p className="font-mono text-[11px] text-text-secondary">{reason}</p>
       </div>
     </div>
   );

@@ -98,8 +98,7 @@ export function ReviewChat({
   }, [input, pending, available, attachedAnnotation, sessionId, activeFile, onClearAnnotation, onChanged]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-bg">
-      <ChatHeader />
+    <div className="flex h-full flex-col overflow-hidden">
       <ChatBody messages={messages} pending={pending} unavailableReason={unavailableReason} />
       <Composer
         input={input}
@@ -110,18 +109,6 @@ export function ReviewChat({
         onClearAnnotation={onClearAnnotation}
       />
     </div>
-  );
-}
-
-// --- Header ---
-
-function ChatHeader() {
-  return (
-    <header className="flex items-center border-b border-glass-border px-[18px] py-[14px]">
-      <h2 className="min-w-0 truncate font-display text-[12px] font-medium text-text">
-        Review thread
-      </h2>
-    </header>
   );
 }
 
@@ -141,16 +128,16 @@ function ChatBody({ messages, pending, unavailableReason }: ChatBodyProps) {
 
   if (unavailableReason) {
     return (
-      <div className="flex flex-1 items-center justify-center px-6 text-center">
-        <p className="font-body text-[12px] text-text-secondary">{unavailableReason}</p>
+      <div className="flex flex-1 items-center justify-center px-4 text-center">
+        <p className="font-mono text-[11px] text-text-secondary">{unavailableReason}</p>
       </div>
     );
   }
 
   if (messages.length === 0 && !pending) {
     return (
-      <div className="flex flex-1 items-center justify-center px-6 text-center">
-        <p className="font-body text-[12px] text-text-secondary">
+      <div className="flex flex-1 items-center justify-center px-4 text-center">
+        <p className="font-mono text-[11px] text-text-secondary">
           Ask a question or hit Reply on an annotation to start.
         </p>
       </div>
@@ -158,7 +145,7 @@ function ChatBody({ messages, pending, unavailableReason }: ChatBodyProps) {
   }
 
   return (
-    <div ref={scrollRef} className="flex flex-1 flex-col gap-[18px] overflow-y-auto px-5 pb-4 pt-5">
+    <div ref={scrollRef} className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4 pt-4">
       {messages.map((m) => <Message key={m.id} message={m} />)}
       {pending && <WorkerBubble />}
     </div>
@@ -180,7 +167,7 @@ function Message({ message }: { message: ReviewChatMessage }) {
             <AnnotationChip annotation={annotation.annotation} compact />
           )}
           <div className="rounded-lg bg-info-dim px-3 py-2">
-            <p className="whitespace-pre-wrap break-words font-body text-[12px] leading-[1.6] text-text">{text}</p>
+            <p className="whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.6] text-text">{text}</p>
           </div>
         </div>
       </div>
@@ -190,7 +177,7 @@ function Message({ message }: { message: ReviewChatMessage }) {
   return (
     <Markdown
       content={text}
-      className="font-body text-[12px] leading-[1.65] prose-p:text-text prose-li:text-text prose-strong:text-text prose-code:text-[11px]"
+      className="font-mono text-[11px] leading-[1.65] prose-p:text-text prose-li:text-text prose-strong:text-text prose-code:text-[10px]"
     />
   );
 }
@@ -201,7 +188,7 @@ function WorkerBubble() {
   return (
     <div className="flex items-center gap-[10px] text-text-ghost">
       <UnicodeSpinner name="sparkle" className="text-[14px]" />
-      <span className="font-body text-[11px] text-text-secondary">
+      <span className="font-mono text-[10px] text-text-secondary">
         {verb}… · {seconds}s
       </span>
     </div>
@@ -228,7 +215,7 @@ function Composer({ input, onInput, onSend, disabled, attachedAnnotation, onClea
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [input]);
   return (
-    <footer className="flex flex-col gap-[10px] border-t border-glass-border px-4 py-[12px]">
+    <footer className="flex shrink-0 flex-col gap-2 border-t border-glass-border px-4 py-3">
       {attachedAnnotation && (
         <AnnotationChip annotation={attachedAnnotation} onRemove={onClearAnnotation} />
       )}
@@ -246,7 +233,7 @@ function Composer({ input, onInput, onSend, disabled, attachedAnnotation, onClea
         }}
         placeholder={disabled ? "…" : "Ask, or request a change"}
         className={cn(
-          "max-h-[160px] w-full resize-none overflow-y-auto bg-transparent font-body text-[12px] leading-[1.6] text-text placeholder:text-text-void focus:outline-none",
+          "max-h-[160px] w-full resize-none overflow-y-auto bg-transparent font-mono text-[11px] leading-[1.6] text-text placeholder:text-text-void focus:outline-none",
           disabled && "cursor-not-allowed",
         )}
       />

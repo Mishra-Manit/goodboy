@@ -11,7 +11,7 @@ interface FileTreeProps {
 
 export function FileTree({ chapters, activeFile, onSelectFile }: FileTreeProps) {
   return (
-    <nav aria-label="Files" className="flex h-full flex-col gap-5 bg-bg py-4 pr-3">
+    <nav aria-label="Files" className="flex flex-col gap-4 px-3 py-3">
       {chapters.map((chapter) => (
         <ChapterSection
           key={chapter.id}
