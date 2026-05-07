@@ -81,7 +81,7 @@ function FileRow({ file, annotations, active, onSelect }: FileRowProps) {
           "group relative flex w-full items-center justify-between gap-2 py-[5px] pl-3 pr-2 text-left transition-colors",
           active
             ? "bg-glass text-text"
-            : "text-text-dim hover:bg-glass/60 hover:text-text-secondary",
+            : "text-text-secondary hover:bg-glass/60 hover:text-text",
         )}
       >
         <span
@@ -91,7 +91,7 @@ function FileRow({ file, annotations, active, onSelect }: FileRowProps) {
             active ? "bg-accent" : "bg-transparent",
           )}
         />
-        <span className="min-w-0 truncate font-mono text-[10px]">
+        <span className="min-w-0 truncate font-mono text-[11px]">
           {filenameOnly(file)}
         </span>
         {total > 0 && (

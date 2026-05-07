@@ -40,8 +40,8 @@ export function AnnotationCard({ annotation, onReply }: AnnotationCardProps) {
         <Markdown
           content={annotation.body}
           className={cn(
-            "mt-1 font-body text-[11px] leading-[1.5] text-text-dim",
-            "prose-p:my-0.5 prose-code:rounded prose-code:bg-bg-active prose-code:px-1 prose-code:text-[10px]",
+            "mt-1 font-body text-[11.5px] leading-[1.6] text-text-secondary",
+            "prose-p:my-0.5 prose-code:rounded prose-code:bg-bg-active prose-code:px-1 prose-code:text-[10.5px]",
           )}
         />
       </div>

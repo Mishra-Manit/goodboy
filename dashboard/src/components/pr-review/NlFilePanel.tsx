@@ -12,7 +12,7 @@ interface NlFilePanelProps {
 export function NlFilePanel({ narrative, annotations, onReplyAnnotation }: NlFilePanelProps) {
   return (
     <div className="flex flex-col gap-3 p-4">
-      <p className="font-body text-[12px] leading-[1.65] text-text-secondary">
+      <p className="font-body text-[12.5px] leading-[1.75] text-text-secondary">
         {narrative}
       </p>
       {annotations.length > 0 && (

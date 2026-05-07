@@ -58,7 +58,7 @@ function OverallSummary({ summary }: { summary: string }) {
       <h2 className="mb-2 font-display text-[15px] font-medium text-text">
         Overall PR diff
       </h2>
-      <p className="font-body text-[12px] leading-[1.7] text-text-dim">{summary}</p>
+      <p className="font-body text-[12.5px] leading-[1.75] text-text-secondary">{summary}</p>
     </section>
   );
 }
@@ -118,7 +118,7 @@ function GroupNarrativeHeader({ title, narrative }: { title: string; narrative: 
       <h3 className="font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-text-secondary">
         {title}
       </h3>
-      <p className="font-body text-[12px] leading-[1.65] text-text-dim">{narrative}</p>
+      <p className="font-body text-[12.5px] leading-[1.7] text-text-secondary">{narrative}</p>
     </div>
   );
 }
