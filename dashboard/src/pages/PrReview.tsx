@@ -177,16 +177,14 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
       <ResizablePanels
         storageKey="pr-review-panels"
         className="min-h-[calc(100vh-12rem)]"
+        leftLabel="Files"
+        rightLabel="Review thread"
         left={
-          <aside className="min-w-0">
-            <div className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
-              <FileTree
-                chapters={run.chapters}
-                activeFile={activeFile}
-                onSelectFile={focusFile}
-              />
-            </div>
-          </aside>
+          <FileTree
+            chapters={run.chapters}
+            activeFile={activeFile}
+            onSelectFile={focusFile}
+          />
         }
         center={
           <div className="min-w-0 px-[18px] py-[18px]">
@@ -204,22 +202,18 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
           </div>
         }
         right={
-          <aside className="min-w-0">
-            <div className="lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
-              {session ? (
-                <ReviewChat
-                  sessionId={session.id}
-                  mode={session.mode}
-                  activeFile={activeFile}
-                  attachedAnnotation={attachedAnnotation}
-                  onClearAnnotation={() => setAttachedAnnotation(null)}
-                  onChanged={onChanged}
-                />
-              ) : (
-                <ReviewChatUnavailable reason="Review chat is unavailable because this review has no linked PR session." />
-              )}
-            </div>
-          </aside>
+          session ? (
+            <ReviewChat
+              sessionId={session.id}
+              mode={session.mode}
+              activeFile={activeFile}
+              attachedAnnotation={attachedAnnotation}
+              onClearAnnotation={() => setAttachedAnnotation(null)}
+              onChanged={onChanged}
+            />
+          ) : (
+            <ReviewChatUnavailable reason="Review chat is unavailable because this review has no linked PR session." />
+          )
         }
       />
     </div>

@@ -3,7 +3,7 @@
  * Clamps each side to a min/max range and persists sizes to localStorage.
  * Below lg the layout collapses to a single stacked column. Double-click a
  * handle to reset that side to its default. Each side panel can be collapsed
- * via a toggle icon on the handle.
+ * via a toggle icon integrated into the panel header.
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -22,6 +22,8 @@ interface ResizablePanelsProps {
   left: ReactNode;
   center: ReactNode;
   right: ReactNode;
+  leftLabel?: string;
+  rightLabel?: string;
   leftBounds?: PaneBounds;
   rightBounds?: PaneBounds;
   /** Minimum center width below which a drag is ignored. */
@@ -40,6 +42,8 @@ export function ResizablePanels({
   left,
   center,
   right,
+  leftLabel = "Files",
+  rightLabel = "Thread",
   leftBounds = DEFAULT_LEFT,
   rightBounds = DEFAULT_RIGHT,
   centerMin = DEFAULT_CENTER_MIN,
@@ -117,37 +121,53 @@ export function ResizablePanels({
       } : undefined}
     >
       {/* Left panel */}
-      <div className="min-w-0 overflow-hidden">
-        <AnimatePresence mode="wait">
-          {!leftCollapsed && (
-            <motion.div
-              key="left-panel"
-              initial={{ opacity: 0, x: -12 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -12 }}
-              transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
-            >
-              {left}
-            </motion.div>
-          )}
-        </AnimatePresence>
+      <div className="min-h-0 min-w-0 overflow-hidden">
+        <PanelShell
+          side="left"
+          label={leftLabel}
+          collapsed={leftCollapsed}
+          onToggle={toggleLeft}
+        >
+          <AnimatePresence mode="wait">
+            {!leftCollapsed && (
+              <motion.div
+                key="left-panel"
+                initial={{ opacity: 0, x: -12 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -12 }}
+                transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+                className="flex-1 min-h-0 overflow-y-auto"
+              >
+                {left}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </PanelShell>
       </div>
       {center}
       {/* Right panel */}
-      <div className="min-w-0 overflow-hidden">
-        <AnimatePresence mode="wait">
-          {!rightCollapsed && (
-            <motion.div
-              key="right-panel"
-              initial={{ opacity: 0, x: 12 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 12 }}
-              transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
-            >
-              {right}
-            </motion.div>
-          )}
-        </AnimatePresence>
+      <div className="min-h-0 min-w-0 overflow-hidden">
+        <PanelShell
+          side="right"
+          label={rightLabel}
+          collapsed={rightCollapsed}
+          onToggle={toggleRight}
+        >
+          <AnimatePresence mode="wait">
+            {!rightCollapsed && (
+              <motion.div
+                key="right-panel"
+                initial={{ opacity: 0, x: 12 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 12 }}
+                transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+                className="flex-1 min-h-0 overflow-hidden"
+              >
+                {right}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </PanelShell>
       </div>
       {isWide && (
         <>
@@ -158,7 +178,6 @@ export function ResizablePanels({
             onDrag={onDragLeft}
             onCommit={persistLeft}
             onReset={() => setLeftWidth(leftBounds.default)}
-            onToggle={toggleLeft}
           />
           <Handle
             offsetPx={effectiveRightWidth}
@@ -167,10 +186,59 @@ export function ResizablePanels({
             onDrag={onDragRight}
             onCommit={persistRight}
             onReset={() => setRightWidth(rightBounds.default)}
-            onToggle={toggleRight}
           />
         </>
       )}
+    </div>
+  );
+}
+
+// --- Panel Shell ---
+
+interface PanelShellProps {
+  side: "left" | "right";
+  label: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}
+
+/** Unified panel wrapper with header containing label + collapse toggle. */
+function PanelShell({ side, label, collapsed, onToggle, children }: PanelShellProps) {
+  const ToggleIcon = getToggleIcon(side, collapsed);
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Panel header */}
+      <header
+        className={cn(
+          "flex items-center border-b border-glass-border px-4 py-3",
+          collapsed && "justify-center px-1",
+        )}
+      >
+        {!collapsed && (
+          <h2 className="min-w-0 truncate font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-text-ghost">
+            {label}
+          </h2>
+        )}
+        <motion.button
+          type="button"
+          onClick={onToggle}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          className={cn(
+            "flex h-6 w-6 items-center justify-center rounded-md",
+            "text-text-ghost transition-all hover:text-accent hover:bg-accent-ghost",
+            !collapsed && "ml-auto",
+          )}
+          title={collapsed ? `Expand ${side} panel` : `Collapse ${side} panel`}
+        >
+          <ToggleIcon size={13} />
+        </motion.button>
+      </header>
+      <div className="flex flex-1 min-h-0 flex-col">
+        {children}
+      </div>
     </div>
   );
 }
@@ -184,11 +252,10 @@ interface HandleProps {
   onDrag: (clientX: number) => void;
   onCommit: () => void;
   onReset: () => void;
-  onToggle: () => void;
 }
 
-/** A 1px visual seam with a 9px hit area, overlaid on the grid edge. Toggle button in the center. */
-function Handle({ offsetPx, side, collapsed, onDrag, onCommit, onReset, onToggle }: HandleProps) {
+/** A 1px visual seam with a 9px hit area, overlaid on the grid edge. */
+function Handle({ offsetPx, side, collapsed, onDrag, onCommit, onReset }: HandleProps) {
   const [active, setActive] = useState(false);
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -220,8 +287,6 @@ function Handle({ offsetPx, side, collapsed, onDrag, onCommit, onReset, onToggle
       ? { left: `${offsetPx - 4}px` }
       : { right: `${offsetPx - 4}px` };
 
-  const ToggleIcon = getToggleIcon(side, collapsed);
-
   return (
     <div
       role="separator"
@@ -241,26 +306,6 @@ function Handle({ offsetPx, side, collapsed, onDrag, onCommit, onReset, onToggle
           active ? "bg-accent" : "bg-glass-border group-hover:bg-text-ghost",
         )}
       />
-      {/* Toggle button */}
-      <motion.button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggle();
-        }}
-        onPointerDown={(e) => e.stopPropagation()}
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.9 }}
-        className={cn(
-          "absolute left-1/2 top-6 z-30 -translate-x-1/2",
-          "flex h-7 w-7 items-center justify-center rounded-md",
-          "border border-glass-border bg-bg-hover text-text-dim shadow-sm",
-          "transition-all hover:border-accent/40 hover:text-accent hover:shadow-[0_0_8px_rgba(212,160,23,0.15)]",
-        )}
-        title={collapsed ? `Expand ${side} panel` : `Collapse ${side} panel`}
-      >
-        <ToggleIcon size={14} />
-      </motion.button>
     </div>
   );
 }
