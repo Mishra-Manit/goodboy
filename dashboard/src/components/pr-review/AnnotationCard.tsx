@@ -3,7 +3,7 @@
 import { Markdown } from "@dashboard/components/Markdown";
 import { cn } from "@dashboard/lib/utils";
 import type { PrReviewAnnotation } from "@dashboard/shared";
-import { kindStyle } from "./kinds";
+import { kindStyle } from "./kindStyles";
 
 interface AnnotationCardProps {
   annotation: PrReviewAnnotation;
