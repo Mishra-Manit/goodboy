@@ -7,9 +7,8 @@ import { closePrFromInbox } from "../../core/cleanup.js";
 import { removeWorktree } from "../../core/git/worktree.js";
 import type { SendTelegram } from "../../core/stage.js";
 import * as queries from "../../db/repository.js";
-import { PIPELINES } from "../../pipelines/index.js";
+import { createAndStartTask } from "../../pipelines/task-launcher.js";
 import { getRepo, getRepoNwo } from "../../shared/domain/repos.js";
-import { emit } from "../../shared/runtime/events.js";
 import { toErrorMessage } from "../../shared/runtime/errors.js";
 import { createLogger } from "../../shared/runtime/logger.js";
 import { composePrInboxRows } from "../pr-inbox.js";
@@ -118,18 +117,16 @@ export function registerPrReviewRoutes(app: Hono): void {
       });
     }
 
-    const task = await queries.createTask({
+    const launched = await createAndStartTask({
       repo: repoName,
       kind: "pr_review",
       description: `Review PR #${prNumber}`,
       telegramChatId: null,
       prIdentifier: String(prNumber),
-    });
+    }, noopSend);
+    if (!launched.ok) return c.json({ error: launched.reason }, 404);
 
-    emit({ type: "task_update", taskId: task.id, status: task.status, kind: task.kind });
-    PIPELINES.pr_review(task.id, noopSend).catch((err) => log.error(`PR review error ${task.id}`, err));
-
-    return c.json({ ok: true, task }, 201);
+    return c.json({ ok: true, task: launched.task }, 201);
   });
 
   app.post("/api/github/prs/:repo/:prNumber/close", async (c) => {

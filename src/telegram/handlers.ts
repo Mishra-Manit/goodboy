@@ -4,17 +4,13 @@
  * retry). All replies go back through the `Ctx` object.
  */
 
-import { getRepo, listRepoNames } from "../shared/domain/repos.js";
 import { shortId } from "../shared/lib/strings.js";
-import { createLogger } from "../shared/runtime/logger.js";
 import * as queries from "../db/repository.js";
-import { PIPELINES } from "../pipelines/index.js";
+import { createAndStartTask, startTaskPipeline } from "../pipelines/task-launcher.js";
 import { cancelAndUpdateTask, type SendTelegram } from "../core/stage.js";
 import type { Intent } from "./intent-classifier.js";
 import type { Task } from "../db/repository.js";
 import { isTerminalStatus, type TaskKind } from "../shared/domain/types.js";
-
-const log = createLogger("telegram");
 
 const DESCRIPTION_PREVIEW_LEN = 80;
 
@@ -72,23 +68,19 @@ interface CreateTaskInput {
 }
 
 async function createAndStart(input: CreateTaskInput, ctx: Ctx): Promise<void> {
-  if (!getRepo(input.repo)) {
-    await ctx.reply(`Repo '${input.repo}' not found. Available: ${listRepoNames().join(", ")}`);
-    return;
-  }
-
-  const task = await queries.createTask({
+  const launched = await createAndStartTask({
     repo: input.repo,
     kind: input.kind,
     description: input.description,
     telegramChatId: ctx.chatId,
     prIdentifier: input.prIdentifier,
-  });
-  await ctx.reply(`${ACK_MESSAGES[input.kind]}: ${shortId(task.id)}`);
+  }, ctx.sendTelegram);
+  if (!launched.ok) {
+    await ctx.reply(launched.reason);
+    return;
+  }
 
-  PIPELINES[input.kind](task.id, ctx.sendTelegram).catch((err) => {
-    log.error(`Pipeline error for task ${task.id}`, err);
-  });
+  await ctx.reply(`${ACK_MESSAGES[input.kind]}: ${shortId(launched.task.id)}`);
 }
 
 // --- Task management ---
@@ -129,9 +121,7 @@ async function handleTaskRetry(intent: Extract<Intent, { type: "task_retry" }>, 
 
   const retry = await queries.createRetryTask(task);
   await ctx.reply(`Retrying task ${shortId(task.id)} as ${shortId(retry.id)}...`);
-  PIPELINES[retry.kind](retry.id, ctx.sendTelegram).catch((err) => {
-    log.error(`Pipeline error for task ${retry.id}`, err);
-  });
+  startTaskPipeline(retry, ctx.sendTelegram);
 }
 
 // --- Helpers (pure) ---
