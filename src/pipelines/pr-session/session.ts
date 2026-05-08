@@ -32,7 +32,7 @@ import { codeReviewerFeedbackCapability } from "../../core/pi/extensions.js";
 import { codeReviewerFeedbackToolPolicy } from "../../shared/prompts/code-reviewer-feedback.js";
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import { parsePrNumberFromUrl, revParseHead } from "../../core/git/github.js";
-import { taskArtifactsDir } from "../../shared/artifacts/index.js";
+import { taskArtifactsDir } from "../../shared/artifact-paths/index.js";
 import { parseBareFinalJson, parseFinalLineJson } from "../../shared/agent-output/final-response.js";
 import {
   prCreationFinalResponseContract,

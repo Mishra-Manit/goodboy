@@ -8,7 +8,7 @@ import { writeFile } from "node:fs/promises";
 import { createLogger } from "../../shared/runtime/logger.js";
 import { parseNwo, getPrDiff, getPrMetadata } from "../../core/git/github.js";
 import { getRepoNwo } from "../../shared/domain/repos.js";
-import { taskArtifactsDir } from "../../shared/artifacts/index.js";
+import { taskArtifactsDir } from "../../shared/artifact-paths/index.js";
 import { prReviewOutputs } from "../pr-review/output-contracts.js";
 import { toErrorMessage } from "../../shared/runtime/errors.js";
 

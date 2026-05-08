@@ -9,7 +9,7 @@ import * as queries from "../db/repository.js";
 import { prReviewOutputs } from "../pipelines/pr-review/output-contracts.js";
 import { readReviewArtifact } from "../pipelines/pr-review/artifacts/read-review.js";
 import { refreshReviewArtifacts } from "../pipelines/pr-session/refresh-review.js";
-import { taskArtifactsDir } from "../shared/artifacts/index.js";
+import { taskArtifactsDir } from "../shared/artifact-paths/index.js";
 import { buildPrUrl } from "../shared/domain/repos.js";
 import type {
   PrReviewPageDto,

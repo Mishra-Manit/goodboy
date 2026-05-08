@@ -11,7 +11,7 @@ import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { createLogger } from "../../shared/runtime/logger.js";
 import { config } from "../../shared/runtime/config.js";
-import { taskArtifactsDir } from "../../shared/artifacts/index.js";
+import { taskArtifactsDir } from "../../shared/artifact-paths/index.js";
 import { CURRENT_SESSION_VERSION, type FileEntry } from "../../shared/contracts/session.js";
 import { latestAssistantText } from "../../shared/agent-output/final-response.js";
 import type { StageName } from "../../shared/domain/types.js";

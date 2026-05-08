@@ -7,7 +7,7 @@
 import { withPipelineSpan } from "../observability/index.js";
 import * as queries from "../db/repository.js";
 import { getRepo, type Repo } from "../shared/domain/repos.js";
-import { prepareArtifactsDir } from "../shared/artifacts/index.js";
+import { prepareArtifactsDir } from "../shared/artifact-paths/index.js";
 import { syncRepo } from "../core/git/worktree.js";
 import {
   failTask,
