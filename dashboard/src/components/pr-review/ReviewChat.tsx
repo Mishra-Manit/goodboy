@@ -7,9 +7,10 @@ import {
   fetchReviewChat,
   sendReviewChatMessage,
 } from "@dashboard/lib/api/pr-sessions";
-import { cn } from "@dashboard/lib/utils";
+import { cn, filenameTail } from "@dashboard/lib/utils";
 import { Markdown } from "@dashboard/components/Markdown";
 import { UnicodeSpinner } from "@dashboard/components/UnicodeSpinner";
+import { useElapsedSeconds } from "@dashboard/hooks/use-elapsed-seconds";
 import type {
   PrReviewAnnotation,
   PrSessionMode,
@@ -315,11 +316,6 @@ function AnnotationChip({ annotation, onRemove, compact }: AnnotationChipProps) 
   );
 }
 
-function filenameTail(filePath: string): string {
-  const idx = filePath.lastIndexOf("/");
-  return idx >= 0 ? filePath.slice(idx + 1) : filePath;
-}
-
 // --- Helpers ---
 
 function optimisticUserMessage(message: string, annotation: PrReviewAnnotation | null): ReviewChatMessage {
@@ -333,13 +329,3 @@ function optimisticUserMessage(message: string, annotation: PrReviewAnnotation |
   };
 }
 
-function useElapsedSeconds(): number {
-  const [seconds, setSeconds] = useState(0);
-  useEffect(() => {
-    setSeconds(0);
-    const start = Date.now();
-    const interval = setInterval(() => setSeconds(Math.floor((Date.now() - start) / 1000)), 1000);
-    return () => clearInterval(interval);
-  }, []);
-  return seconds;
-}
