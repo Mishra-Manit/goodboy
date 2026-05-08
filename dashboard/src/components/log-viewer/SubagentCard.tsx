@@ -1,9 +1,7 @@
 /**
  * Subagent tool calls fan out to parallel workers. We display one header row
  * plus one row per worker with final status/tokens/duration and an
- * expandable output panel. All data comes from the `ToolResultMessage`
- * produced when the whole subagent call finishes; there is no live per-
- * worker progress (we sacrificed that when switching to file-only logs).
+ * expandable output panel.
  */
 
 import { useState } from "react";
@@ -12,6 +10,14 @@ import { cn } from "@dashboard/lib/utils";
 import { formatMs, formatTokens } from "@dashboard/lib/format";
 import type { ToolCall, ToolResultMessage } from "@dashboard/lib/api";
 import { OutcomePill } from "./OutcomePill.js";
+import {
+  detectSubagentMode,
+  extractPlannedTasks,
+  extractWorkers,
+  summarizeWorkers,
+  toPendingWorker,
+  type SubagentWorker,
+} from "./helpers.js";
 
 interface SubagentCardProps {
   call: ToolCall;
@@ -22,7 +28,7 @@ export function SubagentCard({ call, result }: SubagentCardProps) {
   const [collapsed, setCollapsed] = useState(true);
   const Chevron = collapsed ? ChevronRight : ChevronDown;
 
-  const mode = detectMode(call);
+  const mode = detectSubagentMode(call);
   const plannedTasks = extractPlannedTasks(call);
   const workers = result ? extractWorkers(result, plannedTasks) : plannedTasks.map(toPendingWorker);
   const summary = summarizeWorkers(workers, result !== undefined);
@@ -62,18 +68,8 @@ export function SubagentCard({ call, result }: SubagentCardProps) {
 
 // --- Row ---
 
-interface Worker {
-  agent: string;
-  task: string;
-  ok?: boolean;        // undefined while pending
-  tokens: number;
-  durationMs: number;
-  finalOutput: string;
-  error?: string;
-}
-
 interface WorkerRowProps {
-  worker: Worker;
+  worker: SubagentWorker;
   index: number;
 }
 
@@ -114,82 +110,4 @@ function WorkerRow({ worker, index }: WorkerRowProps) {
       )}
     </div>
   );
-}
-
-// --- Pure parsers ---
-
-function detectMode(call: ToolCall): string {
-  const a = call.arguments ?? {};
-  if (Array.isArray(a.chain)) return "chain";
-  if (Array.isArray(a.tasks)) return "parallel";
-  if (typeof a.action === "string") return a.action;
-  return "single";
-}
-
-function extractPlannedTasks(call: ToolCall): Array<{ agent: string; task: string }> {
-  const a = call.arguments ?? {};
-  if (Array.isArray(a.tasks)) return a.tasks.map(toTaskShape);
-  if (Array.isArray(a.chain)) return a.chain.map(toTaskShape);
-  if (typeof a.agent === "string") return [{ agent: a.agent, task: trimTask(a.task) }];
-  return [];
-}
-
-function toTaskShape(t: unknown): { agent: string; task: string } {
-  const o = (t ?? {}) as Record<string, unknown>;
-  return { agent: String(o.agent ?? "?"), task: trimTask(o.task) };
-}
-
-function trimTask(task: unknown): string {
-  if (typeof task !== "string") return "";
-  return task.length > 160 ? task.slice(0, 160) + "..." : task;
-}
-
-function toPendingWorker(t: { agent: string; task: string }): Worker {
-  return { agent: t.agent, task: t.task, tokens: 0, durationMs: 0, finalOutput: "" };
-}
-
-interface RawWorkerResult {
-  agent?: string;
-  task?: string;
-  exitCode?: number;
-  error?: string;
-  finalOutput?: string;
-  usage?: { input?: number; output?: number };
-  progress?: { durationMs?: number };
-}
-
-/**
- * Read `details.results[]` off the tool-result message. Falls back to the
- * tasks planned in the original call when the result shape is unexpected.
- */
-function extractWorkers(
-  result: ToolResultMessage,
-  planned: Array<{ agent: string; task: string }>,
-): Worker[] {
-  const details = (result.details ?? {}) as { results?: RawWorkerResult[] };
-  const rawResults = details.results ?? [];
-  if (rawResults.length === 0) return planned.map(toPendingWorker);
-
-  return rawResults.map((r, i) => {
-    const fallback = planned[i];
-    const ok = typeof r.exitCode === "number" ? r.exitCode === 0 : !r.error;
-    const tokens = (r.usage?.input ?? 0) + (r.usage?.output ?? 0);
-    return {
-      agent: r.agent ?? fallback?.agent ?? "?",
-      task: trimTask(r.task ?? fallback?.task ?? ""),
-      ok,
-      tokens,
-      durationMs: r.progress?.durationMs ?? 0,
-      finalOutput: r.finalOutput ?? "",
-      error: r.error,
-    };
-  });
-}
-
-function summarizeWorkers(workers: Worker[], done: boolean): string {
-  if (!done) return `${workers.length} pending`;
-  const okCount = workers.filter((w) => w.ok).length;
-  const failCount = workers.filter((w) => w.ok === false).length;
-  const failSuffix = failCount > 0 ? ` · ${failCount} failed` : "";
-  return `${okCount}/${workers.length} ok${failSuffix}`;
 }
