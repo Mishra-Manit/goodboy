@@ -20,6 +20,7 @@ import { formatDuration, timeAgo } from "@dashboard/lib/format";
 import { KIND_TONE, SOURCE_LABEL } from "@dashboard/lib/memory-ui";
 import { isTestInstance } from "@dashboard/shared";
 import { cn, shortId } from "@dashboard/lib/utils";
+import { ErrorBlock } from "@dashboard/components/ErrorBlock";
 
 export function MemoryDetail() {
   const { id } = useParams<{ id: string }>();
@@ -57,12 +58,7 @@ export function MemoryDetail() {
           <>
             <MemoryRunHeader run={run} now={now} />
 
-            {run.error && (
-              <div className="mb-6 rounded-md bg-fail-dim px-4 py-3">
-                <span className="font-mono text-[10px] text-fail/80 block mb-0.5">error</span>
-                <p className="font-mono text-[11px] text-fail/70 whitespace-pre-wrap">{run.error}</p>
-              </div>
-            )}
+            {run.error && <ErrorBlock message={run.error} />}
 
             <SectionDivider label="transcript" />
             <div className="mt-3">

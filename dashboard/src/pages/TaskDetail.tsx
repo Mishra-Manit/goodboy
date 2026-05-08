@@ -18,8 +18,8 @@ import { useLiveSession } from "@dashboard/hooks/use-live-session";
 import { useNow } from "@dashboard/hooks/use-now";
 import { BackLink } from "@dashboard/components/BackLink";
 import { PageState } from "@dashboard/components/PageState";
-import { TaskHeader } from "@dashboard/components/TaskHeader";
-import { ArtifactsPanel } from "@dashboard/components/ArtifactsPanel";
+import { TaskHeader } from "@dashboard/components/tasks/TaskHeader";
+import { ArtifactsPanel } from "@dashboard/components/tasks/ArtifactsPanel";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { LogViewer } from "@dashboard/components/log-viewer";
 import { PipelineProgress } from "@dashboard/components/PipelineProgress";
@@ -28,6 +28,7 @@ import { dedupeById } from "@dashboard/components/log-viewer/helpers";
 import { getPrReviewTarget, getPrReviewUrl } from "@dashboard/lib/pr-review";
 import { buildStageTabs, stageSessionKey, type StageSessionLike } from "@dashboard/lib/stage-tabs";
 import { cn, shortId } from "@dashboard/lib/utils";
+import { ErrorBlock } from "@dashboard/components/ErrorBlock";
 import { ArrowUpRight } from "lucide-react";
 import { isTerminalStatus } from "@dashboard/shared";
 
@@ -162,12 +163,7 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
         onCancel={handleCancel}
       />
 
-      {task.error && (
-        <div className="mb-6 rounded-md bg-fail-dim px-4 py-3">
-          <span className="font-mono text-[10px] text-fail/80 block mb-0.5">error</span>
-          <p className="font-mono text-[11px] text-fail/70 whitespace-pre-wrap">{task.error}</p>
-        </div>
-      )}
+      {task.error && <ErrorBlock message={task.error} />}
 
       {kindConfig.stages.length > 1 && (
         <div className="mb-8 flex justify-center py-4">
