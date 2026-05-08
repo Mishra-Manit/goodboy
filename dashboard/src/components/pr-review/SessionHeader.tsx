@@ -2,7 +2,7 @@
 
 import { ArrowUpRight, ExternalLink, EyeOff, Eye } from "lucide-react";
 import { prSessionIcon } from "@dashboard/lib/pr-review";
-import { StatusBadge } from "./StatusBadge.js";
+import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { shortId } from "@dashboard/lib/utils";
 import { formatDate, timeAgo } from "@dashboard/lib/format";
 import type { PrSessionWithRuns } from "@dashboard/lib/api";

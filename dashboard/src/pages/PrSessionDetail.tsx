@@ -20,7 +20,7 @@ import { useLiveSession } from "@dashboard/hooks/use-live-session";
 import { useNow } from "@dashboard/hooks/use-now";
 import { BackLink } from "@dashboard/components/BackLink";
 import { PageState } from "@dashboard/components/PageState";
-import { SessionHeader } from "@dashboard/components/SessionHeader";
+import { SessionHeader } from "@dashboard/components/pr-review/SessionHeader";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
 import { RunCard } from "@dashboard/components/rows/RunCard";
 import { dedupeById } from "@dashboard/components/log-viewer/helpers";
