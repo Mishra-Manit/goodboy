@@ -223,7 +223,7 @@ function Composer({ input, onInput, onSend, disabled, attachedAnnotation, onClea
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = "0px";
+    el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [input]);
 
@@ -238,7 +238,7 @@ function Composer({ input, onInput, onSend, disabled, attachedAnnotation, onClea
       )}
       <div
         className={cn(
-          "relative flex items-end rounded-xl border border-glass-border bg-white/[0.025] transition-all duration-200",
+          "flex items-center gap-2 rounded-xl border border-glass-border bg-white/[0.025] px-3 transition-all duration-200",
           "focus-within:border-accent/40 focus-within:bg-white/[0.035] focus-within:shadow-[0_0_12px_rgba(212,160,23,0.06)]",
         )}
       >
@@ -256,7 +256,7 @@ function Composer({ input, onInput, onSend, disabled, attachedAnnotation, onClea
           }}
           placeholder={disabled ? "Waiting..." : "Ask about this review..."}
           className={cn(
-            "max-h-[120px] min-h-[36px] w-full resize-none bg-transparent py-[10px] pl-3 pr-10",
+            "max-h-[120px] min-h-[36px] w-full resize-none bg-transparent py-[10px] pr-2",
             "font-mono text-[11px] leading-[1.6] text-text",
             "placeholder:text-text-ghost/60 focus:outline-none",
             disabled && "cursor-not-allowed opacity-50",
@@ -268,7 +268,7 @@ function Composer({ input, onInput, onSend, disabled, attachedAnnotation, onClea
           disabled={!canSend}
           onClick={onSend}
           className={cn(
-            "absolute bottom-[6px] right-[6px] flex h-7 w-7 items-center justify-center rounded-lg transition-all duration-200",
+            "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-200",
             canSend
               ? "bg-accent text-bg shadow-[0_0_8px_rgba(212,160,23,0.3)] hover:shadow-[0_0_14px_rgba(212,160,23,0.5)] hover:scale-105 active:scale-95"
               : "bg-white/[0.04] text-text-ghost cursor-not-allowed",

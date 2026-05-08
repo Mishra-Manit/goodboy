@@ -167,7 +167,7 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
     <div className="-mx-2 mt-1 flex flex-col">
       <ResizablePanels
         storageKey="pr-review-panels"
-        className="h-[calc(100vh-3rem)]"
+        className="h-[calc(100vh-6rem)]"
         leftLabel="Files"
         rightLabel="Review thread"
         left={
