@@ -20,6 +20,8 @@
     "test:memory:warm": "tsx scripts/dev/run-memory-warm.ts",
     "test:memory:clean": "tsx scripts/dev/clean-memory-tests.ts",
     "test:intent-latency": "tsx scripts/dev/run-telegram-intent-latency.ts",
+    "e2e:owned": "tsx scripts/e2e/run-owned.ts",
+    "e2e:owned-review": "tsx scripts/e2e/run-owned-review.ts",
     "dev:release-pr-session": "tsx scripts/dev-release-pr-session.ts",
     "postinstall": "patch-package"
   },
