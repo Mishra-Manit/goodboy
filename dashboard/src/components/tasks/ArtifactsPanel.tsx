@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { cn } from "@dashboard/lib/utils";
-import { Markdown } from "./Markdown.js";
+import { Markdown } from "@dashboard/components/Markdown";
 import { fetchArtifact } from "@dashboard/lib/api";
 
 interface Artifact {

@@ -17,11 +17,21 @@ import { BackLink } from "@dashboard/components/BackLink";
 import { PageState } from "@dashboard/components/PageState";
 import { EmptyState } from "@dashboard/components/EmptyState";
 import { SectionDivider } from "@dashboard/components/SectionDivider";
+import { FilterPillGroup } from "@dashboard/components/FilterPillGroup";
+import { StatCard } from "@dashboard/components/StatCard";
 import { cn } from "@dashboard/lib/utils";
+import { formatDate } from "@dashboard/lib/format";
 
 const STATUS_FILTERS = ["all", "active", "inactive"] as const;
 const SCOPE_FILTERS = ["all", "global", "path", "review_behavior"] as const;
 type ScopeFilter = (typeof SCOPE_FILTERS)[number];
+
+const SCOPE_LABEL: Record<ScopeFilter, string> = {
+  all: "all",
+  global: "global",
+  path: "path",
+  review_behavior: "behavior",
+};
 
 export function ReviewerFeedback() {
   const { repo } = useParams<{ repo: string }>();
@@ -64,32 +74,25 @@ export function ReviewerFeedback() {
 
       {data && (
         <div className="mb-6 grid grid-cols-3 gap-2">
-          <StatTile label="total rules" value={data.length} />
-          <StatTile label="active" value={activeCount} accent />
-          <StatTile label="inactive" value={inactiveCount} muted />
+          <StatCard label="total rules" value={data.length} />
+          <StatCard label="active" value={activeCount} accent />
+          <StatCard label="inactive" value={inactiveCount} muted />
         </div>
       )}
 
       <div className="mb-6 flex flex-wrap items-center gap-2">
-        <div className="flex gap-1">
-          {STATUS_FILTERS.map((f) => (
-            <FilterPill
-              key={f}
-              label={f}
-              active={status === f}
-              onClick={() => setStatus(f as FeedbackListStatus)}
-            />
-          ))}
-        </div>
-        <div className="ml-auto flex gap-1">
-          {SCOPE_FILTERS.map((f) => (
-            <FilterPill
-              key={f}
-              label={f === "review_behavior" ? "behavior" : f}
-              active={scope === f}
-              onClick={() => setScope(f)}
-            />
-          ))}
+        <FilterPillGroup
+          filters={STATUS_FILTERS}
+          value={status}
+          onChange={(v) => setStatus(v as FeedbackListStatus)}
+        />
+        <div className="ml-auto">
+          <FilterPillGroup
+            filters={SCOPE_FILTERS}
+            value={scope}
+            onChange={setScope}
+            labelFn={(f) => SCOPE_LABEL[f]}
+          />
         </div>
       </div>
 
@@ -134,53 +137,6 @@ export function ReviewerFeedback() {
 
 // --- Sub-components ---
 
-interface StatTileProps {
-  label: string;
-  value: number;
-  accent?: boolean;
-  muted?: boolean;
-}
-
-function StatTile({ label, value, accent, muted }: StatTileProps) {
-  return (
-    <div className="rounded-lg border border-glass-border bg-glass/40 px-3 py-2.5">
-      <div
-        className={cn(
-          "font-mono text-xl font-bold tabular-nums",
-          accent ? "text-accent" : muted ? "text-text-ghost" : "text-text",
-        )}
-      >
-        {value}
-      </div>
-      <div className="mt-0.5 font-mono text-[9px] uppercase tracking-widest text-text-void">
-        {label}
-      </div>
-    </div>
-  );
-}
-
-interface FilterPillProps {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}
-
-function FilterPill({ label, active, onClick }: FilterPillProps) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "rounded-full px-3 py-1 font-mono text-[10px] tracking-wide transition-all duration-200",
-        active
-          ? "bg-glass border border-accent/20 text-text"
-          : "text-text-ghost hover:text-text-dim",
-      )}
-    >
-      {label}
-    </button>
-  );
-}
-
 interface RuleCardProps {
   rule: CodeReviewerFeedbackRule;
 }
@@ -199,7 +155,6 @@ function RuleCard({ rule }: RuleCardProps) {
           : "border-glass-border/40 opacity-60 hover:opacity-80",
       )}
     >
-      {/* Header row */}
       <div className="mb-2 flex items-start gap-2">
         <ScopeBadge scope={rule.scope} />
         <div className="min-w-0 flex-1">
@@ -222,12 +177,10 @@ function RuleCard({ rule }: RuleCardProps) {
         </div>
       </div>
 
-      {/* Rule body */}
       <p className="mb-2.5 font-body text-[11px] leading-relaxed text-text-secondary">
         {rule.rule}
       </p>
 
-      {/* Path list for path-scoped rules */}
       {rule.scope.type === "path" && (
         <div className="mb-2.5 flex flex-wrap gap-1">
           {rule.scope.paths.map((p) => (
@@ -241,7 +194,6 @@ function RuleCard({ rule }: RuleCardProps) {
         </div>
       )}
 
-      {/* Source toggle */}
       <div className="flex items-center gap-2">
         <SourceChip type={rule.source.type} prNumber={rule.source.prNumber} />
         <span className="text-text-void">·</span>
@@ -264,7 +216,6 @@ function RuleCard({ rule }: RuleCardProps) {
         </button>
       </div>
 
-      {/* Original text */}
       {expanded && (
         <div className="mt-3 rounded-md border border-glass-border bg-bg-raised p-3">
           <p className="font-mono text-[10px] leading-relaxed text-text-ghost whitespace-pre-wrap break-words">
@@ -342,9 +293,4 @@ function groupByScope(
 function scopeLabelText(type: string): string {
   if (type === "review_behavior") return "review behavior";
   return type;
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }

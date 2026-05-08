@@ -23,7 +23,3 @@ export function splitUnifiedDiffByFile(diffPatch: string): FilePatch[] {
   });
 }
 
-/** Find the patch section for a single post-change file path. */
-export function findPatchForFile(diffPatch: string, filePath: string): string | null {
-  return splitUnifiedDiffByFile(diffPatch).find((patch) => patch.filePath === filePath)?.patch ?? null;
-}

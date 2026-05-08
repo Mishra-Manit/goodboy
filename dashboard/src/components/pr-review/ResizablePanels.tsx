@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@dashboard/lib/utils";
+import { useMediaQuery } from "@dashboard/hooks/use-media-query";
 
 interface PaneBounds {
   min: number;
@@ -362,17 +363,3 @@ function saveCollapsed(key: string, value: boolean): void {
   }
 }
 
-/** Subscribes to a CSS media query and re-renders on change. */
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() =>
-    typeof window === "undefined" ? false : window.matchMedia(query).matches,
-  );
-  useEffect(() => {
-    const mql = window.matchMedia(query);
-    const onChange = (e: MediaQueryListEvent) => setMatches(e.matches);
-    setMatches(mql.matches);
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, [query]);
-  return matches;
-}

@@ -2,16 +2,19 @@
 
 import { ExternalLink } from "lucide-react";
 import { fetchMemoryStatus } from "@dashboard/lib/api";
-import type { RepoSummary, MemoryStatus, MemoryStatusKind } from "@dashboard/lib/api";
+import type { RepoSummary, MemoryStatus } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
+import { useNow } from "@dashboard/hooks/use-now";
 import { timeAgo } from "@dashboard/lib/format";
 import { cn } from "@dashboard/lib/utils";
+import { STATUS_TONE } from "@dashboard/lib/memory-ui";
 
 interface RepoRowProps {
   repo: RepoSummary;
 }
 
 export function RepoRow({ repo }: RepoRowProps) {
+  const now = useNow();
   const { data: memory } = useQuery(`repo-memory:${repo.name}`, () => fetchMemoryStatus(repo.name));
 
   return (
@@ -30,20 +33,14 @@ export function RepoRow({ repo }: RepoRowProps) {
           </a>
         )}
       </div>
-      {memory && <MemoryBlock memory={memory} />}
+      {memory && <MemoryBlock memory={memory} now={now} />}
     </div>
   );
 }
 
 // --- Memory block ---
 
-const STATUS_TONE: Record<MemoryStatusKind, string> = {
-  fresh: "text-accent",
-  stale: "text-warn",
-  missing: "text-fail",
-};
-
-function MemoryBlock({ memory }: { memory: MemoryStatus }) {
+function MemoryBlock({ memory, now }: { memory: MemoryStatus; now: number }) {
   return (
     <div className="mt-3 border-t border-glass-border pt-2.5 space-y-1.5">
       <div className="flex items-center gap-2 font-mono text-[10px]">
@@ -55,7 +52,7 @@ function MemoryBlock({ memory }: { memory: MemoryStatus }) {
           <span className="text-text-void">{memory.lastIndexedSha.slice(0, 8)}</span>
         )}
         {memory.lastIndexedAt && (
-          <span className="text-text-ghost">{timeAgo(memory.lastIndexedAt)}</span>
+          <span className="text-text-ghost">{timeAgo(memory.lastIndexedAt, now)}</span>
         )}
         {memory.status !== "missing" && (
           <span className="text-text-void">

@@ -1,6 +1,6 @@
 /** One row in the history / completed-tasks list. */
 
-import { StatusBadge } from "./StatusBadge.js";
+import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { shortId } from "@dashboard/lib/utils";
 import { timeAgo, formatDuration } from "@dashboard/lib/format";
 import { useNow } from "@dashboard/hooks/use-now";

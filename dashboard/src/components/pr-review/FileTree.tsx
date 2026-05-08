@@ -1,6 +1,6 @@
 /** Left rail: chapter sections with uppercase labels and file rows. */
 
-import { cn } from "@dashboard/lib/utils";
+import { cn, filenameTail } from "@dashboard/lib/utils";
 import type { PrReviewAnnotation, PrReviewChapter } from "@dashboard/shared";
 
 interface FileTreeProps {
@@ -92,7 +92,7 @@ function FileRow({ file, annotations, active, onSelect }: FileRowProps) {
           )}
         />
         <span className="min-w-0 truncate font-mono text-[11px]">
-          {filenameOnly(file)}
+          {filenameTail(file)}
         </span>
         {total > 0 && (
           <span className={cn("shrink-0 font-mono text-[10px] tabular-nums", totalColor)}>
@@ -104,9 +104,3 @@ function FileRow({ file, annotations, active, onSelect }: FileRowProps) {
   );
 }
 
-// --- Helpers ---
-
-function filenameOnly(path: string): string {
-  const idx = path.lastIndexOf("/");
-  return idx >= 0 ? path.slice(idx + 1) : path;
-}

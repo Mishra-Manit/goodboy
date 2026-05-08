@@ -6,9 +6,10 @@
 
 import { useNavigate } from "react-router-dom";
 import { Brain } from "lucide-react";
-import type { MemoryStatus, MemoryStatusKind } from "@dashboard/lib/api";
+import type { MemoryStatus } from "@dashboard/lib/api";
 import { timeAgo } from "@dashboard/lib/format";
 import { cn } from "@dashboard/lib/utils";
+import { STATUS_TONE } from "@dashboard/lib/memory-ui";
 
 export interface RepoEntry {
   repo: string;
@@ -23,12 +24,6 @@ interface RepoSummaryCardProps {
   deleting: boolean;
   onDelete: (repo: string) => Promise<void>;
 }
-
-const STATUS_COLOR: Record<MemoryStatusKind, string> = {
-  fresh: "text-accent",
-  stale: "text-warn",
-  missing: "text-text-ghost",
-};
 
 export function RepoSummaryCard({ entry, now, deleting, onDelete }: RepoSummaryCardProps) {
   const { repo, registered, status, runCount } = entry;
@@ -52,7 +47,7 @@ export function RepoSummaryCard({ entry, now, deleting, onDelete }: RepoSummaryC
           </span>
         )}
         {registered && status && (
-          <span className={cn("shrink-0 font-mono text-[9px] uppercase tracking-wide", STATUS_COLOR[status.status])}>
+          <span className={cn("shrink-0 font-mono text-[9px] uppercase tracking-wide", STATUS_TONE[status.status])}>
             {status.status}
           </span>
         )}

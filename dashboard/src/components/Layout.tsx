@@ -1,7 +1,7 @@
 /** Shell: floating nav pill + centered single-column content. */
 
-import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useHideOnScrollDown } from "@dashboard/hooks/use-hide-on-scroll";
 import { cn } from "@dashboard/lib/utils";
 
 const NAV_ITEMS = [
@@ -57,31 +57,6 @@ export function Layout() {
 }
 
 // --- Helpers ---
-
-/** Hide on downward scroll past a small threshold; reveal on any upward scroll. */
-function useHideOnScrollDown(threshold = 24): boolean {
-  const [hidden, setHidden] = useState(false);
-  useEffect(() => {
-    let lastY = window.scrollY;
-    let ticking = false;
-    function onScroll() {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(() => {
-        const y = window.scrollY;
-        const delta = y - lastY;
-        if (y < threshold) setHidden(false);
-        else if (delta > 4) setHidden(true);
-        else if (delta < -4) setHidden(false);
-        lastY = y;
-        ticking = false;
-      });
-    }
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, [threshold]);
-  return hidden;
-}
 
 /** Wide canvas on the PR review page; editorial column elsewhere. */
 function Main() {

@@ -92,8 +92,3 @@ export interface RetryTaskResponse {
   ok: true;
   task: Task;
 }
-
-// --- Narrow dashboard renames (RepoSummary -> Repo for legacy call sites) ---
-
-/** @deprecated Use `RepoSummary` from `@dashboard/lib/api` instead. */
-export type Repo = import("@dashboard/shared").RepoSummary;

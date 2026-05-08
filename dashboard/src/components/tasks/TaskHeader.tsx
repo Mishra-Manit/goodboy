@@ -1,7 +1,7 @@
 /** Title + metadata + action row at the top of the task detail page. */
 
 import { ExternalLink, RotateCcw, XCircle } from "lucide-react";
-import { StatusBadge } from "./StatusBadge.js";
+import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { TASK_KIND_CONFIG, type TaskWithStages } from "@dashboard/lib/api";
 import { formatDate, timeAgo } from "@dashboard/lib/format";
 import { getPrReviewTarget, getPrReviewUrl } from "@dashboard/lib/pr-review";
