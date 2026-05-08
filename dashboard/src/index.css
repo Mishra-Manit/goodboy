@@ -37,6 +37,25 @@
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  /* --- Typography scale (single source of truth) --- */
+  --text-xs: 8px;
+  --text-sm: 9px;
+  --text-md: 10px;
+  --text-base: 11px;
+  --text-lg: 12px;
+  --text-xl: 13px;
+  --text-2xl: 15px;
+  --text-3xl: 18px;
+  --text-4xl: 20px;
+
+  /* --- Opacity scale for dimming --- */
+  --opacity-ghost: 0.06;
+  --opacity-dim: 0.15;
+  --opacity-muted: 0.3;
+  --opacity-soft: 0.4;
+  --opacity-medium: 0.6;
+  --opacity-strong: 0.8;
 }
 
 body {
@@ -74,6 +93,54 @@ body {
   border-left-width: 2px;
   border-left-color: rgba(212, 160, 23, 0.3);
   box-shadow: inset 2px 0 12px rgba(212, 160, 23, 0.04);
+}
+
+/* --- Semantic typography utilities --- */
+/* Change token values in @theme above; these classes are consumed app-wide. */
+
+/* Meta text: IDs, timestamps, counts — the most used combo in the app */
+.type-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--color-text-ghost);
+}
+
+/* Label text: section headers, filter pills, small buttons */
+.type-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  letter-spacing: 0.04em;
+  color: var(--color-text-ghost);
+}
+
+/* Tag/badge text: tiny uppercase annotations */
+.type-tag {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-void);
+}
+
+/* Body mono: inline code, log lines */
+.type-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  color: var(--color-text-dim);
+}
+
+/* Subtitle: page descriptions */
+.type-subtitle {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  color: var(--color-text-ghost);
+}
+
+/* Dimmed: lowest-priority text */
+.type-void {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--color-text-void);
 }
 
 /* Floating nav shadow */
