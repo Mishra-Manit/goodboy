@@ -31,7 +31,33 @@ interface ReviewChatProps {
   onChanged: () => void;
 }
 
-const WORKER_VERBS = ["boliviating", "pondering", "patching", "pushing"] as const;
+const WORKER_VERBS = [
+  "sniffing",
+  "fetching",
+  "pawing",
+  "digging",
+  "guarding",
+  "nosing",
+  "herding",
+  "chewing",
+  "wagging",
+  "tracking",
+  "marking",
+  "scouting",
+  "linting",
+  "diffing",
+  "reviewing",
+  "patching",
+  "probing",
+  "rerouting",
+  "unearthing",
+  "tailing",
+  "barking",
+  "nudging",
+  "polishing",
+  "triaging",
+] as const;
+const WORKER_VERB_INTERVAL_SECONDS = 3;
 
 export function ReviewChat({
   sessionId,
@@ -236,7 +262,8 @@ function Message({ message }: { message: ReviewChatMessage }) {
 
 function WorkerBubble() {
   const seconds = useElapsedSeconds();
-  const verb = WORKER_VERBS[Math.floor(seconds / 4) % WORKER_VERBS.length];
+  const verbBucket = Math.floor(seconds / WORKER_VERB_INTERVAL_SECONDS);
+  const verb = useMemo(() => randomWorkerVerb(), [verbBucket]);
   return (
     <div className="flex items-center gap-[10px] text-text-ghost">
       <UnicodeSpinner name="sparkle" className="text-[14px]" />
@@ -420,6 +447,10 @@ function optimisticUserMessage(message: string, annotation: PrReviewAnnotation |
     parts,
     createdAt: new Date().toISOString(),
   };
+}
+
+function randomWorkerVerb(): (typeof WORKER_VERBS)[number] {
+  return WORKER_VERBS[Math.floor(Math.random() * WORKER_VERBS.length)];
 }
 
 /** Filter entries to only those from the current turn, hiding the generated user prompt. */
