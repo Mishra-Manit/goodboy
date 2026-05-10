@@ -5,16 +5,16 @@
 
 import "dotenv/config";
 
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import path from "node:path";
-import type { AgentMessage, FileEntry } from "../../src/shared/contracts/session.js";
+import { writeE2eManifest, writeE2eReport, type E2eManifest } from "./report.js";
+import { createTerminalReporter } from "./terminal-reporter.js";
 import type { SSEEvent, StageName, TaskKind, TaskStatus } from "../../src/shared/domain/types.js";
 
-const BASE_URL = trimSlash(process.env.E2E_BASE_URL ?? "http://localhost:3333");
+const BASE_URL = "http://localhost:3000";
 const REPO = process.env.E2E_REPO ?? "pantheon";
 const CHAT_ID = "goodboy-e2e";
 const POLL_MS = 2_000;
-const MAX_LOG_CHARS = Number.parseInt(process.env.E2E_MAX_LOG_CHARS ?? "6000", 10);
 const ARTIFACTS_DIR = path.resolve("artifacts");
 
 export const OWNED_PROMPT = process.env.E2E_PROMPT ?? `Feature: Filter Advisor — Automated Filter Discovery and Performance Attribution
@@ -29,6 +29,11 @@ What it does:
 4. Auto-apply path — when a proposal hits a configurable confidence gate (e.g., 15+ events, 90%+ win rate), it can optionally be applied directly to a dynamic_filters DB table that Scout reads alongside the static filters.py. Static file remains the safety backstop.
 5. CLI command — python -m coliseum filter-advisor runs attribution and the agent on demand; daemon can trigger it every N cycles after Scribe runs.
 6. Dashboard endpoint — /api/filter-proposals and /api/performance-attribution for visibility into what the system is learning about its own alpha sources.
+
+Dashboard requirements:
+- Create frontend/components/chart/filter-attribution-panel.tsx.
+- Render <FilterAttributionPanel /> directly below <WinRatePanel /> in frontend/app/chart/page.tsx.
+- Do not create a new route or navbar item.
 
 build this for the pantheon project`;
 
@@ -47,23 +52,8 @@ interface PrSession {
   mode: "own" | "review";
 }
 
-interface RunManifest {
-  runId: string;
-  repo: string;
-  prompt: string;
-  startedAt: string;
-  completedAt?: string;
-  ownedTaskId?: string;
-  ownedArtifactsDir?: string;
-  prUrl?: string | null;
-  prNumber?: number | null;
-  prSessionId?: string | null;
-  reviewTaskId?: string;
-  reviewArtifactsDir?: string;
-}
-
 interface OwnedRun {
-  manifest: RunManifest;
+  manifest: E2eManifest;
   task: Task;
 }
 
@@ -76,11 +66,21 @@ interface ExpectedStageSession {
 
 export async function runOwnedOnly(): Promise<void> {
   const stream = createEventStream();
+  let manifest = newManifest("owned");
   try {
     await preflight(stream.ready);
-    const owned = await runOwnedScenario(newManifest("owned"), stream.trackedTaskIds);
-    await writeManifest({ ...owned.manifest, completedAt: new Date().toISOString() });
+    const owned = await runOwnedScenario(manifest, stream.trackedTaskIds);
+    manifest = { ...owned.manifest, completedAt: new Date().toISOString() };
+    await writeManifest(manifest);
+    const reportPath = await writeE2eReport({ manifest, result: "pass", taskIds: [owned.task.id] });
     console.log(`\nE2E owned complete: ${owned.task.prUrl}`);
+    console.log(`[report] ${reportPath}`);
+  } catch (err) {
+    const failedManifest = { ...manifest, completedAt: new Date().toISOString() };
+    await writeManifest(failedManifest);
+    const reportPath = await writeE2eReport({ manifest: failedManifest, result: "fail", taskIds: [...stream.trackedTaskIds], error: err });
+    console.log(`[report] ${reportPath}`);
+    throw err;
   } finally {
     await stream.stop();
   }
@@ -88,9 +88,11 @@ export async function runOwnedOnly(): Promise<void> {
 
 export async function runOwnedThenReview(): Promise<void> {
   const stream = createEventStream();
+  let manifest = newManifest("owned-review");
   try {
     await preflight(stream.ready);
-    const owned = await runOwnedScenario(newManifest("owned-review"), stream.trackedTaskIds);
+    const owned = await runOwnedScenario(manifest, stream.trackedTaskIds);
+    manifest = owned.manifest;
     if (!owned.task.prNumber) throw new Error("Owned task completed without a PR number");
 
     const review = await launchReview(owned.task.prNumber);
@@ -103,14 +105,22 @@ export async function runOwnedThenReview(): Promise<void> {
       { stage: "pr_analyst" },
     ]);
 
-    const manifest = {
+    manifest = {
       ...owned.manifest,
       reviewTaskId: reviewTask.id,
       reviewArtifactsDir: taskArtifactsDir(reviewTask.id),
       completedAt: new Date().toISOString(),
     };
     await writeManifest(manifest);
+    const reportPath = await writeE2eReport({ manifest, result: "pass", taskIds: [owned.task.id, reviewTask.id] });
     console.log(`\nE2E owned + review complete: ${owned.task.prUrl}`);
+    console.log(`[report] ${reportPath}`);
+  } catch (err) {
+    const failedManifest = { ...manifest, completedAt: new Date().toISOString() };
+    await writeManifest(failedManifest);
+    const reportPath = await writeE2eReport({ manifest: failedManifest, result: "fail", taskIds: [...stream.trackedTaskIds], error: err });
+    console.log(`[report] ${reportPath}`);
+    throw err;
   } finally {
     await stream.stop();
   }
@@ -118,7 +128,7 @@ export async function runOwnedThenReview(): Promise<void> {
 
 // --- Scenario steps ---
 
-async function runOwnedScenario(manifest: RunManifest, trackedTaskIds: Set<string>): Promise<OwnedRun> {
+async function runOwnedScenario(manifest: E2eManifest, trackedTaskIds: Set<string>): Promise<OwnedRun> {
   await writeManifest(manifest);
 
   const launched = await launchOwned();
@@ -156,7 +166,8 @@ async function preflight(streamReady: Promise<void>): Promise<void> {
   console.log("=== Goodboy server-owned real pipeline E2E ===");
   console.log(`server     : ${BASE_URL}`);
   console.log(`repo       : ${REPO} (${repo.githubUrl})`);
-  console.log(`prompt     : ${OWNED_PROMPT}`);
+  console.log(`prompt     : ${OWNED_PROMPT.split("\n")[0]}`);
+  console.log(`prompt_len : ${OWNED_PROMPT.length} chars`);
 }
 
 async function launchOwned(): Promise<Task> {
@@ -211,7 +222,7 @@ async function assertExists(filePath: string, message: string): Promise<void> {
 
 // --- Manifest ---
 
-function newManifest(kind: string): RunManifest {
+function newManifest(kind: string): E2eManifest {
   return {
     runId: `${kind}-${new Date().toISOString().replace(/[:.]/g, "-")}`,
     repo: REPO,
@@ -220,10 +231,8 @@ function newManifest(kind: string): RunManifest {
   };
 }
 
-async function writeManifest(manifest: RunManifest): Promise<void> {
-  const dir = path.join(ARTIFACTS_DIR, "e2e", manifest.runId);
-  await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+async function writeManifest(manifest: E2eManifest): Promise<void> {
+  await writeE2eManifest(manifest);
 }
 
 function taskArtifactsDir(taskId: string): string {
@@ -249,6 +258,7 @@ async function requestJson<T>(urlPath: string, init?: RequestInit): Promise<T> {
 function createEventStream(): { trackedTaskIds: Set<string>; ready: Promise<void>; stop: () => Promise<void> } {
   const trackedTaskIds = new Set<string>();
   const controller = new AbortController();
+  const reportEvent = createTerminalReporter();
   let ready!: () => void;
   let failReady!: (err: unknown) => void;
   const readyPromise = new Promise<void>((resolve, reject) => {
@@ -256,7 +266,7 @@ function createEventStream(): { trackedTaskIds: Set<string>; ready: Promise<void
     failReady = reject;
   });
 
-  const done = runEventStream(trackedTaskIds, controller.signal, ready, failReady).catch((err) => {
+  const done = runEventStream(trackedTaskIds, controller.signal, ready, failReady, reportEvent).catch((err) => {
     if (!controller.signal.aborted) console.warn(`SSE stream stopped: ${err instanceof Error ? err.message : String(err)}`);
   });
   return {
@@ -274,6 +284,7 @@ async function runEventStream(
   signal: AbortSignal,
   ready: () => void,
   failReady: (err: unknown) => void,
+  reportEvent: (event: SSEEvent) => void,
 ): Promise<void> {
   try {
     const res = await fetch(`${BASE_URL}/api/events`, { signal });
@@ -289,7 +300,7 @@ async function runEventStream(
       buffer += decoder.decode(value, { stream: true });
       const parts = buffer.split("\n\n");
       buffer = parts.pop() ?? "";
-      for (const part of parts) printSseBlock(part, trackedTaskIds);
+      for (const part of parts) printSseBlock(part, trackedTaskIds, reportEvent);
     }
   } catch (err) {
     if (signal.aborted) return;
@@ -298,7 +309,7 @@ async function runEventStream(
   }
 }
 
-function printSseBlock(block: string, trackedTaskIds: Set<string>): void {
+function printSseBlock(block: string, trackedTaskIds: Set<string>, reportEvent: (event: SSEEvent) => void): void {
   const data = block.split("\n")
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.slice("data:".length).trimStart())
@@ -307,8 +318,7 @@ function printSseBlock(block: string, trackedTaskIds: Set<string>): void {
 
   const event = JSON.parse(data) as SSEEvent;
   if (!isTrackedEvent(event, trackedTaskIds)) return;
-  const line = formatEvent(event);
-  if (line) console.log(line);
+  reportEvent(event);
 }
 
 function isTrackedEvent(event: SSEEvent, ids: Set<string>): boolean {
@@ -319,59 +329,7 @@ function isTrackedEvent(event: SSEEvent, ids: Set<string>): boolean {
   return event.type === "pr_session_update";
 }
 
-// --- Terminal formatting ---
-
-function formatEvent(event: SSEEvent): string | null {
-  switch (event.type) {
-    case "task_update":
-      return `\n[task ${short(event.taskId)}] ${event.status}${event.kind ? ` (${event.kind})` : ""}`;
-    case "stage_update":
-      return `[stage ${short(event.taskId)}:${event.stage}${event.variant ? `#${event.variant}` : ""}] ${event.status}`;
-    case "memory_run_update":
-      return `[memory ${short(event.runId)}] ${event.kind} ${event.status}`;
-    case "pr_session_update":
-      return `[pr-session ${short(event.prSessionId)}] ${event.running ? "running" : "idle"}`;
-    case "session_entry":
-      return formatSessionEntry(event.entry);
-    default:
-      return null;
-  }
-}
-
-function formatSessionEntry(entry: FileEntry): string | null {
-  if (entry.type === "session") return `[session] cwd=${entry.cwd}`;
-  if (entry.type !== "message") return null;
-
-  const message = entry.message;
-  if (message.role === "assistant") return formatAssistant(message);
-  if (message.role === "toolResult") return clip(`\n[tool:${message.toolName}${message.isError ? ":error" : ""}]\n${joinText(message.content)}`);
-  if (message.role === "bashExecution") return clip(`\n[bash:${message.exitCode ?? "?"}] ${message.command}\n${message.output}`);
-  if (message.role === "custom") return clip(`\n[custom:${message.customType}]\n${stringContent(message.content)}`);
-  if (message.role === "user") return clip(`\n[user]\n${stringContent(message.content)}`);
-  return null;
-}
-
-function formatAssistant(message: Extract<AgentMessage, { role: "assistant" }>): string | null {
-  const parts = message.content.flatMap((block) => {
-    if (block.type === "text") return [block.text];
-    if (block.type === "thinking") return [`[thinking]\n${block.thinking}`];
-    if (block.type === "toolCall") return [`[tool-call] ${block.name} ${JSON.stringify(block.arguments)}`];
-    return [];
-  });
-  return parts.length ? clip(`\n[assistant]\n${parts.join("\n")}`) : null;
-}
-
-function stringContent(content: Parameters<typeof joinText>[0] | string): string {
-  return typeof content === "string" ? content : joinText(content);
-}
-
-function joinText(content: readonly { type: string; text?: string }[]): string {
-  return content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n");
-}
-
-function clip(text: string): string {
-  return text.length > MAX_LOG_CHARS ? `${text.slice(0, MAX_LOG_CHARS)}\n[truncated ${text.length - MAX_LOG_CHARS} chars]` : text;
-}
+// --- Helpers ---
 
 function trimSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
@@ -379,8 +337,4 @@ function trimSlash(value: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function short(id: string): string {
-  return id.slice(0, 8);
 }
