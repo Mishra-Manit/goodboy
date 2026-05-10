@@ -17,17 +17,23 @@ const CHAT_ID = "goodboy-e2e";
 const POLL_MS = 2_000;
 const ARTIFACTS_DIR = path.resolve("artifacts");
 
-export const OWNED_PROMPT = process.env.E2E_PROMPT ?? `Make a small frontend-only change in the pantheon project so Goodboy can create an owned PR and then review it visually.
+export const OWNED_PROMPT = process.env.E2E_PROMPT ?? `   Make a small frontend-only change to the Pantheon project's desktop dashboard layout.
 
 Change request:
-- Find an existing dashboard, landing, or shared frontend component.
-- Add a subtle visible polish change: a short helper line, small badge, microcopy tweak, or minor styling improvement.
-- Keep the change low-risk and scoped to one or two frontend files.
-- Do not add a new route, backend endpoint, database schema, dependency, or auth behavior.
-- Use the existing styling system and project conventions.
-- Run the relevant build/check command if available.
+- Add a filter/sort bar to the Opportunities Feed panel (components/dashboard/opportunities-feed.tsx).
+- Add clickable status filter pills (All / Pending / Researched / Recommended / Traded / Rejected) that filter
+the opportunities list client-side using the existing \`status\` field,
+- Add a sort toggle (newest first vs. highest YES price) next to the existing count badge in the
+header.
+- Use only existing state (useState) and the fields already on OpportunitySummary (status, yes_price,
+discovered_at). No new API calls or hooks.
+- Follow the project's existing styling: font-mono, FontSize tokens, Muted/Base/BgTint style constants, and the
+same spacing/layout conventions visible in the file.
+- Keep the change scoped to opportunities-feed.tsx (and possibly lib/styles.ts if a new token is needed).
+- Do not add new routes, backend endpoints, dependencies, or database changes.
 
-The goal is a random but real frontend diff that is easy for the PR review visual recorder to load and screenshot.`;
+make these changes for the pantheon project
+`;
 
 interface Task {
   id: string;
