@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FileCode, FileText } from "lucide-react";
 import { cn } from "@dashboard/lib/utils";
-import type { PrReviewAnnotation, PrReviewChapter } from "@dashboard/shared";
+import type { PrReviewAnnotation, PrReviewChapter, PrReviewVisualSnapshot } from "@dashboard/shared";
 import { FileDiff } from "./FileDiff";
 import { NlFilePanel } from "./NlFilePanel";
 
 interface FileStackProps {
   summary: string;
+  visualSnapshot: PrReviewVisualSnapshot;
   chapters: PrReviewChapter[];
   patchByFile: Map<string, string>;
   annotationsByFile: Map<string, PrReviewAnnotation[]>;
@@ -21,6 +22,7 @@ interface FileStackProps {
 
 export function FileStack({
   summary,
+  visualSnapshot,
   chapters,
   patchByFile,
   annotationsByFile,
@@ -32,7 +34,7 @@ export function FileStack({
 }: FileStackProps) {
   return (
     <div className="flex flex-col gap-6">
-      <OverallSummary summary={summary} patchByFile={patchByFile} />
+      <OverallSummary summary={summary} visualSnapshot={visualSnapshot} patchByFile={patchByFile} />
       {chapters.map((chapter) => (
         <ChapterSection
           key={chapter.id}
@@ -64,7 +66,15 @@ function computeDiffStats(patchByFile: Map<string, string>) {
   return { additions, deletions, filesChanged: patchByFile.size };
 }
 
-function OverallSummary({ summary, patchByFile }: { summary: string; patchByFile: Map<string, string> }) {
+function OverallSummary({
+  summary,
+  visualSnapshot,
+  patchByFile,
+}: {
+  summary: string;
+  visualSnapshot: PrReviewVisualSnapshot;
+  patchByFile: Map<string, string>;
+}) {
   const { additions, deletions, filesChanged } = computeDiffStats(patchByFile);
   return (
     <section className="rounded-xl border border-accent-dim bg-bg px-5 py-4">
@@ -79,7 +89,33 @@ function OverallSummary({ summary, patchByFile }: { summary: string; patchByFile
         </div>
       </div>
       <p className="font-body text-[12.5px] leading-[1.75] text-text-secondary">{summary}</p>
+      <VisualSnapshotBlock snapshot={visualSnapshot} />
     </section>
+  );
+}
+
+function VisualSnapshotBlock({ snapshot }: { snapshot: PrReviewVisualSnapshot }) {
+  if (snapshot.type === "skipped") return null;
+
+  if (snapshot.type === "failed") {
+    return (
+      <div className="mt-4 rounded-lg border border-warn/40 bg-glass px-3 py-2 font-mono text-[10px] text-warn">
+        Visual snapshot unavailable: {snapshot.reason}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 grid gap-3">
+      {snapshot.assets.map((asset) => (
+        <figure key={asset.url} className="overflow-hidden rounded-lg border border-border-subtle bg-glass">
+          <img src={asset.url} alt={asset.label} className="w-full object-cover" />
+          <figcaption className="border-t border-border-subtle px-3 py-2 font-mono text-[10px] text-text-ghost">
+            {asset.label}
+          </figcaption>
+        </figure>
+      ))}
+    </div>
   );
 }
 

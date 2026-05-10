@@ -189,6 +189,7 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
             />
             <FileStack
               summary={run.summary}
+              visualSnapshot={run.visualSnapshot}
               chapters={run.chapters}
               patchByFile={patchByFile}
               annotationsByFile={annotationsByFile}
