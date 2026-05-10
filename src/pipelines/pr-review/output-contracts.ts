@@ -53,8 +53,20 @@ export const prReviewOutputs = {
   summary: defineTextOutput({
     id: "prReview.summary",
     path: () => "summary.md",
-    prompt: { name: "GitHub review summary", instructions: "Write the posted GitHub review summary here." },
-    dashboard: () => ({ key: "summary.md", label: "summary" }),
+    prompt: {
+      name: "analyst summary",
+      instructions: "Write factual PR review material for the finalizer here. Do not post it directly.",
+    },
+    dashboard: () => ({ key: "summary.md", label: "analyst summary" }),
+  }),
+  finalComment: defineTextOutput({
+    id: "prReview.finalComment",
+    path: () => "final-comment.md",
+    prompt: {
+      name: "posted GitHub comment",
+      instructions: "Write the exact markdown posted to GitHub, including the hidden Goodboy marker.",
+    },
+    dashboard: () => ({ key: "final-comment.md", label: "posted comment" }),
   }),
   reviewPlan: defineJsonOutput({
     id: "prReview.reviewPlan",
@@ -120,6 +132,7 @@ export const prReviewOutputs = {
   "prTitle": "PR title",
   "headSha": "1234567",
   "summary": "One tight paragraph.",
+  "visualSnapshot": { "type": "skipped", "reason": "no_frontend_changes" },
   "chapters": [
     {
       "id": "chapter",
@@ -136,7 +149,7 @@ export const prReviewOutputs = {
   ]
 }`,
     },
-    dashboard: () => ({ key: "review.json", label: "display model" }),
+    dashboard: () => ({ key: "review.json", label: "finalized review" }),
   }),
 };
 

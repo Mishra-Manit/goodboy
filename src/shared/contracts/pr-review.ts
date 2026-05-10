@@ -1,5 +1,5 @@
 /**
- * PR review display artifact contract. The pr_display stage writes review.json
+ * PR review finalizer artifact contract. The pr_finalizer stage writes review.json
  * matching this schema; the API and dashboard consume it without DB persistence.
  */
 
@@ -37,10 +37,32 @@ export const prReviewChapterSchema = z.object({
   annotations: z.array(prReviewAnnotationSchema),
 }).strict();
 
+export const prReviewVisualAssetSchema = z.object({
+  type: z.literal("image"),
+  url: z.string().url(),
+  label: z.string().min(1).max(80),
+}).strict();
+
+export const prReviewVisualSnapshotSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("skipped"),
+    reason: z.literal("no_frontend_changes"),
+  }).strict(),
+  z.object({
+    type: z.literal("failed"),
+    reason: z.string().min(1).max(500),
+  }).strict(),
+  z.object({
+    type: z.literal("captured"),
+    assets: z.array(prReviewVisualAssetSchema).min(1),
+  }).strict(),
+]);
+
 const prReviewArtifactBaseSchema = z.object({
   prTitle: z.string().min(1).max(200),
   headSha: z.string().min(7).max(64),
   summary: z.string().min(1).max(2000),
+  visualSnapshot: prReviewVisualSnapshotSchema,
   chapters: z.array(prReviewChapterSchema).min(1),
 }).strict();
 
@@ -51,6 +73,8 @@ export const prReviewArtifactSchema = prReviewArtifactBaseSchema.superRefine(val
 export type PrReviewFile = z.infer<typeof prReviewFileSchema>;
 export type PrReviewAnnotation = z.infer<typeof prReviewAnnotationSchema>;
 export type PrReviewChapter = z.infer<typeof prReviewChapterSchema>;
+export type PrReviewVisualAsset = z.infer<typeof prReviewVisualAssetSchema>;
+export type PrReviewVisualSnapshot = z.infer<typeof prReviewVisualSnapshotSchema>;
 export type PrReviewArtifact = z.infer<typeof prReviewArtifactSchema>;
 
 // --- API DTO ---

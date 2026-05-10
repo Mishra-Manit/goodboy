@@ -30,7 +30,7 @@ describe("buildStageTabs", () => {
       [stage("pr_analyst"), stage("pr_impact", 2), stage("memory"), stage("pr_impact", 1)],
       [],
       new Map(),
-      ["memory", "pr_impact", "pr_analyst", "pr_display"],
+      ["memory", "pr_impact", "pr_analyst", "pr_finalizer"],
     );
 
     expect(tabs.map((tab) => tab.key)).toEqual(["memory", "pr_impact#1", "pr_impact#2", "pr_analyst"]);

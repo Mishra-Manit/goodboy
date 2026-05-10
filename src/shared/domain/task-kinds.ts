@@ -30,14 +30,15 @@ export const TASK_KIND_CONFIG: Record<TaskKind, TaskKindConfig> = {
   },
   pr_review: {
     label: "PR review",
-    stages: ["memory", "pr_impact", "pr_analyst", "pr_display"],
+    stages: ["memory", "pr_impact", "pr_analyst", "pr_finalizer"],
     artifacts: [
       ...Array.from({ length: PR_IMPACT_VARIANT_COUNT }, (_, index) => {
         const variant = index + 1;
         return { key: prImpactVariantFiles(variant).impact, label: `impact v${variant}` };
       }),
-      { key: "summary.md", label: "summary" },
-      { key: "review.json", label: "display model" },
+      { key: "summary.md", label: "analyst summary" },
+      { key: "final-comment.md", label: "posted comment" },
+      { key: "review.json", label: "finalized review" },
     ],
   },
 };
