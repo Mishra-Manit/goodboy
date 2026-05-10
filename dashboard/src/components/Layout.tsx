@@ -2,6 +2,7 @@
 
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useHideOnScrollDown } from "@dashboard/hooks/use-hide-on-scroll";
+import { NavStateContext, useNavState } from "@dashboard/hooks/use-nav-state";
 import { cn } from "@dashboard/lib/utils";
 
 const NAV_ITEMS = [
@@ -12,8 +13,9 @@ const NAV_ITEMS = [
 ] as const;
 
 export function Layout() {
-  const hidden = useHideOnScrollDown();
+  const { hidden, setHidden } = useHideOnScrollDown();
   return (
+    <NavStateContext.Provider value={{ hidden, setHidden }}>
     <div className="grain min-h-screen">
       <nav
         className={cn(
@@ -53,6 +55,7 @@ export function Layout() {
 
       <Main />
     </div>
+    </NavStateContext.Provider>
   );
 }
 
@@ -61,14 +64,25 @@ export function Layout() {
 /** Wide canvas on the PR review page; editorial column elsewhere. */
 function Main() {
   const { pathname } = useLocation();
+  const { hidden } = useNavState();
   const wide = /^\/prs\/[^/]+\/review$/.test(pathname) || /^\/tasks\/[^/]+\/review$/.test(pathname);
+
+  if (wide) {
+    return (
+      <main
+        className={cn(
+          "mx-auto flex h-dvh flex-col px-5 transition-[padding] duration-300 ease-out",
+          "max-w-[1600px] pb-0",
+          hidden ? "pt-2" : "pt-20",
+        )}
+      >
+        <Outlet />
+      </main>
+    );
+  }
+
   return (
-    <main
-      className={cn(
-        "mx-auto px-5",
-        wide ? "max-w-[1600px] pt-20 pb-0" : "max-w-[680px] pt-24 pb-24",
-      )}
-    >
+    <main className="mx-auto max-w-[680px] px-5 pt-24 pb-24">
       <Outlet />
     </main>
   );

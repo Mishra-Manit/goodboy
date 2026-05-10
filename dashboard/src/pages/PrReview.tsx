@@ -14,6 +14,8 @@ import type {
   TaskPrReviewPageDto,
 } from "@dashboard/shared";
 import { useQuery } from "@dashboard/hooks/use-query";
+import { useNavState } from "@dashboard/hooks/use-nav-state";
+import { useHideNavOnContainerScroll } from "@dashboard/hooks/use-hide-on-scroll";
 import { PageState } from "@dashboard/components/PageState";
 import { FileStack } from "@dashboard/components/pr-review/FileStack";
 import { FileTree } from "@dashboard/components/pr-review/FileTree";
@@ -99,7 +101,7 @@ interface ReviewPageShellProps {
 
 function ReviewPageShell({ data, loading, error, onRetry, onBack, onChanged }: ReviewPageShellProps) {
   return (
-    <div className="animate-fade-in">
+    <div className="flex flex-1 min-h-0 flex-col">
       <PageState data={data} loading={loading} error={error} onRetry={onRetry} loadingLabel="loading review...">
         {(dto) => (
           dto.run
@@ -119,6 +121,9 @@ interface ReviewRunProps {
 
 function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
   const { run, session, task } = dto;
+  const { setHidden } = useNavState();
+  const centerScrollRef = useHideNavOnContainerScroll(setHidden);
+
   const allFiles = useMemo(
     () => run.chapters.flatMap((chapter) => chapter.files.map((file) => file.path)),
     [run.chapters],
@@ -164,10 +169,10 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
   useScrollSpyActiveFile(allFiles, fileRefs, setActiveFile);
 
   return (
-    <div className="-mx-2 mt-1 flex flex-col">
+    <div className="-mx-2 flex flex-1 min-h-0 flex-col animate-fade-in">
       <ResizablePanels
         storageKey="pr-review-panels"
-        className="h-[calc(100vh-6rem)]"
+        className="h-full"
         leftLabel="Files"
         rightLabel="Review thread"
         left={
@@ -178,7 +183,7 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
           />
         }
         center={
-          <div className="min-w-0 h-full overflow-y-auto px-[18px] pt-1 pb-[18px]">
+          <div ref={centerScrollRef} className="min-w-0 h-full overflow-y-auto px-[18px] pt-1 pb-[18px]">
             <ReviewHeader
               title={run.prTitle}
               repo={session?.repo ?? task?.repo ?? "PR"}
