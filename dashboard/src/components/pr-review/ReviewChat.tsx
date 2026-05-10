@@ -238,8 +238,8 @@ function Composer({ input, onInput, onSend, disabled, attachedAnnotation, onClea
       )}
       <div
         className={cn(
-          "flex items-center gap-2 rounded-xl border border-glass-border bg-white/[0.025] px-3 transition-all duration-200",
-          "focus-within:border-accent/40 focus-within:bg-white/[0.035] focus-within:shadow-[0_0_12px_rgba(212,160,23,0.06)]",
+          "flex items-center gap-2 rounded-xl border border-glass-border bg-field px-3 transition-all duration-200",
+          "focus-within:border-accent/40 focus-within:bg-field-focus focus-within:shadow-accent-focus",
         )}
       >
         <textarea
@@ -270,8 +270,8 @@ function Composer({ input, onInput, onSend, disabled, attachedAnnotation, onClea
           className={cn(
             "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-200",
             canSend
-              ? "bg-accent text-bg shadow-[0_0_8px_rgba(212,160,23,0.3)] hover:shadow-[0_0_14px_rgba(212,160,23,0.5)] hover:scale-105 active:scale-95"
-              : "bg-white/[0.04] text-text-ghost cursor-not-allowed",
+              ? "bg-accent text-bg shadow-accent-button hover:shadow-accent-button-hover hover:scale-105 active:scale-95"
+              : "bg-disabled text-text-ghost cursor-not-allowed",
           )}
         >
           <ArrowUp className="h-[14px] w-[14px]" strokeWidth={2.5} />
@@ -328,4 +328,3 @@ function optimisticUserMessage(message: string, annotation: PrReviewAnnotation |
     createdAt: new Date().toISOString(),
   };
 }
-

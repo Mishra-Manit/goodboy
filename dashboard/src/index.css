@@ -1,38 +1,98 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/*
+ * Dark scheme source of truth.
+ * To reskin the dashboard, edit this block first; Tailwind tokens below are
+ * semantic aliases that should stay stable across components.
+ */
+:root {
+  --scheme-bg: #050505;
+  --scheme-bg-raised: #0a0a0a;
+  --scheme-bg-hover: #0f0f0f;
+  --scheme-bg-active: #111111;
+
+  --scheme-accent: #d4a017;
+  --scheme-accent-rgb: 212 160 23;
+
+  --scheme-surface-rgb: 255 255 255;
+  --scheme-glass: rgb(var(--scheme-surface-rgb) / 0.03);
+  --scheme-glass-border: rgb(var(--scheme-surface-rgb) / 0.06);
+  --scheme-glass-hover: rgb(var(--scheme-surface-rgb) / 0.05);
+  --scheme-nav-active: rgb(var(--scheme-surface-rgb) / 0.07);
+  --scheme-field: rgb(var(--scheme-surface-rgb) / 0.025);
+  --scheme-field-focus: rgb(var(--scheme-surface-rgb) / 0.035);
+  --scheme-disabled: rgb(var(--scheme-surface-rgb) / 0.04);
+
+  --scheme-text: #e4e4e7;
+  --scheme-text-secondary: #a1a1aa;
+  --scheme-text-dim: #a8a8b0;
+  --scheme-text-ghost: #78787f;
+  --scheme-text-void: #5a5a63;
+
+  --scheme-ok: #34d399;
+  --scheme-ok-rgb: 52 211 153;
+  --scheme-fail: #f87171;
+  --scheme-fail-rgb: 248 113 113;
+  --scheme-info: #60a5fa;
+  --scheme-info-rgb: 96 165 250;
+  --scheme-warn: #fbbf24;
+  --scheme-warn-rgb: 251 191 36;
+  --scheme-comment: #c084fc;
+  --scheme-comment-rgb: 192 132 252;
+
+  --scheme-scrollbar-thumb: rgb(var(--scheme-surface-rgb) / 0.06);
+  --scheme-scrollbar-thumb-hover: rgb(var(--scheme-surface-rgb) / 0.12);
+  --scheme-live-border: rgb(var(--scheme-accent-rgb) / 0.3);
+  --scheme-live-shadow: inset 2px 0 12px rgb(var(--scheme-accent-rgb) / 0.04);
+  --scheme-shadow-nav: 0 4px 24px rgb(0 0 0 / 0.5);
+  --scheme-shadow-accent-active: 0 0 8px rgb(var(--scheme-accent-rgb) / 0.5);
+  --scheme-shadow-accent-focus: 0 0 12px rgb(var(--scheme-accent-rgb) / 0.06);
+  --scheme-shadow-accent-button: 0 0 8px rgb(var(--scheme-accent-rgb) / 0.3);
+  --scheme-shadow-accent-button-hover: 0 0 14px rgb(var(--scheme-accent-rgb) / 0.5);
+}
+
 @theme {
-  /* Palette: warm amber accent on near-black */
-  --color-bg: #050505;
-  --color-bg-raised: #0a0a0a;
-  --color-bg-hover: #0f0f0f;
-  --color-bg-active: #111111;
+  /* Semantic dark palette aliases. Keep components on these tokens. */
+  --color-bg: var(--scheme-bg);
+  --color-bg-raised: var(--scheme-bg-raised);
+  --color-bg-hover: var(--scheme-bg-hover);
+  --color-bg-active: var(--scheme-bg-active);
 
-  --color-accent: #d4a017;
-  --color-accent-dim: rgba(212, 160, 23, 0.15);
-  --color-accent-ghost: rgba(212, 160, 23, 0.06);
+  --color-accent: var(--scheme-accent);
+  --color-accent-dim: rgb(var(--scheme-accent-rgb) / 0.15);
+  --color-accent-ghost: rgb(var(--scheme-accent-rgb) / 0.06);
 
-  --color-glass: rgba(255, 255, 255, 0.03);
-  --color-glass-border: rgba(255, 255, 255, 0.06);
-  --color-glass-hover: rgba(255, 255, 255, 0.05);
+  --color-glass: var(--scheme-glass);
+  --color-glass-border: var(--scheme-glass-border);
+  --color-glass-hover: var(--scheme-glass-hover);
+  --color-nav-active: var(--scheme-nav-active);
+  --color-field: var(--scheme-field);
+  --color-field-focus: var(--scheme-field-focus);
+  --color-disabled: var(--scheme-disabled);
 
-  --color-text: #e4e4e7;
-  --color-text-secondary: #a1a1aa;
-  --color-text-dim: #a8a8b0;
-  --color-text-ghost: #78787f;
-  --color-text-void: #5a5a63;
+  --color-text: var(--scheme-text);
+  --color-text-secondary: var(--scheme-text-secondary);
+  --color-text-dim: var(--scheme-text-dim);
+  --color-text-ghost: var(--scheme-text-ghost);
+  --color-text-void: var(--scheme-text-void);
 
-  --color-ok: #34d399;
-  --color-ok-dim: rgba(52, 211, 153, 0.12);
-  --color-fail: #f87171;
-  --color-fail-dim: rgba(248, 113, 113, 0.10);
-  --color-info: #60a5fa;
-  --color-info-dim: rgba(96, 165, 250, 0.10);
-  --color-warn: #fbbf24;
-  --color-warn-dim: rgba(251, 191, 36, 0.10);
-  --color-comment: #c084fc;
-  --color-comment-dim: rgba(192, 132, 252, 0.18);
-  --color-comment-ghost: rgba(192, 132, 252, 0.06);
+  --color-ok: var(--scheme-ok);
+  --color-ok-dim: rgb(var(--scheme-ok-rgb) / 0.12);
+  --color-fail: var(--scheme-fail);
+  --color-fail-dim: rgb(var(--scheme-fail-rgb) / 0.10);
+  --color-info: var(--scheme-info);
+  --color-info-dim: rgb(var(--scheme-info-rgb) / 0.10);
+  --color-warn: var(--scheme-warn);
+  --color-warn-dim: rgb(var(--scheme-warn-rgb) / 0.10);
+  --color-comment: var(--scheme-comment);
+  --color-comment-dim: rgb(var(--scheme-comment-rgb) / 0.18);
+  --color-comment-ghost: rgb(var(--scheme-comment-rgb) / 0.06);
+
+  --shadow-accent-active: var(--scheme-shadow-accent-active);
+  --shadow-accent-focus: var(--scheme-shadow-accent-focus);
+  --shadow-accent-button: var(--scheme-shadow-accent-button);
+  --shadow-accent-button-hover: var(--scheme-shadow-accent-button-hover);
 
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -68,8 +128,8 @@ body {
 /* Scrollbar: near-invisible */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.06); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.12); }
+::-webkit-scrollbar-thumb { background: var(--scheme-scrollbar-thumb); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scheme-scrollbar-thumb-hover); }
 
 .scrollbar-none {
   scrollbar-width: none;
@@ -91,8 +151,8 @@ body {
 /* Left-edge accent glow for live / active items */
 .live-glow {
   border-left-width: 2px;
-  border-left-color: rgba(212, 160, 23, 0.3);
-  box-shadow: inset 2px 0 12px rgba(212, 160, 23, 0.04);
+  border-left-color: var(--scheme-live-border);
+  box-shadow: var(--scheme-live-shadow);
 }
 
 /* --- Semantic typography utilities --- */
@@ -145,7 +205,7 @@ body {
 
 /* Floating nav shadow */
 .nav-shadow {
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--scheme-shadow-nav);
 }
 
 /* Animations */

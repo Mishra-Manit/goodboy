@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { artifactPath } from "@src/shared/artifacts/index.js";
+import { artifactPath } from "@src/shared/artifact-paths/index.js";
 
 describe("artifact helpers", () => {
   it("builds artifact paths inside the given artifacts dir", () => {

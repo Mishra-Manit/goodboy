@@ -15,7 +15,7 @@ interface PipelineProgressProps {
 
 const DOT: Record<DisplayStatus, string> = {
   pending: "bg-text-void",
-  active: "bg-accent shadow-[0_0_8px_rgba(212,160,23,0.5)] animate-pulse-soft",
+  active: "bg-accent shadow-accent-active animate-pulse-soft",
   complete: "bg-ok",
   failed: "bg-fail",
   skipped: "bg-text-void/50",
