@@ -25,8 +25,6 @@ import type { StageName } from "../../src/shared/domain/types.js";
 
 const FAILURE_OUTPUT_LINES = 40;
 const MAX_TARGET_CHARS = 140;
-const FILTER_ATTRIBUTION_COMPONENT = "frontend/components/chart/filter-attribution-panel.tsx";
-const CHART_PAGE = "frontend/app/chart/page.tsx";
 
 export interface E2eManifest {
   runId: string;
@@ -144,7 +142,7 @@ export async function writeE2eReport(input: WriteReportInput): Promise<string> {
   const stageRuns = analyses.map((a) => a.stageRun);
   const tools = analyses.flatMap((a) => a.tools);
   const subagents = analyses.flatMap((a) => a.subagents);
-  const acceptance = await runAcceptanceChecks(input.manifest.repo, input.taskIds, tools);
+  const acceptance = await runAcceptanceChecks(input.manifest, input.taskIds, tools);
   const reportPath = e2eReportPath(input.manifest.runId);
 
   await mkdir(path.dirname(reportPath), { recursive: true });
@@ -311,36 +309,53 @@ function collectSubagentRuns(stage: StageName, variant: number | undefined, entr
 // --- Acceptance ---
 
 async function runAcceptanceChecks(
-  repoName: string,
+  manifest: E2eManifest,
   taskIds: readonly string[],
   tools: readonly ToolActivity[],
 ): Promise<AcceptanceCheck[]> {
-  const roots = await candidateRepoRoots(repoName, taskIds, tools);
-  if (roots.length === 0) return [{ check: "Repo root found", status: "fail", details: `No repo root found for '${repoName}'` }];
+  const roots = await candidateRepoRoots(manifest.repo, taskIds, tools);
+  if (roots.length === 0) return [{ check: "Repo root found", status: "fail", details: `No repo root found for '${manifest.repo}'` }];
 
-  const componentRoot = await firstRootWithFile(roots, FILTER_ATTRIBUTION_COMPONENT);
-  const chartRoot = componentRoot ?? await firstRootWithFile(roots, CHART_PAGE);
-  const page = chartRoot ? await readFile(path.join(chartRoot, CHART_PAGE), "utf8").catch(() => "") : "";
-  const winRateIndex = page.indexOf("<WinRatePanel");
-  const attributionIndex = page.indexOf("<FilterAttributionPanel");
-  const importsComponent = page.includes("FilterAttributionPanel") && page.includes("filter-attribution-panel");
   const validation = findValidationCommand(tools);
+  const diff = manifest.reviewArtifactsDir
+    ? await readFile(path.join(manifest.reviewArtifactsDir, "pr.updated.diff"), "utf8").catch(() => "")
+    : "";
+  const review = manifest.reviewArtifactsDir
+    ? await readReviewJson(path.join(manifest.reviewArtifactsDir, "review.json"))
+    : null;
+  const finalComment = manifest.reviewArtifactsDir
+    ? await readFile(path.join(manifest.reviewArtifactsDir, "final-comment.md"), "utf8").catch(() => "")
+    : "";
+  const imagePath = manifest.reviewArtifactsDir
+    ? path.join(manifest.reviewArtifactsDir, "assets", "pr-visual-summary.png")
+    : "";
+  const manifestPath = manifest.reviewArtifactsDir
+    ? path.join(manifest.reviewArtifactsDir, "assets", "manifest.json")
+    : "";
+  const frontendChanged = /diff --git a\/(frontend|dashboard|app|pages|components|src)\//.test(diff)
+    || /\.(tsx|jsx|css|scss|vue|svelte)\b/.test(diff);
+  const visualCaptured = review?.visualSnapshot?.type === "captured";
 
   return [
     {
-      check: "Component exists",
-      status: componentRoot ? "pass" : "fail",
-      details: componentRoot ? path.join(componentRoot, FILTER_ATTRIBUTION_COMPONENT) : FILTER_ATTRIBUTION_COMPONENT,
+      check: "Frontend diff detected",
+      status: frontendChanged ? "pass" : "fail",
+      details: manifest.reviewArtifactsDir ? path.join(manifest.reviewArtifactsDir, "pr.updated.diff") : "review artifacts missing",
     },
     {
-      check: "Chart page imports component",
-      status: importsComponent ? "pass" : "fail",
-      details: chartRoot ? path.join(chartRoot, CHART_PAGE) : CHART_PAGE,
+      check: "Visual snapshot captured",
+      status: visualCaptured && await exists(imagePath) ? "pass" : "fail",
+      details: visualCaptured ? imagePath : `visualSnapshot=${review?.visualSnapshot?.type ?? "missing"}`,
     },
     {
-      check: "Rendered below WinRatePanel",
-      status: winRateIndex >= 0 && attributionIndex > winRateIndex ? "pass" : "fail",
-      details: chartRoot ? "WinRatePanel appears before FilterAttributionPanel" : "Chart page not found",
+      check: "Visual manifest written",
+      status: await exists(manifestPath) ? "pass" : "fail",
+      details: manifestPath || "review artifacts missing",
+    },
+    {
+      check: "Final comment posted asset",
+      status: finalComment.includes("goodboy:pr-review") && finalComment.includes("pr-visual-summary.png") ? "pass" : "fail",
+      details: manifest.reviewArtifactsDir ? path.join(manifest.reviewArtifactsDir, "final-comment.md") : "review artifacts missing",
     },
     {
       check: "Build or validation passed",
@@ -348,6 +363,14 @@ async function runAcceptanceChecks(
       details: validation ? validation.target : "No successful build/typecheck validation command found in session logs",
     },
   ];
+}
+
+async function readReviewJson(filePath: string): Promise<Record<string, any> | null> {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 async function candidateRepoRoots(

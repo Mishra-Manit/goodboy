@@ -31,6 +31,8 @@ Hard rules:
 - Use random free ports for frontend and backend.
 - If backend is needed, start it on a random free port and configure frontend through process env first. Use file env fallback only when necessary, and clean/revert afterwards.
 - Use agent-browser CLI for browser work.
+- Always run agent-browser close before final response, even after capture failure.
+- Stop every server process you start before final response.
 - Final response must be strict JSON only. No prose, no markdown fences, no explanation before or after it:
   {"status":"captured","filename":"pr-visual-summary.png","label":"Visual snapshot","warnings":[]}
   or
