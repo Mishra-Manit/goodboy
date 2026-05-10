@@ -30,13 +30,43 @@ Hard rules:
 - No auth/login support for MVP. If auth blocks capture, return failed with reason requires_auth_no_credentials.
 - Use random free ports for frontend and backend.
 - If backend is needed, start it on a random free port and configure frontend through process env first. Use file env fallback only when necessary, and clean/revert afterwards.
-- Use agent-browser CLI for browser work.
+- Use agent-browser CLI for browser work. The exact command knowledge is included below; do not assume any external skill file is loaded.
 - Always run agent-browser close before final response, even after capture failure.
 - Stop every server process you start before final response.
 - Final response must be strict JSON only. No prose, no markdown fences, no explanation before or after it:
   {"status":"captured","filename":"pr-visual-summary.png","label":"Visual snapshot","warnings":[]}
   or
   {"status":"failed","reason":"specific reason","warnings":[]}
+
+Agent-browser command guide:
+- Navigation: `agent-browser open <url>`.
+- Stable load waits: `agent-browser wait --load networkidle`, `agent-browser wait <milliseconds>`, or `agent-browser wait --text "Text to wait for"`.
+- Page inspection: `agent-browser snapshot -c` for compact accessibility tree, `agent-browser snapshot -i` for interactive refs.
+- Screenshot: `agent-browser screenshot <absolute-output-path>`.
+- Full-page screenshot only if useful: `agent-browser screenshot --full <absolute-output-path>`.
+- Cleanup: `agent-browser close`.
+- Current URL/title checks: `agent-browser get url`, `agent-browser get title`.
+- Network debugging: `agent-browser network requests` after load failures.
+- Do not use unsupported command shapes. In this installed CLI, use `agent-browser open`, `wait`, `snapshot`, `screenshot`, `get`, `network`, and `close` only unless `agent-browser --help` confirms another command.
+- Do not use headed mode or recording.
+- Prefer the default browser viewport. If a mobile viewport is essential, first run `agent-browser --help` and use only the documented supported option/flag. If viewport setup fails, capture the default viewport and add a warning; do not switch to another browser library unless agent-browser cannot capture at all.
+
+Recommended capture sequence:
+1. `agent-browser close || true` to clear stale state.
+2. `agent-browser open http://127.0.0.1:<frontend_port><route>`.
+3. `agent-browser wait --load networkidle || agent-browser wait 3000`.
+4. `agent-browser snapshot -c` and inspect for obvious auth, error, or blank states.
+5. If auth blocks capture, write manifest.json with reason `requires_auth_no_credentials`, close browser, stop servers, and return failed.
+6. If the app shows a recoverable loading state, wait once more with `agent-browser wait 3000`.
+7. `agent-browser screenshot <assets_dir>/pr-visual-summary.png`.
+8. `agent-browser close`.
+
+Screenshot quality rules:
+- The screenshot must show the actual changed UI route when possible, not a generic browser error page.
+- A partially loaded app shell is acceptable only when the changed UI is visible.
+- If the selected route 404s, retry `/` once and record both routes in manifest warnings.
+- If backend/API failures leave the frontend visible, capture it and record warnings rather than failing.
+- If the page is blank or only an error overlay, return failed with a specific reason.
 
 Workflow:
 1. Read updated_diff_path and inspect changed frontend files.
