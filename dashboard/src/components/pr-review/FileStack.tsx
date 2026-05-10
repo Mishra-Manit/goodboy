@@ -108,8 +108,8 @@ function VisualSnapshotBlock({ snapshot }: { snapshot: PrReviewVisualSnapshot })
   return (
     <div className="mt-4 grid gap-3">
       {snapshot.assets.map((asset) => (
-        <figure key={asset.url} className="max-w-[360px] overflow-hidden rounded-lg border border-border-subtle bg-glass">
-          <img src={asset.url} alt={asset.label} className="h-[240px] w-full object-cover" />
+        <figure key={asset.url} className="max-w-[260px] overflow-hidden rounded-lg border border-border-subtle bg-glass">
+          <img src={asset.url} alt={asset.label} className="h-auto w-full object-contain" />
           <figcaption className="border-t border-border-subtle px-3 py-2 font-mono text-[10px] text-text-ghost">
             {asset.label}
           </figcaption>
