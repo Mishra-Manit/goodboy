@@ -27,8 +27,24 @@ export function NlFilePanel({ narrative, annotations, patch, onReplyAnnotation }
     [annotations],
   );
 
+  // Estimate the minimum height needed to show all annotations without clipping
+  const minHeight = useMemo(() => {
+    if (sorted.length === 0) return undefined;
+    // Compute ideal tops with overlap prevention (using estimated card height)
+    const idealTops = sorted.map(a => computeAnnotationTop(a.line, lineToRow));
+    const ESTIMATED_CARD_HEIGHT = 140;
+    let cursor = 0;
+    let lastBottom = 0;
+    for (let i = 0; i < idealTops.length; i++) {
+      const top = Math.max(idealTops[i], cursor);
+      lastBottom = top + ESTIMATED_CARD_HEIGHT;
+      cursor = lastBottom + MIN_GAP_PX;
+    }
+    return lastBottom + 16; // 16px bottom padding
+  }, [sorted, lineToRow]);
+
   return (
-    <div className="relative">
+    <div className="relative" style={{ minHeight }}>
       {/* Narrative in normal flow */}
       <div className="p-4 pb-2">
         <p className="font-body text-[12.5px] leading-[1.75] text-text-secondary">
@@ -88,6 +104,21 @@ function PositionedAnnotations({ annotations, lineToRow, onReplyAnnotation }: Po
     }
     return resolved;
   }, [annotations, lineToRow, cardHeights]);
+
+  // Set the parent NlFilePanel's min-height based on actual measured positions
+  const totalHeight = useMemo(() => {
+    if (tops.length === 0) return 0;
+    const lastIdx = tops.length - 1;
+    const lastCardH = cardHeights[lastIdx] ?? 120;
+    return tops[lastIdx] + lastCardH + 16;
+  }, [tops, cardHeights]);
+
+  useEffect(() => {
+    const parent = containerRef.current?.parentElement;
+    if (parent && totalHeight > 0) {
+      parent.style.minHeight = `${totalHeight}px`;
+    }
+  }, [totalHeight]);
 
   return (
     <div ref={containerRef} className="absolute inset-x-0 top-0 px-3">
