@@ -1,8 +1,9 @@
 /** Right rail review chat: loads transcript on mount, posts new turns, and renders
- *  user/assistant pairs with an optional annotation attachment chip on the composer. */
+ *  user/assistant pairs with an optional annotation attachment chip on the composer.
+ *  While a turn is pending, shows a compact live activity transcript inline. */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUp, ChevronDown, ChevronRight, X } from "lucide-react";
 import {
   fetchReviewChat,
   sendReviewChatMessage,
@@ -10,7 +11,11 @@ import {
 import { cn, filenameTail } from "@dashboard/lib/utils";
 import { Markdown } from "@dashboard/components/Markdown";
 import { UnicodeSpinner } from "@dashboard/components/UnicodeSpinner";
+import { LogViewer } from "@dashboard/components/log-viewer";
+import { dedupeById } from "@dashboard/components/log-viewer/helpers";
+import { useLiveSession } from "@dashboard/hooks/use-live-session";
 import { useElapsedSeconds } from "@dashboard/hooks/use-elapsed-seconds";
+import type { FileEntry, SessionMessageEntry } from "@dashboard/lib/api";
 import type {
   PrReviewAnnotation,
   PrSessionMode,
@@ -40,8 +45,24 @@ export function ReviewChat({
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [turnStartedAt, setTurnStartedAt] = useState<string | null>(null);
+  const [activityCollapsed, setActivityCollapsed] = useState(false);
 
   const available = mode === "review" && unavailableReason === null;
+
+  // --- Live session streaming ---
+
+  const liveEntries = useLiveSession({
+    match: (event) =>
+      event.type === "session_entry" && event.scope === "pr_session" && event.id === sessionId
+        ? { key: sessionId, entry: event.entry }
+        : null,
+  });
+
+  const currentTurnEntries = useMemo(
+    () => filterCurrentTurnActivity(liveEntries.get(sessionId) ?? [], turnStartedAt),
+    [liveEntries, sessionId, turnStartedAt],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -73,6 +94,8 @@ export function ReviewChat({
     setMessages((prev) => [...prev, optimisticUser]);
     setInput("");
     onClearAnnotation();
+    setTurnStartedAt(new Date().toISOString());
+    setActivityCollapsed(false);
     setPending(true);
 
     try {
@@ -95,12 +118,20 @@ export function ReviewChat({
       ]);
     } finally {
       setPending(false);
+      setActivityCollapsed(true);
     }
   }, [input, pending, available, attachedAnnotation, sessionId, activeFile, onClearAnnotation, onChanged]);
 
   return (
     <div className="flex h-full flex-col">
-      <ChatBody messages={messages} pending={pending} unavailableReason={unavailableReason} />
+      <ChatBody
+        messages={messages}
+        pending={pending}
+        unavailableReason={unavailableReason}
+        activityEntries={currentTurnEntries}
+        activityCollapsed={activityCollapsed}
+        onToggleActivity={() => setActivityCollapsed((v) => !v)}
+      />
       <Composer
         input={input}
         onInput={setInput}
@@ -119,9 +150,12 @@ interface ChatBodyProps {
   messages: ReviewChatMessage[];
   pending: boolean;
   unavailableReason: string | null;
+  activityEntries: FileEntry[];
+  activityCollapsed: boolean;
+  onToggleActivity: () => void;
 }
 
-function ChatBody({ messages, pending, unavailableReason }: ChatBodyProps) {
+function ChatBody({ messages, pending, unavailableReason, activityEntries, activityCollapsed, onToggleActivity }: ChatBodyProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -156,7 +190,14 @@ function ChatBody({ messages, pending, unavailableReason }: ChatBodyProps) {
       className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pb-4 pt-4 scroll-smooth"
     >
       {messages.map((m) => <Message key={m.id} message={m} />)}
-      {pending && <WorkerBubble />}
+      {(pending || activityEntries.length > 0) && (
+        <ActivityPanel
+          entries={activityEntries}
+          pending={pending}
+          collapsed={activityCollapsed}
+          onToggle={onToggleActivity}
+        />
+      )}
     </div>
   );
 }
@@ -202,6 +243,57 @@ function WorkerBubble() {
       <span className="font-mono text-[10px] text-text-secondary">
         {verb}… · {seconds}s
       </span>
+    </div>
+  );
+}
+
+// --- Activity Panel ---
+
+interface ActivityPanelProps {
+  entries: FileEntry[];
+  pending: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
+}
+
+function ActivityPanel({ entries, pending, collapsed, onToggle }: ActivityPanelProps) {
+  if (entries.length === 0 && pending) return <WorkerBubble />;
+
+  return (
+    <div className="rounded-lg border border-glass-border bg-bg-raised/70 transition-all duration-300 animate-fade-up">
+      <button
+        type="button"
+        onClick={onToggle}
+        className={cn(
+          "flex w-full items-center gap-2 px-3 py-2 text-left font-mono text-[10px] transition-colors",
+          "text-text-secondary hover:text-text",
+        )}
+      >
+        {pending ? (
+          <UnicodeSpinner name="sparkle" className="text-[12px] text-accent" />
+        ) : collapsed ? (
+          <ChevronRight className="h-3 w-3 text-text-ghost" />
+        ) : (
+          <ChevronDown className="h-3 w-3 text-text-ghost" />
+        )}
+        <span className={cn(pending && "text-accent")}>
+          {pending ? "working" : "view run details"}
+        </span>
+        <span className="ml-auto tabular-nums text-text-ghost">
+          {entries.length} {entries.length === 1 ? "event" : "events"}
+        </span>
+      </button>
+
+      {!collapsed && (
+        <div className="border-t border-glass-border/60 p-2 animate-fade-up">
+          <LogViewer
+            entries={entries}
+            maxHeight="260px"
+            autoScroll={pending}
+            className="border border-glass-border/40"
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -327,4 +419,22 @@ function optimisticUserMessage(message: string, annotation: PrReviewAnnotation |
     parts,
     createdAt: new Date().toISOString(),
   };
+}
+
+/** Filter entries to only those from the current turn, hiding the generated user prompt. */
+function filterCurrentTurnActivity(entries: FileEntry[], turnStartedAt: string | null): FileEntry[] {
+  if (!turnStartedAt) return [];
+  const started = new Date(turnStartedAt).getTime();
+  return dedupeById(entries)
+    .filter((entry) => isVisibleActivityEntry(entry))
+    .filter((entry) => {
+      if (!("timestamp" in entry) || typeof entry.timestamp !== "string") return true;
+      return new Date(entry.timestamp).getTime() >= started;
+    });
+}
+
+/** Hide the huge generated user prompt — only show tool/assistant activity. */
+function isVisibleActivityEntry(entry: FileEntry): boolean {
+  if (entry.type !== "message") return true;
+  return (entry as SessionMessageEntry).message.role !== "user";
 }
