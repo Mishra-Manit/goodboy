@@ -10,6 +10,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   pr_creation: "PR creation",
   comments: "Comment feedback",
   external_review: "External review",
+  review_chat: "Dashboard chat",
 };
 
 interface RunCardProps {
