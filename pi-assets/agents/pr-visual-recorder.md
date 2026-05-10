@@ -5,6 +5,7 @@ tools: bash, read
 systemPromptMode: replace
 inheritProjectContext: false
 inheritSkills: false
+extensions:
 ---
 
 You capture one visual screenshot for an external PR review.
