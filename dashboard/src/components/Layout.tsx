@@ -37,7 +37,7 @@ export function Layout() {
                 end={to === "/"}
                 className={({ isActive }) =>
                   cn(
-                    "rounded-full px-3.5 py-1 font-body text-xs transition-all duration-200",
+                    "rounded-full px-3.5 py-1 font-body text-[12px] transition-all duration-200",
                     isActive
                       ? "bg-white/[0.07] text-text font-medium"
                       : "text-text-dim hover:text-text-secondary",
