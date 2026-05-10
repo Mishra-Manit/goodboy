@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Check, FileCode, FileText } from "lucide-react";
 import { cn } from "@dashboard/lib/utils";
 import type { PrReviewAnnotation, PrReviewChapter, PrReviewVisualSnapshot } from "@dashboard/shared";
+import { Markdown } from "@dashboard/components/Markdown";
 import { FileDiff } from "./FileDiff";
 import { NlFilePanel } from "./NlFilePanel";
 
@@ -100,13 +101,15 @@ function OverallSummary({
           <span className="text-red-400">-{deletions}</span>
         </div>
       </div>
-      <p className="font-body text-[12.5px] leading-[1.75] text-text-secondary">{summary}</p>
+      <Markdown content={summary} className="text-[12.5px]" />
       <VisualSnapshotBlock snapshot={visualSnapshot} />
     </section>
   );
 }
 
 function VisualSnapshotBlock({ snapshot }: { snapshot: PrReviewVisualSnapshot }) {
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
   if (snapshot.type === "skipped") return null;
 
   if (snapshot.type === "failed") {
@@ -118,15 +121,62 @@ function VisualSnapshotBlock({ snapshot }: { snapshot: PrReviewVisualSnapshot })
   }
 
   return (
-    <div className="mt-4 grid gap-3">
-      {snapshot.assets.map((asset) => (
-        <figure key={asset.url} className="max-w-[260px] overflow-hidden rounded-lg border border-border-subtle bg-glass">
-          <img src={asset.url} alt={asset.label} className="h-auto w-full object-contain" />
-          <figcaption className="border-t border-border-subtle px-3 py-2 font-mono text-[10px] text-text-ghost">
-            {asset.label}
-          </figcaption>
-        </figure>
-      ))}
+    <>
+      <div className="mt-4 grid gap-3">
+        {snapshot.assets.map((asset) => (
+          <figure
+            key={asset.url}
+            className="max-w-[480px] cursor-pointer overflow-hidden rounded-lg border border-border-subtle bg-glass transition-[border-color,box-shadow] duration-200 hover:border-accent-dim hover:shadow-[0_0_16px_rgba(255,255,255,0.04)]"
+            onClick={() => setLightboxUrl(asset.url)}
+          >
+            <img src={asset.url} alt={asset.label} className="h-auto w-full object-contain" />
+            <figcaption className="border-t border-border-subtle px-3 py-2 font-mono text-[10px] text-text-ghost">
+              {asset.label}
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+
+      {lightboxUrl && (
+        <ImageLightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
+      )}
+    </>
+  );
+}
+
+// --- Image Lightbox ---
+
+function ImageLightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    // Trigger enter animation on next frame
+    requestAnimationFrame(() => setVisible(true));
+
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className={cn(
+        "fixed inset-0 z-[9999] flex items-center justify-center p-6 transition-all duration-200",
+        visible ? "bg-black/80 backdrop-blur-sm" : "bg-black/0 backdrop-blur-0",
+      )}
+      onClick={onClose}
+    >
+      <img
+        src={url}
+        alt="Enlarged screenshot"
+        onClick={(e) => e.stopPropagation()}
+        className={cn(
+          "max-h-[85vh] max-w-[90vw] rounded-xl border border-border-subtle shadow-2xl transition-all duration-200",
+          visible ? "scale-100 opacity-100" : "scale-95 opacity-0",
+        )}
+      />
     </div>
   );
 }
@@ -264,35 +314,37 @@ function FileCard({
         <Icon className="h-3.5 w-3.5 shrink-0 text-text-ghost" strokeWidth={1.5} />
         <span className="min-w-0 truncate font-mono text-[12px] text-text">{filePath}</span>
 
-        {/* Right side: viewed badge + stats */}
-        <span className="ml-auto flex shrink-0 items-center gap-2">
-          {isViewed && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onToggleViewed(filePath); }}
-              className="flex items-center gap-1 rounded-full bg-accent-ghost px-1.5 py-0.5 font-mono text-[9px] text-accent/80 transition-colors hover:text-accent"
-              title="Mark as unviewed"
-            >
-              <Check size={8} />
-              viewed
-            </button>
-          )}
-          {!isViewed && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onToggleViewed(filePath); }}
-              className="rounded-full px-1.5 py-0.5 font-mono text-[9px] text-text-void transition-colors hover:bg-glass hover:text-text-ghost"
-              title="Mark as viewed"
-            >
-              mark viewed
-            </button>
-          )}
+        {/* Right side: viewed checkbox + stats */}
+        <span className="ml-auto flex shrink-0 items-center gap-3">
           {stats && (
             <span className="font-mono text-[10px] tabular-nums">
               <span className="text-green-400">+{stats.adds}</span>{" "}
               <span className="text-red-400">−{stats.dels}</span>
             </span>
           )}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleViewed(filePath); }}
+            className="group/check flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border transition-all duration-200"
+            style={{
+              borderColor: isViewed ? 'var(--color-accent)' : 'rgba(255, 255, 255, 0.25)',
+              backgroundColor: isViewed ? 'var(--color-accent-ghost)' : 'rgba(255, 255, 255, 0.04)',
+              boxShadow: isViewed ? '0 0 8px var(--color-accent-ghost)' : 'none',
+            }}
+            title={isViewed ? "Mark as unviewed" : "Mark as viewed"}
+            aria-label={isViewed ? "Mark as unviewed" : "Mark as viewed"}
+          >
+            <Check
+              size={11}
+              strokeWidth={2.5}
+              className={cn(
+                "transition-all duration-200",
+                isViewed
+                  ? "scale-100 text-accent opacity-100"
+                  : "scale-0 text-text-ghost opacity-0 group-hover/check:scale-75 group-hover/check:opacity-40",
+              )}
+            />
+          </button>
         </span>
       </div>
 
@@ -422,7 +474,7 @@ function ResizableFileContent({
       className="relative flex border-t border-glass-border bg-bg-raised"
     >
       {/* NL panel */}
-      <div style={{ width: leftPercent }} className="min-w-0 shrink-0 overflow-hidden">
+      <div style={{ width: leftPercent }} className="min-w-0 shrink-0 overflow-x-hidden">
         <NlFilePanel
           narrative={narrative}
           annotations={annotations}

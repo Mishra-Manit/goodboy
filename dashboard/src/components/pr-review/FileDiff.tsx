@@ -33,7 +33,11 @@ export function FileDiff({ filePath, patch, diffStyle }: FileDiffProps) {
 
   return (
     <section className="overflow-hidden bg-bg-raised">
-      <PatchDiff patch={patch} options={options} />
+      <PatchDiff
+        patch={patch}
+        options={options}
+        style={{ "--diffs-font-size": "11.5px" } as React.CSSProperties}
+      />
     </section>
   );
 }
