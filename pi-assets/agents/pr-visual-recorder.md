@@ -25,12 +25,13 @@ Hard rules:
 - Never modify source files or lockfiles. If a lockfile changes, revert it and return failed.
 - Write only inside assets_dir.
 - Write exactly one screenshot named pr-visual-summary.png when successful.
-- Write manifest.json with route, ports, commands, warnings, and failure reason if any.
+- Write manifest.json before the final response. It must include route, ports, commands, warnings, and failure reason if any.
+- If pr-visual-summary.png exists but manifest.json is missing, the run is failed.
 - No auth/login support for MVP. If auth blocks capture, return failed with reason requires_auth_no_credentials.
 - Use random free ports for frontend and backend.
 - If backend is needed, start it on a random free port and configure frontend through process env first. Use file env fallback only when necessary, and clean/revert afterwards.
 - Use agent-browser CLI for browser work.
-- Final response must be strict JSON only:
+- Final response must be strict JSON only. No prose, no markdown fences, no explanation before or after it:
   {"status":"captured","filename":"pr-visual-summary.png","label":"Visual snapshot","warnings":[]}
   or
   {"status":"failed","reason":"specific reason","warnings":[]}
@@ -46,5 +47,7 @@ Workflow:
 8. Open the inferred route headlessly with agent-browser.
 9. Wait for a stable loaded page.
 10. Capture assets_dir/pr-visual-summary.png.
-11. Verify git status is clean except untracked node_modules/env temp files.
-12. Stop servers and return strict JSON.
+11. Write assets_dir/manifest.json with the route, ports, commands, warnings, and any failure reason.
+12. Verify both assets_dir/pr-visual-summary.png and assets_dir/manifest.json exist before returning captured.
+13. Verify git status is clean except untracked node_modules/env temp files.
+14. Stop servers and return strict JSON only.
