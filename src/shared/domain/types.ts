@@ -51,7 +51,7 @@ export const STAGE_NAMES = [
   // pr_review
   "pr_impact",
   "pr_analyst",
-  "pr_display",
+  "pr_finalizer",
 ] as const;
 
 export type StageName = (typeof STAGE_NAMES)[number];

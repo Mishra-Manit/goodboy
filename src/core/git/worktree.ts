@@ -5,7 +5,7 @@
  * assets staged into `.pi/` for project-scoped agents.
  */
 
-import { readFile, rm, stat } from "node:fs/promises";
+import { copyFile, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { createLogger } from "../../shared/runtime/logger.js";
 import { z } from "zod";
@@ -19,6 +19,7 @@ const log = createLogger("worktree");
 const BRANCH_SLUG_MAX_LEN = 50;
 const BRANCH_SLUG_RETRIES = 3;
 const ROOT_AGENTS_PATH = "AGENTS.md";
+const ENV_FILES_TO_COPY = [".env", ".env.local"] as const;
 const slugSchema = z.object({
   slug: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+){1,5}$/, "must be 2-6 lowercase kebab-case words"),
 });
@@ -178,6 +179,21 @@ async function addPrWorktree(repoPath: string, headRef: string, dir: string): Pr
   await exec("git", ["worktree", "add", dir, headRef], { cwd: repoPath });
   log.info(`Created PR worktree at ${dir} on branch ${headRef}`);
   await stageSubagentAssets(dir);
+  await copyEnvFilesToWorktree(repoPath, dir);
+}
+
+async function copyEnvFilesToWorktree(repoPath: string, worktreePath: string): Promise<void> {
+  for (const filename of ENV_FILES_TO_COPY) {
+    const source = path.join(repoPath, filename);
+    const target = path.join(worktreePath, filename);
+    try {
+      await copyFile(source, target);
+      log.info(`Copied ${filename} into PR worktree ${worktreePath}`);
+    } catch (err) {
+      if (err instanceof Error && "code" in err && err.code === "ENOENT") continue;
+      log.warn(`Skipped copying ${filename} into PR worktree ${worktreePath}`, err);
+    }
+  }
 }
 
 /**

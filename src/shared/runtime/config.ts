@@ -41,7 +41,8 @@ const envSchema = z.object({
   PI_MODEL_MEMORY: z.string().optional(),
   PI_MODEL_PR_IMPACT: z.string().optional(),
   PI_MODEL_PR_ANALYST: z.string().optional(),
-  PI_MODEL_PR_DISPLAY: z.string().optional(),
+  PI_MODEL_PR_FINALIZER: z.string().optional(),
+  PUBLIC_ASSET_BASE_URL: z.string().url().optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(3333),
   HOST: z.string().default("0.0.0.0"),
 

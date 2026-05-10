@@ -102,13 +102,13 @@ describe("loadEnv — caching", () => {
 describe("resolveModel", () => {
   it("returns the stage-specific override when present", () => {
     process.env.PI_MODEL = "openai/default";
-    process.env.PI_MODEL_PR_DISPLAY = "openai/display";
-    expect(resolveModel("PI_MODEL_PR_DISPLAY")).toBe("openai/display");
+    process.env.PI_MODEL_PR_FINALIZER = "openai/display";
+    expect(resolveModel("PI_MODEL_PR_FINALIZER")).toBe("openai/display");
   });
 
   it("falls back to PI_MODEL when the stage override is missing", () => {
     process.env.PI_MODEL = "openai/default";
-    delete process.env.PI_MODEL_PR_DISPLAY;
-    expect(resolveModel("PI_MODEL_PR_DISPLAY")).toBe("openai/default");
+    delete process.env.PI_MODEL_PR_FINALIZER;
+    expect(resolveModel("PI_MODEL_PR_FINALIZER")).toBe("openai/default");
   });
 });

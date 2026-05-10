@@ -20,6 +20,7 @@ describe("prReviewOutputs", () => {
     expect(prReviewOutputs.updatedDiff.resolve(base, undefined).path).toBe(path.join(base, "pr.updated.diff"));
     expect(prReviewOutputs.reviewPlan.resolve(base, undefined).path).toBe(path.join(base, "review-plan.json"));
     expect(prReviewOutputs.summary.resolve(base, undefined).path).toBe(path.join(base, "summary.md"));
+    expect(prReviewOutputs.finalComment.resolve(base, undefined).path).toBe(path.join(base, "final-comment.md"));
     expect(prReviewOutputs.review.resolve(base, undefined).path).toBe(path.join(base, "review.json"));
     expect(prReviewReportsDir(base)).toBe(path.join(base, PR_REVIEW_REPORTS_DIR));
   });

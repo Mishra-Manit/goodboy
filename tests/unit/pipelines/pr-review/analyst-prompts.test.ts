@@ -23,9 +23,10 @@ describe("prAnalystSystemPrompt", () => {
     expect(prompt).toContain("stale docstrings, comments, CLI banners, help text, or docs");
   });
 
-  it("embeds the concrete gh pr comment command", () => {
-    expect(prompt).toContain("gh pr comment 42 --repo acme/widgets");
-    expect(prompt).toContain("--body-file /tmp/artifacts/task-123/summary.md");
+  it("keeps public comment posting owned by the finalizer", () => {
+    expect(prompt).toContain("Do not post a GitHub comment");
+    expect(prompt).toContain("pr_finalizer owns the public comment");
+    expect(prompt).not.toContain("gh pr comment 42 --repo acme/widgets");
   });
 
   it("tells the analyst to git push origin <headRef>", () => {
@@ -58,12 +59,11 @@ describe("prAnalystSystemPrompt", () => {
     expect(prompt).toContain("Do not inflate severity for stale docs");
   });
 
-  it("requires a short, readable markdown comment with color indicators", () => {
-    expect(prompt).toContain("SHORT, clean GitHub markdown comment");
-    expect(prompt).toContain("Conversational, calm, easy to scan");
-    expect(prompt).toContain("🔴 blocker, 🟠 major, 🟡 minor, 🔵 nit");
-    expect(prompt).toContain("## Needs author action");
-    expect(prompt).toContain("## Follow-ups");
+  it("requires factual review material for the finalizer", () => {
+    expect(prompt).toContain("factual review material for the finalizer");
+    expect(prompt).toContain("Include verdict, pushed commits/SHAs");
+    expect(prompt).toContain("needs-author-action findings");
+    expect(prompt).toContain("Do not optimize for visual presentation");
   });
 
   it("names successful impact variants as primary context", () => {

@@ -7,8 +7,8 @@
  *     -> createPrWorktree    (checked out on the real head branch)
  *     -> fetch diff via git diff inside worktree (respects PR_DIFF_CONTEXT_LINES)
  *     -> runImpactAnalyzers  (stage 2, soft-fail; produces pr-impact.vN.md)
- *     -> runPrAnalyst        (stage 3, fans out subagents, commits, comments)
- *     -> runPrDisplay        (stage 4, writes dashboard review.json; soft-fail)
+ *     -> runPrAnalyst        (stage 3, fans out subagents, commits fixes, writes raw material)
+ *     -> runPrFinalizer      (stage 4, captures optional visual asset, posts comment, writes review.json)
  */
 
 import { writeFile } from "node:fs/promises";
@@ -18,7 +18,7 @@ import { createPrWorktree, removeWorktree, worktreeExists } from "../../core/git
 import { getPrMetadata, getPrDiff, parsePrIdentifier } from "../../core/git/github.js";
 import { runImpactAnalyzers } from "./stages/impact-analyzer.js";
 import { runPrAnalyst } from "./stages/analyst.js";
-import { runPrDisplay } from "./stages/display.js";
+import { runPrFinalizer } from "./stages/finalizer.js";
 import { handoffExternalReview } from "../pr-session/session.js";
 import { failTask, clearActiveSession, completeTask, type SendTelegram } from "../../core/stage.js";
 import * as queries from "../../db/repository.js";
@@ -173,18 +173,18 @@ async function runPrReviewInner(
       reviewerFeedback,
     });
 
-    // Snapshot post-analyst PR state so pr_display renders the actual reviewed diff.
+    // Snapshot post-analyst PR state so pr_finalizer renders the actual reviewed diff.
     try {
       const updatedMetadata = await getPrMetadata(nwo, prNumber);
       const updatedDiff = await getPrDiff(worktreePath, baseRef);
       await writeFile(paths.updatedContext, JSON.stringify(updatedMetadata, null, 2));
       await writeFile(paths.updatedDiff, updatedDiff);
     } catch (err) {
-      log.warn(`Failed to re-fetch PR state for ${taskId}; pr_display will likely be unavailable`, err);
+      log.warn(`Failed to re-fetch PR state for ${taskId}; pr_finalizer will likely fail`, err);
     }
 
-    // Stage 4: pr_display. Soft-fail; GitHub summary and PR session still proceed.
-    await runPrDisplay({
+    // Stage 4: pr_finalizer. Required; posts GitHub comment and writes dashboard model.
+    await runPrFinalizer({
       taskId,
       repo: task.repo,
       nwo,

@@ -41,6 +41,7 @@ export type {
   PrReviewFile,
   PrReviewPageDto,
   PrReviewRunDto,
+  PrReviewVisualSnapshot,
   PrReviewSessionDto,
   TaskPrReviewPageDto,
   ReviewChatMessage,

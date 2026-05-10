@@ -10,6 +10,7 @@ import { registerEventRoutes } from "./routes/events.js";
 import { registerMemoryRoutes } from "./routes/memory.js";
 import { registerPrReviewRoutes } from "./routes/pr-reviews.js";
 import { registerPrSessionRoutes } from "./routes/pr-sessions.js";
+import { registerReviewAssetRoutes } from "./routes/review-assets.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
 
 /** Build the Hono app. Returned once and mounted by `src/index.ts`. */
@@ -22,6 +23,7 @@ export function createApi(): Hono {
   registerMemoryRoutes(app);
   registerPrReviewRoutes(app);
   registerPrSessionRoutes(app);
+  registerReviewAssetRoutes(app);
   registerEventRoutes(app);
 
   return app;

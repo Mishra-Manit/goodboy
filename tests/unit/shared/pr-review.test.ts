@@ -5,6 +5,7 @@ const validArtifact: PrReviewArtifact = {
   prTitle: "Add review page",
   headSha: "abc123456789",
   summary: "This review explains the PR.",
+  visualSnapshot: { type: "skipped", reason: "no_frontend_changes" },
   chapters: [
     {
       id: "main-change",
