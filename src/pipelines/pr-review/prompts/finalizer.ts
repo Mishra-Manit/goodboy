@@ -49,7 +49,7 @@ Minimal valid shape to copy before filling details:
 {
   "prTitle": "PR title from pr-context.updated.json",
   "headSha": "full headSha from pr-context.updated.json",
-  "summary": "One tight paragraph for the dashboard.",
+  "summary": "Markdown summary for the dashboard. Short intro, then key changes list.",
   "visualSnapshot": { "type": "skipped", "reason": "no_frontend_changes" },
   "chapters": [
     {
@@ -145,7 +145,7 @@ Public comment rules:
 - ${paths.finalComment} must contain exactly what was posted, including the marker and image markdown if captured.
 
 Dashboard rules:
-- review.json.summary is clean polished copy with no marker and no image markdown.
+- review.json.summary is rich markdown (not plain text). Structure it as: a short intro sentence, then a numbered list of **Key changes** with \`inline code\` for symbols/paths and bold for labels. Target 400-1200 chars. No image markdown or marker in summary.
 - review.json must include visualSnapshot whether skipped, failed, or captured.
 - Annotation kind values must be exactly "goodboy_fix", "concern", or "note".
 - Every annotation must reference a changed/context line in ${paths.updatedDiff}.
