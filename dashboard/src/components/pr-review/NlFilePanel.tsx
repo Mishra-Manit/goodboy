@@ -1,6 +1,6 @@
 /** Left panel of the 2-panel file view. Narrative prose + annotation cards positioned near their target lines. */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PrReviewAnnotation } from "@dashboard/shared";
 import { AnnotationCard } from "./AnnotationCard";
 
@@ -35,39 +35,84 @@ export function NlFilePanel({ narrative, annotations, patch, onReplyAnnotation }
           {narrative}
         </p>
       </div>
-      {/* Annotations absolutely positioned to align with code lines */}
+      {/* Annotations positioned to align with code lines, stacked to avoid overlap */}
       {sorted.length > 0 && (
-        <div className="absolute inset-x-0 top-0 px-3">
-          {sorted.map((annotation, index) => {
-            const top = computeAnnotationTop(annotation.line, lineToRow);
-            return (
-              <div
-                key={`${annotation.filePath}:${annotation.line}:${index}`}
-                className="absolute left-3 right-3"
-                style={{ top }}
-              >
-                <AnnotationCard annotation={annotation} onReply={onReplyAnnotation} />
-              </div>
-            );
-          })}
-        </div>
+        <PositionedAnnotations
+          annotations={sorted}
+          lineToRow={lineToRow}
+          onReplyAnnotation={onReplyAnnotation}
+        />
       )}
     </div>
   );
 }
 
-// --- Positioning ---
+// --- Positioned Annotations ---
 
-function computeAnnotationTop(line: number, lineToRow: Map<number, number>): number {
+/** Minimum gap between stacked annotation cards. */
+const MIN_GAP_PX = 8;
+
+interface PositionedAnnotationsProps {
+  annotations: PrReviewAnnotation[];
+  lineToRow: Map<number, RowEntry>;
+  onReplyAnnotation: (annotation: PrReviewAnnotation) => void;
+}
+
+function PositionedAnnotations({ annotations, lineToRow, onReplyAnnotation }: PositionedAnnotationsProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [cardHeights, setCardHeights] = useState<number[]>([]);
+
+  // Measure card heights after render
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const cards = containerRef.current.querySelectorAll(':scope > div');
+    const heights = Array.from(cards).map(el => (el as HTMLElement).offsetHeight);
+    setCardHeights(prev => {
+      if (prev.length === heights.length && prev.every((h, i) => h === heights[i])) return prev;
+      return heights;
+    });
+  });
+
+  // Compute top positions with overlap prevention
+  const tops = useMemo(() => {
+    const idealTops = annotations.map(a => computeAnnotationTop(a.line, lineToRow));
+    const resolved: number[] = [];
+    let cursor = 0;
+
+    for (let i = 0; i < idealTops.length; i++) {
+      const ideal = idealTops[i];
+      const top = Math.max(ideal, cursor);
+      resolved.push(top);
+      const cardH = cardHeights[i] ?? 120;
+      cursor = top + cardH + MIN_GAP_PX;
+    }
+    return resolved;
+  }, [annotations, lineToRow, cardHeights]);
+
+  return (
+    <div ref={containerRef} className="absolute inset-x-0 top-0 px-3">
+      {annotations.map((annotation, index) => (
+        <div
+          key={`${annotation.filePath}:${annotation.line}:${index}`}
+          className="absolute left-3 right-3"
+          style={{ top: tops[index] ?? 0 }}
+        >
+          <AnnotationCard annotation={annotation} onReply={onReplyAnnotation} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function computeAnnotationTop(line: number, lineToRow: Map<number, RowEntry>): number {
   const entry = lineToRow.get(line);
   if (entry != null) {
     return DIFF_TOP_PADDING_PX + entry.px;
   }
-  // Line not directly in patch — find nearest preceding visible line
   return findNearestTop(line, lineToRow);
 }
 
-function findNearestTop(targetLine: number, lineToRow: Map<number, number>): number {
+function findNearestTop(targetLine: number, lineToRow: Map<number, RowEntry>): number {
   let bestLine = 0;
   let bestPx = 0;
   for (const [line, { px }] of lineToRow) {
