@@ -17,25 +17,17 @@ const CHAT_ID = "goodboy-e2e";
 const POLL_MS = 2_000;
 const ARTIFACTS_DIR = path.resolve("artifacts");
 
-export const OWNED_PROMPT = process.env.E2E_PROMPT ?? `Feature: Filter Advisor — Automated Filter Discovery and Performance Attribution
+export const OWNED_PROMPT = process.env.E2E_PROMPT ?? `Make a small frontend-only change in the pantheon project so Goodboy can create an owned PR and then review it visually.
 
-A new agent pipeline that closes the loop between trade outcomes and Scout's discovery criteria.
+Change request:
+- Find an existing dashboard, landing, or shared frontend component.
+- Add a subtle visible polish change: a short helper line, small badge, microcopy tweak, or minor styling improvement.
+- Keep the change low-risk and scoped to one or two frontend files.
+- Do not add a new route, backend endpoint, database schema, dependency, or auth behavior.
+- Use the existing styling system and project conventions.
+- Run the relevant build/check command if available.
 
-What it does:
-
-1. Attribution engine — queries closed_positions, trade_closes, and opportunities to compute per-prefix stats: win rate, average PnL, average hold time, entry price distribution, and sample size. Groups by event prefix (same bucketing as filters.py).
-2. FilterAdvisor agent — takes the attribution report + current learnings + current filters.py rules and produces structured proposals: new safe prefixes to add, existing ones to downgrade to price-gated, and price thresholds to tighten/loosen based on empirical data.
-3. filter_proposals table — stores proposed changes with supporting stats, status (pending / approved / rejected), and a confidence score. Nothing auto-applies without a threshold.
-4. Auto-apply path — when a proposal hits a configurable confidence gate (e.g., 15+ events, 90%+ win rate), it can optionally be applied directly to a dynamic_filters DB table that Scout reads alongside the static filters.py. Static file remains the safety backstop.
-5. CLI command — python -m coliseum filter-advisor runs attribution and the agent on demand; daemon can trigger it every N cycles after Scribe runs.
-6. Dashboard endpoint — /api/filter-proposals and /api/performance-attribution for visibility into what the system is learning about its own alpha sources.
-
-Dashboard requirements:
-- Create frontend/components/chart/filter-attribution-panel.tsx.
-- Render <FilterAttributionPanel /> directly below <WinRatePanel /> in frontend/app/chart/page.tsx.
-- Do not create a new route or navbar item.
-
-build this for the pantheon project`;
+The goal is a random but real frontend diff that is easy for the PR review visual recorder to load and screenshot.`;
 
 interface Task {
   id: string;
