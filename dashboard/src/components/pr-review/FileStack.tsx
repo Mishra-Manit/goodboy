@@ -32,7 +32,7 @@ export function FileStack({
 }: FileStackProps) {
   return (
     <div className="flex flex-col gap-6">
-      <OverallSummary summary={summary} />
+      <OverallSummary summary={summary} patchByFile={patchByFile} />
       {chapters.map((chapter) => (
         <ChapterSection
           key={chapter.id}
@@ -52,12 +52,32 @@ export function FileStack({
 
 // --- Overall Summary ---
 
-function OverallSummary({ summary }: { summary: string }) {
+function computeDiffStats(patchByFile: Map<string, string>) {
+  let additions = 0;
+  let deletions = 0;
+  for (const patch of patchByFile.values()) {
+    for (const line of patch.split("\n")) {
+      if (line.startsWith("+") && !line.startsWith("+++")) additions++;
+      else if (line.startsWith("-") && !line.startsWith("---")) deletions++;
+    }
+  }
+  return { additions, deletions, filesChanged: patchByFile.size };
+}
+
+function OverallSummary({ summary, patchByFile }: { summary: string; patchByFile: Map<string, string> }) {
+  const { additions, deletions, filesChanged } = computeDiffStats(patchByFile);
   return (
     <section className="rounded-xl border border-accent-dim bg-bg px-5 py-4">
-      <h2 className="mb-2 font-display text-[15px] font-medium text-text">
-        Overall PR diff
-      </h2>
+      <div className="mb-2 flex items-center gap-3">
+        <h2 className="font-display text-[15px] font-medium text-text">
+          Overall PR diff
+        </h2>
+        <div className="flex items-center gap-2 font-mono text-[12px]">
+          <span className="text-text-secondary">{filesChanged} file{filesChanged !== 1 ? "s" : ""}</span>
+          <span className="text-green-400">+{additions}</span>
+          <span className="text-red-400">-{deletions}</span>
+        </div>
+      </div>
       <p className="font-body text-[12.5px] leading-[1.75] text-text-secondary">{summary}</p>
     </section>
   );
@@ -240,6 +260,7 @@ interface ResizableFileContentProps {
   onReplyAnnotation: (annotation: PrReviewAnnotation) => void;
 }
 
+
 function ResizableFileContent({
   narrative,
   annotations,
@@ -289,6 +310,7 @@ function ResizableFileContent({
         <NlFilePanel
           narrative={narrative}
           annotations={annotations}
+          patch={patch}
           onReplyAnnotation={onReplyAnnotation}
         />
       </div>
