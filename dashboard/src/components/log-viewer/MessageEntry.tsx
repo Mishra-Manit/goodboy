@@ -13,9 +13,10 @@ import { BashExecutionCard } from "./BashExecutionCard.js";
 interface MessageEntryProps {
   entry: SessionEntry;
   toolResults: Map<string, SessionMessageEntry>;
+  compact?: boolean;
 }
 
-export function MessageEntry({ entry, toolResults }: MessageEntryProps) {
+export function MessageEntry({ entry, toolResults, compact = false }: MessageEntryProps) {
   if (entry.type === "compaction") {
     return (
       <InfoRow ts={entry.timestamp}>
@@ -41,7 +42,7 @@ export function MessageEntry({ entry, toolResults }: MessageEntryProps) {
     case "user":
       return <UserBubble message={m} />;
     case "assistant":
-      return <AssistantTurn message={m} toolResults={toolResults} />;
+      return <AssistantTurn message={m} toolResults={toolResults} compact={compact} />;
     case "bashExecution":
       return <BashExecutionCard message={m} />;
     case "toolResult":

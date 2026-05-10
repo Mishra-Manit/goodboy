@@ -16,9 +16,11 @@ interface LogViewerProps {
   className?: string;
   autoScroll?: boolean;
   maxHeight?: string;
+  /** When true, assistant text blocks render as collapsed "text-output" labels. */
+  compact?: boolean;
 }
 
-export function LogViewer({ entries, className, autoScroll = true, maxHeight = "500px" }: LogViewerProps) {
+export function LogViewer({ entries, className, autoScroll = true, maxHeight = "500px", compact = false }: LogViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [userScrolled, setUserScrolled] = useState(false);
 
@@ -63,7 +65,7 @@ export function LogViewer({ entries, className, autoScroll = true, maxHeight = "
         style={{ maxHeight }}
       >
         {visible.map((entry) => (
-          <MessageEntry key={entry.id} entry={entry} toolResults={toolResults} />
+          <MessageEntry key={entry.id} entry={entry} toolResults={toolResults} compact={compact} />
         ))}
       </div>
 

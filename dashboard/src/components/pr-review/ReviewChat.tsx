@@ -265,7 +265,7 @@ function ActivityPanel({ entries, pending, collapsed, onToggle }: ActivityPanelP
         type="button"
         onClick={onToggle}
         className={cn(
-          "flex w-full items-center gap-2 px-3 py-2 text-left font-mono text-[10px] transition-colors",
+          "flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[10px] transition-colors",
           "text-text-secondary hover:text-text",
         )}
       >
@@ -285,12 +285,13 @@ function ActivityPanel({ entries, pending, collapsed, onToggle }: ActivityPanelP
       </button>
 
       {!collapsed && (
-        <div className="border-t border-glass-border/60 p-2 animate-fade-up">
+        <div className="border-t border-glass-border/60 px-2 py-1.5 animate-fade-up">
           <LogViewer
             entries={entries}
             maxHeight="260px"
             autoScroll={pending}
-            className="border border-glass-border/40"
+            compact
+            className=""
           />
         </div>
       )}
@@ -433,8 +434,10 @@ function filterCurrentTurnActivity(entries: FileEntry[], turnStartedAt: string |
     });
 }
 
-/** Hide the huge generated user prompt — only show tool/assistant activity. */
+/** Hide user prompts and standalone tool results. Show assistant text as a compact label. */
 function isVisibleActivityEntry(entry: FileEntry): boolean {
   if (entry.type !== "message") return true;
-  return (entry as SessionMessageEntry).message.role !== "user";
+  const role = (entry as SessionMessageEntry).message.role;
+  if (role === "user" || role === "toolResult") return false;
+  return true;
 }
