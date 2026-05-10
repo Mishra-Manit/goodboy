@@ -191,11 +191,7 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
           <FileTree
             chapters={run.chapters}
             activeFile={activeFile}
-            viewed={viewed}
-            collapsed={collapsed}
             onSelectFile={focusFile}
-            onToggleViewed={toggleViewed}
-            onToggleCollapse={toggleCollapse}
           />
         }
         center={
