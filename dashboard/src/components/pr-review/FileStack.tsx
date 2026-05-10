@@ -1,7 +1,7 @@
 /** Center scroll: overall summary, then for each chapter: group narrative header + 2-panel file cards. */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileCode, FileText } from "lucide-react";
+import { ChevronDown, ChevronRight, Check, FileCode, FileText } from "lucide-react";
 import { cn } from "@dashboard/lib/utils";
 import type { PrReviewAnnotation, PrReviewChapter, PrReviewVisualSnapshot } from "@dashboard/shared";
 import { FileDiff } from "./FileDiff";
@@ -14,10 +14,14 @@ interface FileStackProps {
   patchByFile: Map<string, string>;
   annotationsByFile: Map<string, PrReviewAnnotation[]>;
   activeFile: string | null;
+  viewed: Set<string>;
+  collapsed: Set<string>;
   diffStyle: "split" | "unified";
   fileRefs: React.MutableRefObject<Map<string, HTMLElement>>;
   onReplyAnnotation: (annotation: PrReviewAnnotation) => void;
   onSelectFile: (file: string) => void;
+  onToggleCollapse: (file: string) => void;
+  onToggleViewed: (file: string) => void;
 }
 
 export function FileStack({
@@ -27,10 +31,14 @@ export function FileStack({
   patchByFile,
   annotationsByFile,
   activeFile,
+  viewed,
+  collapsed,
   diffStyle,
   fileRefs,
   onReplyAnnotation,
   onSelectFile,
+  onToggleCollapse,
+  onToggleViewed,
 }: FileStackProps) {
   return (
     <div className="flex flex-col gap-6">
@@ -42,10 +50,14 @@ export function FileStack({
           patchByFile={patchByFile}
           annotationsByFile={annotationsByFile}
           activeFile={activeFile}
+          viewed={viewed}
+          collapsed={collapsed}
           diffStyle={diffStyle}
           fileRefs={fileRefs}
           onReplyAnnotation={onReplyAnnotation}
           onSelectFile={onSelectFile}
+          onToggleCollapse={onToggleCollapse}
+          onToggleViewed={onToggleViewed}
         />
       ))}
     </div>
@@ -126,10 +138,14 @@ interface ChapterSectionProps {
   patchByFile: Map<string, string>;
   annotationsByFile: Map<string, PrReviewAnnotation[]>;
   activeFile: string | null;
+  viewed: Set<string>;
+  collapsed: Set<string>;
   diffStyle: "split" | "unified";
   fileRefs: React.MutableRefObject<Map<string, HTMLElement>>;
   onReplyAnnotation: (annotation: PrReviewAnnotation) => void;
   onSelectFile: (file: string) => void;
+  onToggleCollapse: (file: string) => void;
+  onToggleViewed: (file: string) => void;
 }
 
 function ChapterSection({
@@ -137,10 +153,14 @@ function ChapterSection({
   patchByFile,
   annotationsByFile,
   activeFile,
+  viewed,
+  collapsed,
   diffStyle,
   fileRefs,
   onReplyAnnotation,
   onSelectFile,
+  onToggleCollapse,
+  onToggleViewed,
 }: ChapterSectionProps) {
   return (
     <div className="flex flex-col gap-3">
@@ -153,8 +173,12 @@ function ChapterSection({
           patch={patchByFile.get(file.path) ?? null}
           annotations={annotationsByFile.get(file.path) ?? []}
           active={file.path === activeFile}
+          isViewed={viewed.has(file.path)}
+          isCollapsed={collapsed.has(file.path)}
           diffStyle={diffStyle}
           onReplyAnnotation={onReplyAnnotation}
+          onToggleCollapse={onToggleCollapse}
+          onToggleViewed={onToggleViewed}
           registerRef={(el) => {
             if (el) fileRefs.current.set(file.path, el);
             else fileRefs.current.delete(file.path);
@@ -187,8 +211,12 @@ interface FileCardProps {
   patch: string | null;
   annotations: PrReviewAnnotation[];
   active: boolean;
+  isViewed: boolean;
+  isCollapsed: boolean;
   diffStyle: "split" | "unified";
   onReplyAnnotation: (annotation: PrReviewAnnotation) => void;
+  onToggleCollapse: (file: string) => void;
+  onToggleViewed: (file: string) => void;
   registerRef: (el: HTMLElement | null) => void;
   onFocus: () => void;
 }
@@ -199,13 +227,18 @@ function FileCard({
   patch,
   annotations,
   active,
+  isViewed,
+  isCollapsed,
   diffStyle,
   onReplyAnnotation,
+  onToggleCollapse,
+  onToggleViewed,
   registerRef,
   onFocus,
 }: FileCardProps) {
   const stats = patch ? countStats(patch) : null;
   const Icon = isCode(filePath) ? FileCode : FileText;
+  const Chevron = isCollapsed ? ChevronRight : ChevronDown;
 
   return (
     <section
@@ -214,26 +247,73 @@ function FileCard({
       className={cn(
         "scroll-mt-24 overflow-hidden rounded-xl border bg-bg transition-colors",
         active ? "border-accent-dim" : "border-glass-border",
+        isViewed && !active && "opacity-70",
       )}
     >
       <div className="flex h-10 items-center gap-[10px] bg-bg-active px-4">
+        {/* Collapse toggle */}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggleCollapse(filePath); }}
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-glass"
+          aria-label={isCollapsed ? "Expand file" : "Collapse file"}
+        >
+          <Chevron size={12} className="text-text-ghost" />
+        </button>
+
         <Icon className="h-3.5 w-3.5 shrink-0 text-text-ghost" strokeWidth={1.5} />
         <span className="min-w-0 truncate font-mono text-[12px] text-text">{filePath}</span>
-        {stats && (
-          <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-text-ghost">
-            +{stats.adds} −{stats.dels}
-          </span>
-        )}
+
+        {/* Right side: viewed badge + stats */}
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          {isViewed && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onToggleViewed(filePath); }}
+              className="flex items-center gap-1 rounded-full bg-accent-ghost px-1.5 py-0.5 font-mono text-[9px] text-accent/80 transition-colors hover:text-accent"
+              title="Mark as unviewed"
+            >
+              <Check size={8} />
+              viewed
+            </button>
+          )}
+          {!isViewed && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onToggleViewed(filePath); }}
+              className="rounded-full px-1.5 py-0.5 font-mono text-[9px] text-text-void transition-colors hover:bg-glass hover:text-text-ghost"
+              title="Mark as viewed"
+            >
+              mark viewed
+            </button>
+          )}
+          {stats && (
+            <span className="font-mono text-[10px] tabular-nums">
+              <span className="text-green-400">+{stats.adds}</span>{" "}
+              <span className="text-red-400">−{stats.dels}</span>
+            </span>
+          )}
+        </span>
       </div>
 
-      <ResizableFileContent
-        narrative={fileNarrative}
-        annotations={annotations}
-        filePath={filePath}
-        patch={patch}
-        diffStyle={diffStyle}
-        onReplyAnnotation={onReplyAnnotation}
-      />
+      {/* Collapsible content with CSS grid transition */}
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows] duration-200 ease-out",
+          isCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]",
+        )}
+      >
+        <div className="overflow-hidden">
+          <ResizableFileContent
+            narrative={fileNarrative}
+            annotations={annotations}
+            filePath={filePath}
+            patch={patch}
+            diffStyle={diffStyle}
+            onReplyAnnotation={onReplyAnnotation}
+          />
+        </div>
+      </div>
     </section>
   );
 }

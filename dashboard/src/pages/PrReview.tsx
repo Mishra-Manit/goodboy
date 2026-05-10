@@ -16,6 +16,7 @@ import type {
 import { useQuery } from "@dashboard/hooks/use-query";
 import { useNavState } from "@dashboard/hooks/use-nav-state";
 import { useHideNavOnContainerScroll } from "@dashboard/hooks/use-hide-on-scroll";
+import { useViewedFiles } from "@dashboard/hooks/use-viewed-files";
 import { PageState } from "@dashboard/components/PageState";
 import { FileStack } from "@dashboard/components/pr-review/FileStack";
 import { FileTree } from "@dashboard/components/pr-review/FileTree";
@@ -130,6 +131,17 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
   );
   const [activeFile, setActiveFile] = useState<string | null>(allFiles[0] ?? null);
   const [attachedAnnotation, setAttachedAnnotation] = useState<PrReviewAnnotation | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const { viewed, toggleViewed } = useViewedFiles(run.headSha, activeFile);
+
+  const toggleCollapse = useCallback((file: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(file)) next.delete(file);
+      else next.add(file);
+      return next;
+    });
+  }, []);
 
   const handleReplyAnnotation = useCallback((annotation: PrReviewAnnotation) => {
     setAttachedAnnotation(annotation);
@@ -179,7 +191,11 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
           <FileTree
             chapters={run.chapters}
             activeFile={activeFile}
+            viewed={viewed}
+            collapsed={collapsed}
             onSelectFile={focusFile}
+            onToggleViewed={toggleViewed}
+            onToggleCollapse={toggleCollapse}
           />
         }
         center={
@@ -199,10 +215,14 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
               patchByFile={patchByFile}
               annotationsByFile={annotationsByFile}
               activeFile={activeFile}
+              viewed={viewed}
+              collapsed={collapsed}
               diffStyle="unified"
               fileRefs={fileRefs}
               onReplyAnnotation={handleReplyAnnotation}
               onSelectFile={setActiveFile}
+              onToggleCollapse={toggleCollapse}
+              onToggleViewed={toggleViewed}
             />
           </div>
         }
