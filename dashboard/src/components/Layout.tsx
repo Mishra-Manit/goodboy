@@ -73,7 +73,7 @@ function Main() {
         className={cn(
           "mx-auto flex h-dvh flex-col px-5 transition-[padding] duration-300 ease-out",
           "max-w-[1600px] pb-0",
-          hidden ? "pt-2" : "pt-20",
+          hidden ? "pt-2" : "pt-14",
         )}
       >
         <Outlet />
