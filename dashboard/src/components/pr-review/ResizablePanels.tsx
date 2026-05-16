@@ -54,25 +54,35 @@ export function ResizablePanels({
   const [rightWidth, setRightWidth] = useState(() => loadSize(`${storageKey}:right`, rightBounds));
   const [leftCollapsed, setLeftCollapsed] = useState(() => loadCollapsed(`${storageKey}:left-collapsed`));
   const [rightCollapsed, setRightCollapsed] = useState(() => loadCollapsed(`${storageKey}:right-collapsed`));
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const transitionTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const isWide = useMediaQuery(LG_QUERY);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const startTransition = useCallback(() => {
+    setIsTransitioning(true);
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    transitionTimer.current = setTimeout(() => setIsTransitioning(false), 300);
+  }, []);
+
   const toggleLeft = useCallback(() => {
+    startTransition();
     setLeftCollapsed((prev) => {
       const next = !prev;
       saveCollapsed(`${storageKey}:left-collapsed`, next);
       return next;
     });
-  }, [storageKey]);
+  }, [storageKey, startTransition]);
 
   const toggleRight = useCallback(() => {
+    startTransition();
     setRightCollapsed((prev) => {
       const next = !prev;
       saveCollapsed(`${storageKey}:right-collapsed`, next);
       return next;
     });
-  }, [storageKey]);
+  }, [storageKey, startTransition]);
 
   const effectiveLeftWidth = leftCollapsed ? COLLAPSED_WIDTH : leftWidth;
   const effectiveRightWidth = rightCollapsed ? COLLAPSED_WIDTH : rightWidth;
@@ -118,7 +128,7 @@ export function ResizablePanels({
       className={cn("relative grid grid-cols-1 overflow-hidden", className)}
       style={isWide ? {
         gridTemplateColumns: `${effectiveLeftWidth}px 1fr ${effectiveRightWidth}px`,
-        transition: "grid-template-columns 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
+        ...(isTransitioning ? { transition: "grid-template-columns 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)" } : {}),
       } : undefined}
     >
       {/* Left panel */}
@@ -145,7 +155,7 @@ export function ResizablePanels({
           </AnimatePresence>
         </PanelShell>
       </div>
-      {center}
+      <div className="min-h-0 min-w-0 overflow-hidden">{center}</div>
       {/* Right panel */}
       <div className="min-h-0 min-w-0 overflow-hidden">
         <PanelShell
