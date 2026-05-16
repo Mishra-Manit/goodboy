@@ -132,7 +132,7 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
   const [activeFile, setActiveFile] = useState<string | null>(allFiles[0] ?? null);
   const [attachedAnnotation, setAttachedAnnotation] = useState<PrReviewAnnotation | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const { viewed, toggleViewed } = useViewedFiles(run.headSha, activeFile);
+  const { viewed, toggleViewed } = useViewedFiles(run.headSha);
 
   const toggleCollapse = useCallback((file: string) => {
     setCollapsed((prev) => {
@@ -195,14 +195,25 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
           />
         }
         center={
-          <div ref={centerScrollRef} className="min-w-0 h-full overflow-y-auto px-[18px] pt-1 pb-[18px]">
+          <div className="flex min-h-0 min-w-0 h-full flex-col overflow-hidden">
+            {/* Center header — aligned with side panel headers */}
+            <header className="flex shrink-0 items-center border-b border-glass-border px-5 py-3">
+              <button
+                type="button"
+                onClick={onBack}
+                className="group flex items-center gap-1.5 font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim"
+              >
+                <ArrowLeft size={10} className="transition-transform group-hover:-translate-x-0.5" />
+                back
+              </button>
+            </header>
+            <div ref={centerScrollRef} className="min-h-0 flex-1 overflow-y-auto px-[18px] pt-4 pb-[18px]">
             <ReviewHeader
               title={run.prTitle}
               repo={session?.repo ?? task?.repo ?? "PR"}
               prNumber={session?.prNumber ?? task?.prNumber ?? null}
               sha={run.headSha}
               createdAt={run.createdAt}
-              onBack={onBack}
             />
             <FileStack
               summary={run.summary}
@@ -220,6 +231,7 @@ function ReviewRun({ dto, onBack, onChanged }: ReviewRunProps) {
               onToggleCollapse={toggleCollapse}
               onToggleViewed={toggleViewed}
             />
+          </div>
           </div>
         }
         right={
@@ -249,22 +261,11 @@ interface ReviewHeaderProps {
   prNumber: number | null;
   sha: string;
   createdAt: string;
-  onBack: () => void;
 }
 
-function ReviewHeader({ title, repo, prNumber, sha, createdAt, onBack }: ReviewHeaderProps) {
+function ReviewHeader({ title, repo, prNumber, sha, createdAt }: ReviewHeaderProps) {
   return (
     <header className="px-2 pb-0">
-      {/* Back link */}
-      <button
-        type="button"
-        onClick={onBack}
-        className="group mb-3 flex items-center gap-1.5 font-mono text-[10px] text-text-ghost transition-colors hover:text-text-dim"
-      >
-        <ArrowLeft size={10} className="transition-transform group-hover:-translate-x-0.5" />
-        back
-      </button>
-
       {/* Full-width header card */}
       <div className="rounded-lg border border-glass-border bg-glass px-5 py-4">
         <div className="flex items-start justify-between gap-4">
