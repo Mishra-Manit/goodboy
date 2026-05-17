@@ -15,9 +15,11 @@ import { emit } from "../shared/runtime/events.js";
 import { toErrorMessage } from "../shared/runtime/errors.js";
 import * as queries from "../db/repository.js";
 import { spawnPiSession, type PiSession } from "./pi/spawn.js";
-import { ensureSessionDir, readLatestAssistantText, taskSessionPath } from "./pi/session-file.js";
+import { ensureSessionDir, readLatestAssistantText, readSessionFile, taskSessionPath } from "./pi/session-file.js";
 import { broadcastSessionFile } from "./pi/session-broadcast.js";
 import { withStageSpan, bridgeSessionToOtel } from "../observability/index.js";
+import { summarizeSessionEntries } from "./pi/session-summary.js";
+import { parseSubagentRuns } from "./subagents/session-parser.js";
 import { releaseMemoryLockForTask } from "./memory/index.js";
 import { stageCompleteFinalResponseContract, type ResolvedFileOutputContract } from "../shared/agent-output/contracts.js";
 import { parseBareFinalJson } from "../shared/agent-output/final-response.js";
@@ -314,6 +316,7 @@ export async function runStage<T = unknown>(
 
       try {
         await withTimeout(session.waitForCompletion(), timeoutMs ?? STAGE_TIMEOUT_MS, `Stage ${stage}`);
+        await persistStageSessionSummary({ taskStageId: stageRecord?.id ?? null, agentName: stage, sessionPath });
         await validateFinalStageResponse(sessionPath, options.validateFinalResponse ?? true);
         const validation = await validateDeclaredOutputs({
           taskId,
@@ -378,6 +381,37 @@ function artifactToolConfig(options: {
       ...(options.variant === undefined ? {} : { GOODBOY_STAGE_VARIANT: String(options.variant) }),
     },
   };
+}
+
+async function persistStageSessionSummary(options: {
+  taskStageId: string | null;
+  agentName: string;
+  sessionPath: string;
+}): Promise<void> {
+  if (!options.taskStageId) return;
+  try {
+    const entries = await readSessionFile(options.sessionPath);
+    const summary = summarizeSessionEntries(entries);
+    if (!summary) return;
+    const agentSession = await queries.upsertAgentSession({
+      taskStageId: options.taskStageId,
+      agentName: options.agentName,
+      piSessionId: summary.piSessionId,
+      sessionPath: options.sessionPath,
+      model: summary.model,
+      durationMs: summary.durationMs,
+      totalTokens: summary.totalTokens,
+      costUsd: summary.costUsd,
+      toolCallCount: summary.toolCallCount,
+    });
+    await queries.updateTaskStage(options.taskStageId, { piSessionId: summary.piSessionId });
+    await queries.attachProducerSessionToStageArtifacts(options.taskStageId, agentSession.id);
+    await Promise.all(parseSubagentRuns(entries).map((run) => (
+      queries.upsertSubagentRun({ parentAgentSessionId: agentSession.id, ...run })
+    )));
+  } catch (err) {
+    log.warn(`Failed to persist session summary for ${options.sessionPath}`, err);
+  }
 }
 
 async function validateDeclaredOutputs<T>(options: {
