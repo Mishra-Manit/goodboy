@@ -57,7 +57,7 @@ export async function recordTaskArtifact(input: {
     producerSessionId: input.producerSessionId,
     filePath,
     sha256,
-    ...(content.kind === "text" ? { contentText: input.contentText } : { contentJson: input.contentJson }),
+    ...(content.kind === "text" ? { contentText: content.text } : { contentJson: content.json }),
   });
 
   return { artifactId: artifact.id, filePath, absolutePath, sha256 };
@@ -69,7 +69,7 @@ function validateAndSerializeContent(input: {
   contentText?: string;
   contentJson?: unknown;
   filePath: string;
-}): { kind: "text" | "json"; text: string } {
+}): { kind: "text"; text: string } | { kind: "json"; text: string; json: unknown } {
   const hasText = input.contentText !== undefined;
   const hasJson = input.contentJson !== undefined;
   if (hasText === hasJson) throw new Error(`${input.filePath} must provide exactly one content field`);
@@ -83,5 +83,5 @@ function validateAndSerializeContent(input: {
   if (!hasJson) throw new Error(`${input.filePath} requires contentJson`);
   const result = input.schema?.safeParse(input.contentJson);
   if (!result?.success) throw new Error(`${input.filePath} failed JSON schema validation: ${result?.error?.message ?? "missing schema"}`);
-  return { kind: "json", text: canonicalJsonText(result.data) };
+  return { kind: "json", text: canonicalJsonText(result.data), json: result.data };
 }

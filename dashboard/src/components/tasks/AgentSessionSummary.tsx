@@ -19,7 +19,7 @@ export function AgentSessionSummary({ sessions }: AgentSessionSummaryProps) {
             <span>{session.model ?? "model unknown"}</span>
             <Metric label="duration" value={formatDuration(session.durationMs)} />
             <Metric label="tokens" value={formatNumber(session.totalTokens)} />
-            <Metric label="cost" value={session.costUsd ? `$${session.costUsd}` : null} />
+            <Metric label="cost" value={formatCost(session.costUsd)} />
             <Metric label="tools" value={formatNumber(session.toolCallCount)} />
           </div>
           {session.subagents.length > 0 && (
@@ -32,7 +32,7 @@ export function AgentSessionSummary({ sessions }: AgentSessionSummaryProps) {
                     {run.runIndex !== null && <span className="ml-2">#{run.runIndex + 1}</span>}
                   </summary>
                   <div className="mt-2 space-y-2 font-mono text-[10px] text-text-ghost">
-                    <pre className="whitespace-pre-wrap rounded bg-bg-raised p-2">{run.prompt}</pre>
+                    <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-bg-raised p-2">{run.prompt}</pre>
                     {run.resultText && <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-bg-raised p-2">{run.resultText}</pre>}
                   </div>
                 </details>
@@ -51,6 +51,12 @@ function Metric({ label, value }: { label: string; value: string | null }) {
 
 function formatNumber(value: number | null): string | null {
   return value === null ? null : value.toLocaleString();
+}
+
+function formatCost(value: string | null): string | null {
+  if (value === null) return null;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? `$${parsed.toFixed(4)}` : value;
 }
 
 function formatDuration(value: number | null): string | null {

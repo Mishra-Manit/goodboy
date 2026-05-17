@@ -1,7 +1,7 @@
 /** Task + artifact endpoints. */
 
 import { taskPrReviewPageDtoSchema } from "@dashboard/shared";
-import { request, requestJson, requestText } from "./client.js";
+import { ApiError, request, requestJson, requestText } from "./client.js";
 import type {
   AgentSessionDto,
   Task,
@@ -37,15 +37,18 @@ export async function fetchTaskArtifacts(taskId: string): Promise<TaskArtifactDt
   return request(`/api/tasks/${taskId}/artifacts`);
 }
 
-export async function fetchTaskArtifactContent(taskId: string, filePath: string): Promise<string> {
+async function fetchTaskArtifactContent(taskId: string, filePath: string): Promise<string> {
   return requestText(`/api/tasks/${taskId}/artifact-content?filePath=${encodeURIComponent(filePath)}`);
 }
 
 export async function fetchArtifact(taskId: string, name: string): Promise<string> {
   try {
     return await fetchTaskArtifactContent(taskId, name);
-  } catch {
-    return requestText(`/api/tasks/${taskId}/artifacts/${name}`);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return requestText(`/api/tasks/${taskId}/artifacts/${name}`);
+    }
+    throw err;
   }
 }
 

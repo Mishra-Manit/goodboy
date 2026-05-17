@@ -35,7 +35,7 @@ import type { StageName, TaskKind } from "../shared/domain/types.js";
 const log = createLogger("stage");
 const GOODBOY_ARTIFACT_EXTENSION_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../extensions/goodboy-artifacts.ts",
+  "../../src/extensions/goodboy-artifacts.ts",
 );
 
 // --- Task identity ---
@@ -316,7 +316,12 @@ export async function runStage<T = unknown>(
 
       try {
         await withTimeout(session.waitForCompletion(), timeoutMs ?? STAGE_TIMEOUT_MS, `Stage ${stage}`);
-        await persistStageSessionSummary({ taskStageId: stageRecord?.id ?? null, agentName: stage, sessionPath });
+        await persistStageSessionSummary({
+          taskStageId: stageRecord?.id ?? null,
+          memoryRunId: options.sessionEventMeta?.memoryRunId ?? null,
+          agentName: stage,
+          sessionPath,
+        });
         await validateFinalStageResponse(sessionPath, options.validateFinalResponse ?? true);
         const validation = await validateDeclaredOutputs({
           taskId,
@@ -378,23 +383,23 @@ function artifactToolConfig(options: {
       GOODBOY_STAGE: options.stage,
       GOODBOY_TASK_STAGE_ID: options.stageRecordId,
       GOODBOY_ARTIFACTS_DIR: artifactsDir,
-      ...(options.variant === undefined ? {} : { GOODBOY_STAGE_VARIANT: String(options.variant) }),
     },
   };
 }
 
 async function persistStageSessionSummary(options: {
   taskStageId: string | null;
+  memoryRunId: string | null;
   agentName: string;
   sessionPath: string;
 }): Promise<void> {
-  if (!options.taskStageId) return;
+  if (!options.taskStageId && !options.memoryRunId) return;
   try {
     const entries = await readSessionFile(options.sessionPath);
     const summary = summarizeSessionEntries(entries);
     if (!summary) return;
     const agentSession = await queries.upsertAgentSession({
-      taskStageId: options.taskStageId,
+      ...(options.memoryRunId ? { memoryRunId: options.memoryRunId } : { taskStageId: options.taskStageId }),
       agentName: options.agentName,
       piSessionId: summary.piSessionId,
       sessionPath: options.sessionPath,
@@ -404,8 +409,10 @@ async function persistStageSessionSummary(options: {
       costUsd: summary.costUsd,
       toolCallCount: summary.toolCallCount,
     });
-    await queries.updateTaskStage(options.taskStageId, { piSessionId: summary.piSessionId });
-    await queries.attachProducerSessionToStageArtifacts(options.taskStageId, agentSession.id);
+    if (options.taskStageId) {
+      await queries.updateTaskStage(options.taskStageId, { piSessionId: summary.piSessionId });
+      await queries.attachProducerSessionToStageArtifacts(options.taskStageId, agentSession.id);
+    }
     await Promise.all(parseSubagentRuns(entries).map((run) => (
       queries.upsertSubagentRun({ parentAgentSessionId: agentSession.id, ...run })
     )));
@@ -438,6 +445,7 @@ async function validateDbBackedArtifacts(options: {
 }): Promise<StageValidation> {
   if (!options.taskKind || !isPersistedTaskId(options.taskId)) return { valid: true };
   const artifactsDir = taskArtifactsDir(options.taskId);
+  const existingArtifacts = new Set((await queries.listTaskArtifacts(options.taskId)).map((artifact) => artifact.filePath));
   for (const output of options.outputs) {
     const filePath = relativeToArtifacts(artifactsDir, output.path);
     const declared = resolveDeclaredArtifactByFilePath({
@@ -447,8 +455,7 @@ async function validateDbBackedArtifacts(options: {
       filePath,
     });
     if (!declared) continue;
-    const artifact = await queries.getTaskArtifactByPath(options.taskId, filePath);
-    if (!artifact) {
+    if (!existingArtifacts.has(filePath)) {
       return {
         valid: false,
         reason: `${filePath} exists locally but was not recorded in task_artifacts. Create declared artifacts with goodboy_artifact, not write/edit/bash redirection.`,

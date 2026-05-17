@@ -9,7 +9,8 @@ import { toErrorMessage } from "../../shared/runtime/errors.js";
 import { emit } from "../../shared/runtime/events.js";
 import { createLogger } from "../../shared/runtime/logger.js";
 import { TASK_KINDS, TASK_STATUSES } from "../../shared/domain/types.js";
-import type { AgentSessionDto, TaskArtifactDto } from "../../shared/contracts/wire.js";
+import type { AgentSessionDto, SubagentRunDto, TaskArtifactDto } from "../../shared/contracts/wire.js";
+import { isSafeArtifactFilePath } from "../../shared/artifacts/index.js";
 import { readSessionFile, taskSessionPath } from "../../core/pi/session-file.js";
 import { cancelAndUpdateTask, type SendTelegram } from "../../core/stage.js";
 import { dismissTask } from "../../core/cleanup.js";
@@ -87,7 +88,7 @@ export function registerTaskRoutes(app: Hono): void {
   app.get("/api/tasks/:id/artifact-content", async (c) => {
     const id = c.req.param("id");
     const filePath = c.req.query("filePath");
-    if (!UUID_PATTERN.test(id) || !filePath) return notFound(c);
+    if (!UUID_PATTERN.test(id) || !filePath || !isSafeArtifactFilePath(filePath)) return notFound(c);
     const task = await queries.getTask(id);
     if (!task) return notFound(c);
     const artifact = await queries.getTaskArtifactByPath(id, filePath);
@@ -101,11 +102,16 @@ export function registerTaskRoutes(app: Hono): void {
     if (!UUID_PATTERN.test(id)) return notFound(c);
     const task = await queries.getTask(id);
     if (!task) return notFound(c);
-    const sessions = await Promise.all((await queries.listAgentSessionsForTask(id)).map(async (session) => ({
-      ...session,
-      subagents: await queries.listSubagentRunsForAgentSession(session.id),
-    } satisfies AgentSessionDto)));
-    return c.json({ sessions });
+    const sessions = await queries.listAgentSessionsForTask(id);
+    const subagents = await queries.listSubagentRunsForAgentSessions(sessions.map((session) => session.id));
+    const subagentsBySession = new Map<string, SubagentRunDto[]>();
+    for (const run of subagents) {
+      subagentsBySession.set(run.parentAgentSessionId, [...(subagentsBySession.get(run.parentAgentSessionId) ?? []), run]);
+    }
+    return c.json({ sessions: sessions.map((session) => toAgentSessionDto(
+      session,
+      subagentsBySession.get(session.id) ?? [],
+    )) });
   });
 
   app.get("/api/tasks/:id/artifacts/:name", async (c) => {
@@ -151,6 +157,23 @@ export function registerTaskRoutes(app: Hono): void {
   });
 
   app.get("/api/repos", (c) => c.json(listRepoSummaries()));
+}
+
+function toAgentSessionDto(session: queries.AgentSession, subagents: SubagentRunDto[]): AgentSessionDto {
+  return {
+    id: session.id,
+    taskStageId: session.taskStageId,
+    prSessionRunId: session.prSessionRunId,
+    memoryRunId: session.memoryRunId,
+    agentName: session.agentName,
+    piSessionId: session.piSessionId,
+    model: session.model,
+    durationMs: session.durationMs,
+    totalTokens: session.totalTokens,
+    costUsd: session.costUsd,
+    toolCallCount: session.toolCallCount,
+    subagents,
+  };
 }
 
 function toTaskArtifactDto(artifact: queries.TaskArtifact): TaskArtifactDto {

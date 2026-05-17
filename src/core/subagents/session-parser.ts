@@ -7,7 +7,7 @@ export interface ParsedSubagentRun {
   runIndex: number | null;
   prompt: string;
   resultText: string | null;
-  status: "complete" | "failed";
+  status: "running" | "complete" | "failed";
   model: string | null;
   durationMs: number | null;
   totalTokens: number | null;
@@ -25,6 +25,7 @@ export function parseSubagentRuns(entries: readonly FileEntry[]): ParsedSubagent
   }
 
   const runs: ParsedSubagentRun[] = [];
+  let runIndex = 0;
   for (const entry of entries) {
     if (entry.type !== "message" || entry.message.role !== "assistant") continue;
     const calls = entry.message.content.filter((block): block is ToolCall => (
@@ -32,21 +33,23 @@ export function parseSubagentRuns(entries: readonly FileEntry[]): ParsedSubagent
     ));
     for (const call of calls) {
       const result = results.get(call.id) ?? null;
-      runs.push(...parseSubagentCall(call, result));
+      const parsed = parseSubagentCall(call, result, runIndex);
+      runs.push(...parsed);
+      runIndex += parsed.length;
     }
   }
   return runs;
 }
 
-function parseSubagentCall(call: ToolCall, result: ToolResultMessage | null): ParsedSubagentRun[] {
+function parseSubagentCall(call: ToolCall, result: ToolResultMessage | null, startIndex: number): ParsedSubagentRun[] {
   const tasks = normalizeTasks(call.arguments);
   if (tasks.length === 0) {
-    return [buildRun({ agentName: "subagent", prompt: JSON.stringify(call.arguments), runIndex: null, result })];
+    return [buildRun({ agentName: "subagent", prompt: JSON.stringify(call.arguments), runIndex: startIndex, result })];
   }
   return tasks.map((task, index) => buildRun({
     agentName: task.agentName,
     prompt: task.prompt,
-    runIndex: index,
+    runIndex: startIndex + index,
     result,
   }));
 }
@@ -54,7 +57,7 @@ function parseSubagentCall(call: ToolCall, result: ToolResultMessage | null): Pa
 function buildRun(input: {
   agentName: string;
   prompt: string;
-  runIndex: number | null;
+  runIndex: number;
   result: ToolResultMessage | null;
 }): ParsedSubagentRun {
   return {
@@ -62,7 +65,7 @@ function buildRun(input: {
     runIndex: input.runIndex,
     prompt: input.prompt,
     resultText: input.result ? resultText(input.result) : null,
-    status: input.result?.isError ? "failed" : "complete",
+    status: input.result === null ? "running" : input.result.isError ? "failed" : "complete",
     model: null,
     durationMs: null,
     totalTokens: null,

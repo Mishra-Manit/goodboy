@@ -28,13 +28,33 @@ export async function upsertAgentSession(data: {
 }): Promise<AgentSession> {
   validateAgentSessionOwner(data);
   const db = getDb();
-  const values = agentSessionValues(data);
+  const values = {
+    taskStageId: data.taskStageId ?? null,
+    prSessionRunId: data.prSessionRunId ?? null,
+    memoryRunId: data.memoryRunId ?? null,
+    agentName: data.agentName,
+    piSessionId: data.piSessionId,
+    sessionPath: data.sessionPath,
+    model: data.model ?? null,
+    durationMs: data.durationMs ?? null,
+    totalTokens: data.totalTokens ?? null,
+    costUsd: data.costUsd ?? null,
+    toolCallCount: data.toolCallCount ?? null,
+  };
   const [session] = await db
     .insert(schema.agentSessions)
     .values(values)
     .onConflictDoUpdate({
       target: schema.agentSessions.piSessionId,
-      set: values,
+      set: {
+        agentName: values.agentName,
+        sessionPath: values.sessionPath,
+        model: values.model,
+        durationMs: values.durationMs,
+        totalTokens: values.totalTokens,
+        costUsd: values.costUsd,
+        toolCallCount: values.toolCallCount,
+      },
     })
     .returning();
   return session;
@@ -87,11 +107,19 @@ export async function upsertSubagentRun(data: {
   toolCallCount?: number | null;
 }): Promise<SubagentRun> {
   const db = getDb();
-  const values = subagentRunValues(data);
-  if (data.runIndex === null) {
-    const [run] = await db.insert(schema.subagentRuns).values(values).returning();
-    return run;
-  }
+  const values = {
+    parentAgentSessionId: data.parentAgentSessionId,
+    agentName: data.agentName,
+    runIndex: data.runIndex,
+    prompt: data.prompt,
+    resultText: data.resultText ?? null,
+    status: data.status,
+    model: data.model ?? null,
+    durationMs: data.durationMs ?? null,
+    totalTokens: data.totalTokens ?? null,
+    costUsd: data.costUsd ?? null,
+    toolCallCount: data.toolCallCount ?? null,
+  };
 
   const [run] = await db
     .insert(schema.subagentRuns)
@@ -106,12 +134,18 @@ export async function upsertSubagentRun(data: {
 
 /** List subagent runs for a parent session in call order. */
 export async function listSubagentRunsForAgentSession(agentSessionId: string): Promise<SubagentRun[]> {
+  return listSubagentRunsForAgentSessions([agentSessionId]);
+}
+
+/** Batch list subagent runs for parent sessions in call order. */
+export async function listSubagentRunsForAgentSessions(agentSessionIds: string[]): Promise<SubagentRun[]> {
+  if (agentSessionIds.length === 0) return [];
   const db = getDb();
   return db
     .select()
     .from(schema.subagentRuns)
-    .where(eq(schema.subagentRuns.parentAgentSessionId, agentSessionId))
-    .orderBy(asc(schema.subagentRuns.runIndex));
+    .where(inArray(schema.subagentRuns.parentAgentSessionId, agentSessionIds))
+    .orderBy(asc(schema.subagentRuns.parentAgentSessionId), asc(schema.subagentRuns.runIndex));
 }
 
 // --- Helpers ---
@@ -125,58 +159,3 @@ function validateAgentSessionOwner(data: {
   if (ownerCount !== 1) throw new Error("Agent session must have exactly one owner");
 }
 
-function agentSessionValues(data: {
-  taskStageId?: string | null;
-  prSessionRunId?: string | null;
-  memoryRunId?: string | null;
-  agentName: string;
-  piSessionId: string;
-  sessionPath: string;
-  model?: string | null;
-  durationMs?: number | null;
-  totalTokens?: number | null;
-  costUsd?: string | null;
-  toolCallCount?: number | null;
-}) {
-  return {
-    taskStageId: data.taskStageId ?? null,
-    prSessionRunId: data.prSessionRunId ?? null,
-    memoryRunId: data.memoryRunId ?? null,
-    agentName: data.agentName,
-    piSessionId: data.piSessionId,
-    sessionPath: data.sessionPath,
-    model: data.model ?? null,
-    durationMs: data.durationMs ?? null,
-    totalTokens: data.totalTokens ?? null,
-    costUsd: data.costUsd ?? null,
-    toolCallCount: data.toolCallCount ?? null,
-  };
-}
-
-function subagentRunValues(data: {
-  parentAgentSessionId: string;
-  agentName: string;
-  runIndex: number | null;
-  prompt: string;
-  resultText?: string | null;
-  status: SubagentRunStatus;
-  model?: string | null;
-  durationMs?: number | null;
-  totalTokens?: number | null;
-  costUsd?: string | null;
-  toolCallCount?: number | null;
-}) {
-  return {
-    parentAgentSessionId: data.parentAgentSessionId,
-    agentName: data.agentName,
-    runIndex: data.runIndex,
-    prompt: data.prompt,
-    resultText: data.resultText ?? null,
-    status: data.status,
-    model: data.model ?? null,
-    durationMs: data.durationMs ?? null,
-    totalTokens: data.totalTokens ?? null,
-    costUsd: data.costUsd ?? null,
-    toolCallCount: data.toolCallCount ?? null,
-  };
-}

@@ -50,11 +50,11 @@ export function TaskDetail() {
     `task-session:${taskId}`,
     () => fetchTaskSession(taskId),
   );
-  const { data: dbArtifacts, refetch: refetchArtifacts } = useQuery(
+  const { data: dbArtifacts, error: artifactsError, refetch: refetchArtifacts } = useQuery(
     `task-artifacts:${taskId}`,
     () => fetchTaskArtifacts(taskId),
   );
-  const { data: sessionSummary, refetch: refetchSessionSummary } = useQuery(
+  const { data: sessionSummary, error: sessionSummaryError, refetch: refetchSessionSummary } = useQuery(
     `task-session-summary:${taskId}`,
     () => fetchTaskSessionSummary(taskId),
   );
@@ -90,6 +90,8 @@ export function TaskDetail() {
             taskId={taskId}
             dbArtifacts={dbArtifacts ?? []}
             sessionSummary={sessionSummary?.sessions ?? []}
+            artifactsError={artifactsError}
+            sessionSummaryError={sessionSummaryError}
           />
         )}
       </PageState>
@@ -108,6 +110,8 @@ interface TaskViewProps {
   taskId: string;
   dbArtifacts: readonly TaskArtifactDto[];
   sessionSummary: readonly AgentSessionDto[];
+  artifactsError: string | null;
+  sessionSummaryError: string | null;
 }
 
 function TaskView({
@@ -119,6 +123,8 @@ function TaskView({
   taskId,
   dbArtifacts,
   sessionSummary,
+  artifactsError,
+  sessionSummaryError,
 }: TaskViewProps) {
   const navigate = useNavigate();
   const kindConfig = TASK_KIND_CONFIG[task.kind] ?? TASK_KIND_CONFIG.coding_task;
@@ -218,8 +224,13 @@ function TaskView({
         />
       )}
 
-      <SectionDivider label="agent metrics" />
-      <AgentSessionSummary sessions={sessionSummary} />
+      {sessionSummaryError && <ErrorBlock message={`Agent metrics failed to load: ${sessionSummaryError}`} />}
+      {sessionSummary.length > 0 && (
+        <>
+          <SectionDivider label="agent metrics" />
+          <AgentSessionSummary sessions={sessionSummary} />
+        </>
+      )}
 
       <SectionDivider label="transcript" />
 
@@ -254,6 +265,7 @@ function TaskView({
       )}
 
       <SectionDivider label="artifacts" className="mt-8" />
+      {artifactsError && <ErrorBlock message={`DB artifacts failed to load; showing legacy artifacts: ${artifactsError}`} />}
       <ArtifactsPanel taskId={taskId} artifacts={artifacts} />
     </>
   );

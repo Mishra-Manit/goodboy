@@ -80,6 +80,9 @@ export type {
   CodeReviewerFeedbackScope,
   CodeReviewerFeedbackSource,
   StageSession,
+  TaskArtifactDto,
+  AgentSessionDto,
+  SubagentRunDto,
   CreateTaskResponse,
 } from "@shared/contracts/wire.js";
 

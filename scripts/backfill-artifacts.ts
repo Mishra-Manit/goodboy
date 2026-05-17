@@ -12,6 +12,7 @@ import * as queries from "../src/db/repository.js";
 import type { StageName, TaskKind } from "../src/shared/domain/types.js";
 
 const dryRun = process.argv.includes("--dry-run");
+const taskId = argValue("--task-id");
 
 const DB_BACKED_STAGES: Partial<Record<TaskKind, readonly StageName[]>> = {
   coding_task: ["planner", "implementer", "reviewer"],
@@ -19,11 +20,12 @@ const DB_BACKED_STAGES: Partial<Record<TaskKind, readonly StageName[]>> = {
 };
 
 async function main(): Promise<void> {
-  const tasks = await queries.listTasks();
+  const tasks = taskId ? [await requiredTask(taskId)] : await queries.listTasks();
   let artifactCount = 0;
   let sessionCount = 0;
 
   for (const task of tasks) {
+    process.stdout.write(`${dryRun ? "Checking" : "Backfilling"} ${task.id} (${task.kind})\n`);
     const stages = await queries.getStagesForTask(task.id);
     const artifactsDir = taskArtifactsDir(task.id);
     const stageRows = new Map(stages.map((stage) => [stage.stage, stage]));
@@ -73,6 +75,17 @@ async function main(): Promise<void> {
   }
 
   process.stdout.write(`${dryRun ? "Would backfill" : "Backfilled"} ${artifactCount} artifacts and ${sessionCount} sessions\n`);
+}
+
+function argValue(name: string): string | null {
+  const index = process.argv.indexOf(name);
+  return index === -1 ? null : process.argv[index + 1] ?? null;
+}
+
+async function requiredTask(id: string): Promise<queries.Task> {
+  const task = await queries.getTask(id);
+  if (!task) throw new Error(`Task ${id} not found for this instance`);
+  return task;
 }
 
 main().catch((err) => {

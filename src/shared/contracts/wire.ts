@@ -239,7 +239,6 @@ export interface AgentSessionDto {
   memoryRunId: string | null;
   agentName: string;
   piSessionId: string;
-  sessionPath: string;
   model: string | null;
   durationMs: number | null;
   totalTokens: number | null;
