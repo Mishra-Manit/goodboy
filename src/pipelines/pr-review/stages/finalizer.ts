@@ -62,6 +62,7 @@ export async function runPrFinalizer(opts: PrFinalizerOptions): Promise<void> {
 
   const result = await runStage({
     taskId,
+    taskKind: "pr_review",
     stage: "pr_finalizer",
       cwd: worktreePath,
     systemPrompt: prFinalizerSystemPrompt({

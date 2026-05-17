@@ -6,10 +6,14 @@ import {
   cancelTask,
   fetchPrSessionBySourceTask,
   fetchTask,
+  fetchTaskArtifacts,
   fetchTaskSession,
+  fetchTaskSessionSummary,
   retryTask,
   TASK_KIND_CONFIG,
+  type AgentSessionDto,
   type FileEntry,
+  type TaskArtifactDto,
   type TaskWithStages,
 } from "@dashboard/lib/api";
 import { useQuery } from "@dashboard/hooks/use-query";
@@ -20,6 +24,7 @@ import { BackLink } from "@dashboard/components/BackLink";
 import { PageState } from "@dashboard/components/PageState";
 import { TaskHeader } from "@dashboard/components/tasks/TaskHeader";
 import { ArtifactsPanel } from "@dashboard/components/tasks/ArtifactsPanel";
+import { AgentSessionSummary } from "@dashboard/components/tasks/AgentSessionSummary";
 import { StatusBadge } from "@dashboard/components/StatusBadge";
 import { LogViewer } from "@dashboard/components/log-viewer";
 import { PipelineProgress } from "@dashboard/components/PipelineProgress";
@@ -45,11 +50,21 @@ export function TaskDetail() {
     `task-session:${taskId}`,
     () => fetchTaskSession(taskId),
   );
+  const { data: dbArtifacts, error: artifactsError, refetch: refetchArtifacts } = useQuery(
+    `task-artifacts:${taskId}`,
+    () => fetchTaskArtifacts(taskId),
+  );
+  const { data: sessionSummary, error: sessionSummaryError, refetch: refetchSessionSummary } = useQuery(
+    `task-session-summary:${taskId}`,
+    () => fetchTaskSessionSummary(taskId),
+  );
 
   useSSERefresh(
     () => {
       refetch();
       refetchSession();
+      refetchArtifacts();
+      refetchSessionSummary();
     },
     (e) => (e.type === "task_update" || e.type === "stage_update") && e.taskId === taskId,
   );
@@ -73,6 +88,10 @@ export function TaskDetail() {
             now={now}
             refetch={refetch}
             taskId={taskId}
+            dbArtifacts={dbArtifacts ?? []}
+            sessionSummary={sessionSummary?.sessions ?? []}
+            artifactsError={artifactsError}
+            sessionSummaryError={sessionSummaryError}
           />
         )}
       </PageState>
@@ -89,9 +108,24 @@ interface TaskViewProps {
   now: number;
   refetch: () => void;
   taskId: string;
+  dbArtifacts: readonly TaskArtifactDto[];
+  sessionSummary: readonly AgentSessionDto[];
+  artifactsError: string | null;
+  sessionSummaryError: string | null;
 }
 
-function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: TaskViewProps) {
+function TaskView({
+  task,
+  diskEntries,
+  liveEntries,
+  now,
+  refetch,
+  taskId,
+  dbArtifacts,
+  sessionSummary,
+  artifactsError,
+  sessionSummaryError,
+}: TaskViewProps) {
   const navigate = useNavigate();
   const kindConfig = TASK_KIND_CONFIG[task.kind] ?? TASK_KIND_CONFIG.coding_task;
   const isActive = !isTerminalStatus(task.status);
@@ -109,6 +143,14 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
     () => buildStageTabs(task.stages, diskEntries, liveEntries, kindConfig.stages),
     [task.stages, diskEntries, liveEntries, kindConfig.stages],
   );
+
+  const artifacts = useMemo(() => {
+    if (dbArtifacts.length === 0) return kindConfig.artifacts;
+    return dbArtifacts.map((artifact) => ({
+      key: artifact.filePath,
+      label: kindConfig.artifacts.find((item) => item.key === artifact.filePath)?.label ?? artifact.filePath,
+    }));
+  }, [dbArtifacts, kindConfig.artifacts]);
 
   const [activeStage, setActiveStage] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
@@ -182,6 +224,14 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
         />
       )}
 
+      {sessionSummaryError && <ErrorBlock message={`Agent metrics failed to load: ${sessionSummaryError}`} />}
+      {sessionSummary.length > 0 && (
+        <>
+          <SectionDivider label="agent metrics" />
+          <AgentSessionSummary sessions={sessionSummary} />
+        </>
+      )}
+
       <SectionDivider label="transcript" />
 
       {tabs.length > 0 && (
@@ -215,7 +265,8 @@ function TaskView({ task, diskEntries, liveEntries, now, refetch, taskId }: Task
       )}
 
       <SectionDivider label="artifacts" className="mt-8" />
-      <ArtifactsPanel taskId={taskId} artifacts={kindConfig.artifacts} />
+      {artifactsError && <ErrorBlock message={`DB artifacts failed to load; showing legacy artifacts: ${artifactsError}`} />}
+      <ArtifactsPanel taskId={taskId} artifacts={artifacts} />
     </>
   );
 }

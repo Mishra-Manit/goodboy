@@ -92,6 +92,13 @@
       "when": 1777510000000,
       "tag": "0012_rename_pr_display_to_finalizer",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1778979062986,
+      "tag": "0013_artifacts_agent_sessions",
+      "breakpoints": true
     }
   ]
 }

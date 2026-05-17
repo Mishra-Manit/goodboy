@@ -11,6 +11,12 @@ export function outputContractPromptBlock(contracts: readonly ResolvedFileOutput
   return `OUTPUT CONTRACTS -- HARD REQUIREMENTS\n${contracts.map(renderContract).join("\n\n")}\n\nBefore final response: write every required file above, then self-check that each path exists and matches its format. Do not put final response JSON inside artifact files.`;
 }
 
+/** Render DB-backed file-output requirements for coding/question stages. */
+export function dbBackedOutputContractPromptBlock(contracts: readonly ResolvedFileOutputContract[]): string {
+  if (contracts.length === 0) return "";
+  return `OUTPUT CONTRACTS -- HARD REQUIREMENTS\n${contracts.map(renderDbBackedContract).join("\n\n")}\n\nBefore final response: call the goodboy_artifact tool for every required file above. Do not use write/edit/bash redirection to create DB-backed declared output artifact files. The tool records the artifact in the database and materializes the local file for later stages. Do not put final response JSON inside artifact files.`;
+}
+
 /** Render a strict final-response requirement from the declared contract. */
 export function finalResponsePromptBlock(
   contract: FinalResponseContract = stageCompleteFinalResponseContract,
@@ -37,6 +43,11 @@ function renderContract(contract: ResolvedFileOutputContract): string {
     contract.prompt.instructions ? `  instructions: ${contract.prompt.instructions}` : null,
     contract.prompt.skeleton ? `  copyable skeleton:\n${indent(contract.prompt.skeleton, "    ")}` : null,
   ].filter(Boolean).join("\n");
+}
+
+function renderDbBackedContract(contract: ResolvedFileOutputContract): string {
+  const filePath = contract.path.split("/").pop() ?? contract.path;
+  return `${renderContract(contract)}\n  goodboy_artifact filePath: ${filePath}`;
 }
 
 function indent(text: string, prefix: string): string {

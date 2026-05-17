@@ -203,6 +203,50 @@ export interface StageSession {
   entries: import("./session.js").FileEntry[];
 }
 
+// --- Artifact and session summaries ---
+
+export interface TaskArtifactDto {
+  id: string;
+  taskId: string;
+  taskStageId: string | null;
+  producerSessionId: string | null;
+  filePath: string;
+  sha256: string;
+  createdAt: string;
+  updatedAt: string;
+  contentKind: "text" | "json";
+}
+
+export interface SubagentRunDto {
+  id: string;
+  parentAgentSessionId: string;
+  agentName: string;
+  runIndex: number | null;
+  prompt: string;
+  resultText: string | null;
+  status: "running" | "complete" | "failed";
+  model: string | null;
+  durationMs: number | null;
+  totalTokens: number | null;
+  costUsd: string | null;
+  toolCallCount: number | null;
+}
+
+export interface AgentSessionDto {
+  id: string;
+  taskStageId: string | null;
+  prSessionRunId: string | null;
+  memoryRunId: string | null;
+  agentName: string;
+  piSessionId: string;
+  model: string | null;
+  durationMs: number | null;
+  totalTokens: number | null;
+  costUsd: string | null;
+  toolCallCount: number | null;
+  subagents: SubagentRunDto[];
+}
+
 // --- Generic API responses ---
 
 export interface CreateTaskResponse {

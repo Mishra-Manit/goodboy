@@ -4,7 +4,7 @@
  * block and passes it in.
  */
 
-import { finalResponsePromptBlock, outputContractPromptBlock } from "../../shared/agent-output/prompts.js";
+import { dbBackedOutputContractPromptBlock, finalResponsePromptBlock } from "../../shared/agent-output/prompts.js";
 import { SHARED_RULES } from "../../shared/prompts/agent-prompts.js";
 import { questionOutputs } from "./output-contracts.js";
 
@@ -14,7 +14,7 @@ export function questionSystemPrompt(memory: string, question: string, artifacts
 ${SHARED_RULES}
 READ-ONLY RULES:
 - Use read and bash (grep, find, ls, head, tail, wc) to explore the codebase
-- Do NOT use write or edit tools EXCEPT to write the final answer file
+- Do NOT use write or edit tools. Use goodboy_artifact for the final answer file.
 - Do NOT run git commit, git checkout, git reset, or any git write operation
 - Do NOT install dependencies, run builds, or execute application code
 - Do NOT modify any file in the repository
@@ -25,9 +25,9 @@ YOUR JOB:
 1. Explore the codebase to find the answer
 2. Cite exact file paths (and line numbers when useful) for any specific claim
 3. If you are uncertain about something, say so in one short phrase
-4. Write your answer to the declared answer file.
+4. Call goodboy_artifact with filePath answer.md and contentText containing the final answer.
 
-${outputContractPromptBlock([output])}
+${dbBackedOutputContractPromptBlock([output])}
 
 ${finalResponsePromptBlock()}
 
@@ -52,5 +52,5 @@ The final assistant response must follow the final response contract exactly.`;
 }
 
 export function questionInitialPrompt(question: string, artifactsDir: string): string {
-  return `Answer this question about the codebase:\n\n${question}\n\nExplore the code, then write a very short, plain-text answer (no markdown, no headings, no bullets, no backticks) to ${artifactsDir}/answer.md. It will be sent as a Telegram message, so it must read like a text message -- 1-4 sentences, direct answer first, file paths inline as plain text.`;
+  return `Answer this question about the codebase:\n\n${question}\n\nExplore the code, then call goodboy_artifact with filePath answer.md and a very short, plain-text answer in contentText (no markdown, no headings, no bullets, no backticks). It will be sent as a Telegram message, so it must read like a text message -- 1-4 sentences, direct answer first, file paths inline as plain text.`;
 }

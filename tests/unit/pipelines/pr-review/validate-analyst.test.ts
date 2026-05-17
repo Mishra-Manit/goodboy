@@ -44,7 +44,7 @@ async function writeReport(dir: string, id: string): Promise<void> {
 
 async function writeValidArtifacts(dir: string): Promise<void> {
   await writeValidPlan(dir);
-  await writeFile(join(dir, "summary.md"), "Looks good with one follow-up.\n", "utf8");
+  await writeFile(join(dir, "pr-changes-summary.md"), "Looks good with one follow-up.\n", "utf8");
   await writeReport(dir, "group-01");
   await writeReport(dir, "group-02");
   await writeReport(dir, "holistic");
@@ -68,13 +68,13 @@ describe("validatePrAnalystOutputs", () => {
     const result = await validatePrAnalystOutputs(dir);
 
     expect(result.valid).toBe(false);
-    expect(result.reason).toContain("summary.md");
+    expect(result.reason).toContain("pr-changes-summary.md");
   });
 
   it("rejects a missing planned group report", async () => {
     const dir = await makeArtifactsDir();
     await writeValidPlan(dir);
-    await writeFile(join(dir, "summary.md"), "Summary\n", "utf8");
+    await writeFile(join(dir, "pr-changes-summary.md"), "Summary\n", "utf8");
     await writeReport(dir, "group-01");
     await writeReport(dir, "holistic");
 
@@ -119,7 +119,7 @@ describe("validatePrAnalystOutputs", () => {
       skipped: [],
       focus_notes: "notes",
     }), "utf8");
-    await writeFile(join(dir, "summary.md"), "Summary\n", "utf8");
+    await writeFile(join(dir, "pr-changes-summary.md"), "Summary\n", "utf8");
     await writeReport(dir, "group-01");
     await writeReport(dir, "holistic");
 

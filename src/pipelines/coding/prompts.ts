@@ -6,7 +6,7 @@
  */
 
 import path from "node:path";
-import { finalResponsePromptBlock, outputContractPromptBlock } from "../../shared/agent-output/prompts.js";
+import { dbBackedOutputContractPromptBlock, finalResponsePromptBlock } from "../../shared/agent-output/prompts.js";
 import { prCreationFinalResponseContract } from "../../shared/agent-output/contracts.js";
 import { SHARED_RULES, worktreeBlock, type WorktreeEnv } from "../../shared/prompts/agent-prompts.js";
 import { codingStageOutput } from "./output-contracts.js";
@@ -52,7 +52,7 @@ MANDATORY WORKFLOW:
    Read coverage, confidence, and caveats to understand what each slice actually
    covered. Do targeted follow-up reads yourself ONLY for files you will cite
    directly in the implementation plan.
-5. Write plan.md.
+5. Call goodboy_artifact with filePath plan.md.
 
 SUBAGENT TASK QUALITY:
 - Good task: "Objective: Identify how Scout prefilters markets. Scope: backend/coliseum/agents/scout plus direct callers. Need: exact function names, inputs, and where filtering is invoked. Stop condition: enough evidence to cite implementation files; do not inspect unrelated agents."
@@ -78,7 +78,7 @@ YOUR ONLY JOB:
 1. Explore the codebase (read files, grep, understand the structure)
 2. Write a comprehensive implementation plan
 
-${outputContractPromptBlock([contract])}
+${dbBackedOutputContractPromptBlock([contract])}
 
 ${finalResponsePromptBlock()}
 
@@ -88,7 +88,7 @@ The implementation plan file MUST contain:
 - Steps: numbered implementation steps with exact file paths
 - Risks: anything that might go wrong
 
-IMPORTANT: You MUST write ${contract.path} before the final response. The next stage depends on this file existing.`;
+IMPORTANT: You MUST call goodboy_artifact for ${contract.path} before the final response. The next stage depends on this file existing.`;
 }
 
 export function implementerPrompt(memory: string, planPath: string, artifactsDir: string, env?: WorktreeEnv): string {
@@ -104,9 +104,9 @@ YOUR ONLY JOB:
 Rules:
 - Follow the plan faithfully
 - Make atomic git commits with conventional commit messages (feat:, fix:, refactor:, etc.)
-- After ALL code changes are committed, write the implementation summary file.
+- After ALL code changes are committed, call goodboy_artifact for the implementation summary file.
 
-${outputContractPromptBlock([contract])}
+${dbBackedOutputContractPromptBlock([contract])}
 
 ${finalResponsePromptBlock()}
 
@@ -116,7 +116,7 @@ The summary MUST contain:
 - Decisions made
 - Any deviations from the plan
 
-IMPORTANT: You MUST make at least one git commit AND write ${contract.path} before the final response.`;
+IMPORTANT: You MUST make at least one git commit AND call goodboy_artifact for ${contract.path} before the final response.`;
 }
 
 export function reviewerPrompt(memory: string, planPath: string, summaryPath: string, artifactsDir: string, env?: WorktreeEnv): string {
@@ -135,9 +135,9 @@ Rules:
 - If you find issues, fix them by editing files and making git commits
 - If the code looks good, say so
 
-After reviewing (and fixing if needed), write your review file.
+After reviewing (and fixing if needed), call goodboy_artifact for your review file.
 
-${outputContractPromptBlock([contract])}
+${dbBackedOutputContractPromptBlock([contract])}
 
 ${finalResponsePromptBlock()}
 
@@ -146,7 +146,7 @@ The review MUST contain:
 - Fixes applied (if any)
 - Overall assessment
 
-IMPORTANT: You MUST write ${contract.path} before the final response.`;
+IMPORTANT: You MUST call goodboy_artifact for ${contract.path} before the final response.`;
 }
 
 export function revisionPrompt(feedback: string): string {
@@ -236,17 +236,17 @@ export function codingPrompts(
     case "planner":
       return {
         systemPrompt: plannerPrompt(memory, description, absArtifacts, env),
-        initialPrompt: `Here is the task:\n\n${description}\n\nStart by exploring the codebase structure, then write the plan to ${absArtifacts}/plan.md. Do not stop until the file is written.`,
+        initialPrompt: `Here is the task:\n\n${description}\n\nStart by exploring the codebase structure, then call goodboy_artifact with filePath plan.md. Do not stop until the artifact tool records the file.`,
       };
     case "implementer":
       return {
         systemPrompt: implementerPrompt(memory, planPath, absArtifacts, env),
-        initialPrompt: `Read the plan at ${planPath}, then implement every step. Make git commits as you go. When all code is written and committed, write the summary to ${absArtifacts}/implementation-summary.md. Do not stop until both the code is committed and the summary file is written.`,
+        initialPrompt: `Read the plan at ${planPath}, then implement every step. Make git commits as you go. When all code is written and committed, call goodboy_artifact with filePath implementation-summary.md. Do not stop until both the code is committed and the artifact tool records the summary.`,
       };
     case "reviewer":
       return {
         systemPrompt: reviewerPrompt(memory, planPath, summaryPath, absArtifacts, env),
-        initialPrompt: `Read the plan at ${planPath} and the summary at ${summaryPath}. Run git diff main to see all changes. Review the code, fix any issues, then write your review to ${absArtifacts}/review.md. Do not stop until the review file is written.`,
+        initialPrompt: `Read the plan at ${planPath} and the summary at ${summaryPath}. Run git diff main to see all changes. Review the code, fix any issues, then call goodboy_artifact with filePath review.md. Do not stop until the artifact tool records the review.`,
       };
   }
 }

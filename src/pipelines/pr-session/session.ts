@@ -33,6 +33,8 @@ import { codeReviewerFeedbackToolPolicy } from "../../shared/prompts/code-review
 import { notifyTelegram, withTimeout, type SendTelegram } from "../../core/stage.js";
 import { parsePrNumberFromUrl, revParseHead } from "../../core/git/github.js";
 import { taskArtifactsDir } from "../../shared/artifact-paths/index.js";
+import { summarizeSessionEntries } from "../../core/pi/session-summary.js";
+import { parseSubagentRuns } from "../../core/subagents/session-parser.js";
 import { parseBareFinalJson, parseFinalLineJson } from "../../shared/agent-output/final-response.js";
 import {
   prCreationFinalResponseContract,
@@ -516,6 +518,7 @@ async function runSessionTurnInner<TFinalResponse = unknown>(
   try {
     session.sendPrompt(prompt);
     await withTimeout(session.waitForCompletion(), SESSION_TIMEOUT_MS, timeoutLabel);
+    await persistPrSessionSummary({ prSessionRunId: run.id, agentName: labelSuffix, sessionPath: filePath });
     const contract = (
       turn.finalResponseContract ?? stageCompleteFinalResponseContract
     ) as FinalResponseContract<TFinalResponse>;
@@ -538,6 +541,34 @@ async function runSessionTurnInner<TFinalResponse = unknown>(
   }
 }
 
+
+async function persistPrSessionSummary(options: {
+  prSessionRunId: string;
+  agentName: string;
+  sessionPath: string;
+}): Promise<void> {
+  try {
+    const entries = await readSessionFile(options.sessionPath);
+    const summary = summarizeSessionEntries(entries);
+    if (!summary) return;
+    const agentSession = await queries.upsertAgentSession({
+      prSessionRunId: options.prSessionRunId,
+      agentName: options.agentName,
+      piSessionId: summary.piSessionId,
+      sessionPath: options.sessionPath,
+      model: summary.model,
+      durationMs: summary.durationMs,
+      totalTokens: summary.totalTokens,
+      costUsd: summary.costUsd,
+      toolCallCount: summary.toolCallCount,
+    });
+    await Promise.all(parseSubagentRuns(entries).map((run) => (
+      queries.upsertSubagentRun({ parentAgentSessionId: agentSession.id, ...run })
+    )));
+  } catch (err) {
+    log.warn(`Failed to persist PR session summary for ${options.sessionPath}`, err);
+  }
+}
 
 async function validateSessionFinalResponse<TFinalResponse>(
   filePath: string,

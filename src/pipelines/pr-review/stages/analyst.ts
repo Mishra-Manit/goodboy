@@ -72,6 +72,7 @@ export async function runPrAnalyst(opts: PrAnalystOptions): Promise<void> {
 
   const result = await runStage({
     taskId,
+    taskKind: "pr_review",
     stage: "pr_analyst",
     cwd: worktreePath,
     systemPrompt,

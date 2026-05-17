@@ -53,6 +53,7 @@ async function runQuestionInner(
     const answerOutput = questionOutputs.answer.resolve(absArtifacts, undefined);
     const result = await runStage({
       taskId,
+      taskKind: "codebase_question",
       stage: "answering",
       cwd: repo.localPath,
       systemPrompt: questionSystemPrompt(memory, task.description, absArtifacts),

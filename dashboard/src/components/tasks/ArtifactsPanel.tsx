@@ -42,6 +42,7 @@ export function ArtifactsPanel({ taskId, artifacts }: ArtifactsPanelProps) {
         {artifacts.map(({ key, label }) => (
           <button
             key={key}
+            type="button"
             onClick={() => toggle(key)}
             className={cn(
               "rounded-full px-3 py-1 font-mono text-[10px] transition-all duration-200",
