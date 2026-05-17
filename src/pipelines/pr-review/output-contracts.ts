@@ -52,12 +52,12 @@ export const prReviewOutputs = {
   }),
   summary: defineTextOutput({
     id: "prReview.summary",
-    path: () => "summary.md",
+    path: () => "pr-changes-summary.md",
     prompt: {
-      name: "analyst summary",
+      name: "PR changes summary",
       instructions: "Write factual PR review material for the finalizer here. Do not post it directly.",
     },
-    dashboard: () => ({ key: "summary.md", label: "analyst summary" }),
+    dashboard: () => ({ key: "pr-changes-summary.md", label: "PR changes summary" }),
   }),
   finalComment: defineTextOutput({
     id: "prReview.finalComment",

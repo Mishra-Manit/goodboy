@@ -65,7 +65,7 @@ export function formatReviewChatPrompt(options: {
   const lines = [
     "ARTIFACTS (read on demand):",
     `- review.json: ${artifacts.reviewPath}`,
-    `- summary.md: ${artifacts.summaryPath}`,
+    `- pr-changes-summary.md: ${artifacts.summaryPath}`,
     `- pr.diff: ${artifacts.diffPath}`,
     `- pr.updated.diff: ${artifacts.updatedDiffPath}`,
     `- pr-context.json: ${artifacts.contextPath}`,

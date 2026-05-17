@@ -36,7 +36,7 @@ export const TASK_KIND_CONFIG: Record<TaskKind, TaskKindConfig> = {
         const variant = index + 1;
         return { key: prImpactVariantFiles(variant).impact, label: `impact v${variant}` };
       }),
-      { key: "summary.md", label: "analyst summary" },
+      { key: "pr-changes-summary.md", label: "PR changes summary" },
       { key: "final-comment.md", label: "posted comment" },
       { key: "review.json", label: "finalized review" },
     ],

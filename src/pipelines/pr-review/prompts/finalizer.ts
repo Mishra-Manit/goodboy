@@ -118,7 +118,7 @@ ${impactInputBlock(impactFiles)}
 - ${paths.context} and ${paths.diff} only if needed to explain goodboy_fix annotations
 
 Responsibilities:
-1. Read summary.md, reports, updated context, and updated diff.
+1. Read ${paths.summary}, reports, updated context, and updated diff.
 2. Decide if the updated diff contains frontend changes. Frontend heuristic: changed paths matching /${FRONTEND_FILE_RE}/.
 3. If no frontend changes, set visualSnapshot to {"type":"skipped","reason":"no_frontend_changes"} and do not spawn a recorder.
 4. If frontend changes, spawn project-scoped pr-visual-recorder exactly once with a compact task containing: task_id=${opts.taskId}; artifacts_dir=${opts.artifactsDir}; assets_dir=${opts.assetsDir}; worktree_path=${opts.worktreePath}; updated_diff_path=${paths.updatedDiff}; public_asset_url=${opts.visualUrl}.
@@ -173,7 +173,7 @@ export function prFinalizerInitialPrompt(artifactsDir: string, availableImpactVa
   const impactFiles = availableImpactVariants.map((variant) => prImpactVariantPaths(artifactsDir, variant).impact);
   const impactInstruction = impactFiles.length > 0
     ? `Also read successful impact variant files: ${impactFiles.join(", ")}.`
-    : "No impact variant files succeeded; continue from summary, reports, context, and diffs.";
+    : "No impact variant files succeeded; continue from pr-changes-summary, reports, context, and diffs.";
   return `Begin. Read ${paths.updatedContext}, ${paths.updatedDiff}, ${paths.summary}, and JSON files under ${paths.reportsDir}. ${impactInstruction} Decide whether frontend changes need pr-visual-recorder. Write exact posted markdown to ${paths.finalComment}, upsert the GitHub PR comment by task marker, then write review.json with Required top-level keys: prTitle, headSha, summary, visualSnapshot, chapters. Required chapter keys: id, title, narrative, files, annotations. Required file keys: path, narrative. Required annotation keys: filePath, line, kind, title, body. Convert report file→filePath and line_start→line. Use kind exactly "concern" for unresolved report issues. Report categories like correctness/tests/security/style are ranking inputs only. Final response only: {"status":"complete"}.`;
 }
 
