@@ -2,7 +2,15 @@
 
 import { taskPrReviewPageDtoSchema } from "@dashboard/shared";
 import { request, requestJson, requestText } from "./client.js";
-import type { Task, TaskWithStages, StageSession, RetryTaskResponse, TaskPrReviewPageDto } from "./types.js";
+import type {
+  AgentSessionDto,
+  Task,
+  TaskArtifactDto,
+  TaskWithStages,
+  StageSession,
+  RetryTaskResponse,
+  TaskPrReviewPageDto,
+} from "./types.js";
 
 export async function fetchTasks(filters?: {
   status?: string;
@@ -25,8 +33,24 @@ export async function fetchTaskSession(id: string): Promise<{ stages: StageSessi
   return request(`/api/tasks/${id}/session`);
 }
 
+export async function fetchTaskArtifacts(taskId: string): Promise<TaskArtifactDto[]> {
+  return request(`/api/tasks/${taskId}/artifacts`);
+}
+
+export async function fetchTaskArtifactContent(taskId: string, filePath: string): Promise<string> {
+  return requestText(`/api/tasks/${taskId}/artifact-content?filePath=${encodeURIComponent(filePath)}`);
+}
+
 export async function fetchArtifact(taskId: string, name: string): Promise<string> {
-  return requestText(`/api/tasks/${taskId}/artifacts/${name}`);
+  try {
+    return await fetchTaskArtifactContent(taskId, name);
+  } catch {
+    return requestText(`/api/tasks/${taskId}/artifacts/${name}`);
+  }
+}
+
+export async function fetchTaskSessionSummary(taskId: string): Promise<{ sessions: AgentSessionDto[] }> {
+  return request(`/api/tasks/${taskId}/session-summary`);
 }
 
 export async function fetchTaskPrReviewPage(taskId: string): Promise<TaskPrReviewPageDto> {
