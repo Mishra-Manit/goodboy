@@ -236,17 +236,17 @@ export function codingPrompts(
     case "planner":
       return {
         systemPrompt: plannerPrompt(memory, description, absArtifacts, env),
-        initialPrompt: `Here is the task:\n\n${description}\n\nStart by exploring the codebase structure, then write the plan to ${absArtifacts}/plan.md. Do not stop until the file is written.`,
+        initialPrompt: `Here is the task:\n\n${description}\n\nStart by exploring the codebase structure, then call goodboy_artifact with filePath plan.md. Do not stop until the artifact tool records the file.`,
       };
     case "implementer":
       return {
         systemPrompt: implementerPrompt(memory, planPath, absArtifacts, env),
-        initialPrompt: `Read the plan at ${planPath}, then implement every step. Make git commits as you go. When all code is written and committed, write the summary to ${absArtifacts}/implementation-summary.md. Do not stop until both the code is committed and the summary file is written.`,
+        initialPrompt: `Read the plan at ${planPath}, then implement every step. Make git commits as you go. When all code is written and committed, call goodboy_artifact with filePath implementation-summary.md. Do not stop until both the code is committed and the artifact tool records the summary.`,
       };
     case "reviewer":
       return {
         systemPrompt: reviewerPrompt(memory, planPath, summaryPath, absArtifacts, env),
-        initialPrompt: `Read the plan at ${planPath} and the summary at ${summaryPath}. Run git diff main to see all changes. Review the code, fix any issues, then write your review to ${absArtifacts}/review.md. Do not stop until the review file is written.`,
+        initialPrompt: `Read the plan at ${planPath} and the summary at ${summaryPath}. Run git diff main to see all changes. Review the code, fix any issues, then call goodboy_artifact with filePath review.md. Do not stop until the artifact tool records the review.`,
       };
   }
 }
