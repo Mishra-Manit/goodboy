@@ -5,7 +5,20 @@
  * in `shared/domain/types.ts` and must stay in sync with the arrays below.
  */
 
-import { pgTable, text, timestamp, integer, uuid, pgEnum, jsonb, index } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  timestamp,
+  integer,
+  uuid,
+  pgEnum,
+  jsonb,
+  index,
+  uniqueIndex,
+  numeric,
+  check,
+} from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const taskKindEnum = pgEnum("task_kind", [
   "coding_task", "codebase_question", "pr_review",
@@ -47,6 +60,9 @@ export const memoryRunSourceEnum = pgEnum("memory_run_source", [
 ]);
 export const memoryRunActiveEnum = pgEnum("memory_run_active", [
   "TRUE", "FALSE",
+]);
+export const subagentRunStatusEnum = pgEnum("subagent_run_status", [
+  "running", "complete", "failed",
 ]);
 
 export const tasks = pgTable("tasks", {
@@ -151,8 +167,73 @@ export const memoryRuns = pgTable("memory_runs", {
   repoActiveStartedAtIdx: index("memory_runs_repo_active_started_at_idx").on(table.repo, table.active, table.startedAt),
 }));
 
+export const agentSessions = pgTable("agent_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  taskStageId: uuid("task_stage_id").references(() => taskStages.id),
+  prSessionRunId: uuid("pr_session_run_id").references(() => prSessionRuns.id),
+  memoryRunId: uuid("memory_run_id").references(() => memoryRuns.id),
+  agentName: text("agent_name").notNull(),
+  piSessionId: text("pi_session_id").notNull(),
+  sessionPath: text("session_path").notNull(),
+  model: text("model"),
+  durationMs: integer("duration_ms"),
+  totalTokens: integer("total_tokens"),
+  costUsd: numeric("cost_usd"),
+  toolCallCount: integer("tool_call_count"),
+}, (table) => ({
+  piSessionIdUniqueIdx: uniqueIndex("agent_sessions_pi_session_id_unique_idx").on(table.piSessionId),
+  taskStageIdx: index("agent_sessions_task_stage_idx").on(table.taskStageId),
+  prSessionRunIdx: index("agent_sessions_pr_session_run_idx").on(table.prSessionRunId),
+  memoryRunIdx: index("agent_sessions_memory_run_idx").on(table.memoryRunId),
+  ownerCheck: check(
+    "agent_sessions_one_owner_check",
+    sql`((task_stage_id is not null)::int + (pr_session_run_id is not null)::int + (memory_run_id is not null)::int) = 1`,
+  ),
+}));
+
+export const taskArtifacts = pgTable("task_artifacts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  taskId: uuid("task_id").notNull().references(() => tasks.id),
+  taskStageId: uuid("task_stage_id").references(() => taskStages.id),
+  producerSessionId: uuid("producer_session_id").references(() => agentSessions.id),
+  filePath: text("file_path").notNull(),
+  contentText: text("content_text"),
+  contentJson: jsonb("content_json"),
+  sha256: text("sha256").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  taskFileUniqueIdx: uniqueIndex("task_artifacts_task_file_unique_idx").on(table.taskId, table.filePath),
+  taskStageIdx: index("task_artifacts_task_stage_idx").on(table.taskStageId),
+  producerSessionIdx: index("task_artifacts_producer_session_idx").on(table.producerSessionId),
+  contentCheck: check(
+    "task_artifacts_one_content_check",
+    sql`(content_text is not null and content_json is null) or (content_text is null and content_json is not null)`,
+  ),
+}));
+
+export const subagentRuns = pgTable("subagent_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  parentAgentSessionId: uuid("parent_agent_session_id").notNull().references(() => agentSessions.id),
+  agentName: text("agent_name").notNull(),
+  runIndex: integer("run_index"),
+  prompt: text("prompt").notNull(),
+  resultText: text("result_text"),
+  status: subagentRunStatusEnum("status").notNull(),
+  model: text("model"),
+  durationMs: integer("duration_ms"),
+  totalTokens: integer("total_tokens"),
+  costUsd: numeric("cost_usd"),
+  toolCallCount: integer("tool_call_count"),
+}, (table) => ({
+  parentRunIdx: uniqueIndex("subagent_runs_parent_index_unique_idx").on(table.parentAgentSessionId, table.runIndex),
+}));
+
 export type Task = typeof tasks.$inferSelect;
 export type TaskStage = typeof taskStages.$inferSelect;
 export type PrSession = typeof prSessions.$inferSelect;
 export type PrSessionRun = typeof prSessionRuns.$inferSelect;
 export type MemoryRun = typeof memoryRuns.$inferSelect;
+export type AgentSession = typeof agentSessions.$inferSelect;
+export type TaskArtifact = typeof taskArtifacts.$inferSelect;
+export type SubagentRun = typeof subagentRuns.$inferSelect;
