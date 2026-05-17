@@ -56,6 +56,7 @@ async function runImpactVariant(opts: ImpactAnalyzerOptions, variant: number): P
   try {
     const result = await runStage({
       taskId,
+      taskKind: "pr_review",
       stage: "pr_impact",
       variant,
       cwd: worktreePath,

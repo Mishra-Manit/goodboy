@@ -8,6 +8,8 @@
  * broadcast, so this module doesn't touch logs directly.
  */
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createLogger } from "../shared/runtime/logger.js";
 import { emit } from "../shared/runtime/events.js";
 import { toErrorMessage } from "../shared/runtime/errors.js";
@@ -20,9 +22,19 @@ import { releaseMemoryLockForTask } from "./memory/index.js";
 import { stageCompleteFinalResponseContract, type ResolvedFileOutputContract } from "../shared/agent-output/contracts.js";
 import { parseBareFinalJson } from "../shared/agent-output/final-response.js";
 import { validateFileOutputs } from "../shared/agent-output/validation.js";
-import type { StageName } from "../shared/domain/types.js";
+import {
+  declaredArtifactsForStage,
+  relativeToArtifacts,
+  resolveDeclaredArtifactByFilePath,
+} from "../shared/agent-output/declared-task-artifacts.js";
+import { taskArtifactsDir } from "../shared/artifact-paths/index.js";
+import type { StageName, TaskKind } from "../shared/domain/types.js";
 
 const log = createLogger("stage");
+const GOODBOY_ARTIFACT_EXTENSION_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../extensions/goodboy-artifacts.ts",
+);
 
 // --- Task identity ---
 
@@ -185,6 +197,8 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): 
 interface RunStageOptions {
   taskId: string;
   stage: StageName;
+  /** Task kind enables DB-backed artifact writer for declared coding/question outputs. */
+  taskKind?: TaskKind;
   cwd: string;
   systemPrompt: string;
   initialPrompt: string;
@@ -237,7 +251,7 @@ export async function runStage<T = unknown>(
   options: Omit<RunStageOptions, "postValidate"> & { postValidate?: () => Promise<StageValidation<T>> },
 ): Promise<StageResult<T>> {
   const {
-    taskId, stage, cwd, systemPrompt, initialPrompt,
+    taskId, stage, taskKind, cwd, systemPrompt, initialPrompt,
     model, sendTelegram, chatId, stageLabel,
     variant, extensions, envOverrides, timeoutMs,
   } = options;
@@ -285,14 +299,15 @@ export async function runStage<T = unknown>(
         initialModel: model,
       });
 
+      const artifactTool = artifactToolConfig({ taskId, taskKind, stage, stageRecordId: stageRecord?.id ?? null, variant });
       const session = spawnPiSession({
         id: variant === undefined ? `${taskId}-${stage}` : `${taskId}-${stage}-v${variant}`,
         cwd,
         systemPrompt,
         model,
         sessionPath,
-        extensions,
-        envOverrides,
+        extensions: [...(artifactTool?.extensions ?? []), ...(extensions ?? [])],
+        envOverrides: { ...(envOverrides ?? {}), ...(artifactTool?.env ?? {}) },
       });
       setActiveSession(taskId, stage, session, variant);
       session.sendPrompt(initialPrompt);
@@ -300,7 +315,13 @@ export async function runStage<T = unknown>(
       try {
         await withTimeout(session.waitForCompletion(), timeoutMs ?? STAGE_TIMEOUT_MS, `Stage ${stage}`);
         await validateFinalStageResponse(sessionPath, options.validateFinalResponse ?? true);
-        const validation = await validateDeclaredOutputs(options.outputs ?? [], options.postValidate);
+        const validation = await validateDeclaredOutputs({
+          taskId,
+          taskKind,
+          stage,
+          outputs: options.outputs ?? [],
+          postValidate: options.postValidate,
+        });
         if (!validation.valid) {
           await markStageTerminal(stageRecord?.id, taskId, stage, variant, "failed", validation.reason);
           log.warn(`Stage ${stage} failed postValidate for task ${taskId}: ${validation.reason}`);
@@ -335,13 +356,72 @@ export async function runStage<T = unknown>(
   );
 }
 
-async function validateDeclaredOutputs<T>(
-  outputs: readonly ResolvedFileOutputContract[],
-  postValidate: (() => Promise<StageValidation<T>>) | undefined,
-): Promise<StageValidation<T>> {
-  const files = await validateFileOutputs(outputs);
+function artifactToolConfig(options: {
+  taskId: string;
+  taskKind: TaskKind | undefined;
+  stage: StageName;
+  stageRecordId: string | null;
+  variant: number | undefined;
+}): { extensions: string[]; env: Record<string, string> } | null {
+  if (!options.taskKind || !isPersistedTaskId(options.taskId) || !options.stageRecordId) return null;
+  const artifactsDir = taskArtifactsDir(options.taskId);
+  const declared = declaredArtifactsForStage({ kind: options.taskKind, stage: options.stage, artifactsDir });
+  if (declared.length === 0) return null;
+  return {
+    extensions: [GOODBOY_ARTIFACT_EXTENSION_PATH],
+    env: {
+      GOODBOY_TASK_ID: options.taskId,
+      GOODBOY_TASK_KIND: options.taskKind,
+      GOODBOY_STAGE: options.stage,
+      GOODBOY_TASK_STAGE_ID: options.stageRecordId,
+      GOODBOY_ARTIFACTS_DIR: artifactsDir,
+      ...(options.variant === undefined ? {} : { GOODBOY_STAGE_VARIANT: String(options.variant) }),
+    },
+  };
+}
+
+async function validateDeclaredOutputs<T>(options: {
+  taskId: string;
+  taskKind: TaskKind | undefined;
+  stage: StageName;
+  outputs: readonly ResolvedFileOutputContract[];
+  postValidate: (() => Promise<StageValidation<T>>) | undefined;
+}): Promise<StageValidation<T>> {
+  const files = await validateFileOutputs(options.outputs);
   if (!files.valid && !files.soft) return { valid: false, reason: files.reason };
-  return postValidate ? postValidate() : { valid: true };
+
+  const dbArtifacts = await validateDbBackedArtifacts(options);
+  if (!dbArtifacts.valid) return dbArtifacts;
+
+  return options.postValidate ? options.postValidate() : { valid: true };
+}
+
+async function validateDbBackedArtifacts(options: {
+  taskId: string;
+  taskKind: TaskKind | undefined;
+  stage: StageName;
+  outputs: readonly ResolvedFileOutputContract[];
+}): Promise<StageValidation> {
+  if (!options.taskKind || !isPersistedTaskId(options.taskId)) return { valid: true };
+  const artifactsDir = taskArtifactsDir(options.taskId);
+  for (const output of options.outputs) {
+    const filePath = relativeToArtifacts(artifactsDir, output.path);
+    const declared = resolveDeclaredArtifactByFilePath({
+      kind: options.taskKind,
+      stage: options.stage,
+      artifactsDir,
+      filePath,
+    });
+    if (!declared) continue;
+    const artifact = await queries.getTaskArtifactByPath(options.taskId, filePath);
+    if (!artifact) {
+      return {
+        valid: false,
+        reason: `${filePath} exists locally but was not recorded in task_artifacts. Create declared artifacts with goodboy_artifact, not write/edit/bash redirection.`,
+      };
+    }
+  }
+  return { valid: true };
 }
 
 async function validateFinalStageResponse(sessionPath: string, enabled: boolean): Promise<void> {

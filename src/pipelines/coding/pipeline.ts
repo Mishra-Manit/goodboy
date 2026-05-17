@@ -178,6 +178,7 @@ async function runCodingStage(stage: CodingStage, ctx: StageContext): Promise<vo
 
   const result = await runStage({
     taskId: ctx.taskId,
+    taskKind: "coding_task",
     stage,
     cwd: ctx.worktreePath,
     systemPrompt,
