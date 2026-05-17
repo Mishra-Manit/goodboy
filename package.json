@@ -23,6 +23,7 @@
     "e2e:owned": "tsx scripts/e2e/run-owned.ts",
     "e2e:owned-review": "tsx scripts/e2e/run-owned-review.ts",
     "dev:release-pr-session": "tsx scripts/dev-release-pr-session.ts",
+    "backfill:artifacts": "tsx scripts/backfill-artifacts.ts",
     "postinstall": "patch-package"
   },
   "dependencies": {
